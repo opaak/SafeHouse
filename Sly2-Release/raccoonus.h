@@ -51,5 +51,5 @@ bool FTrainingItem(int item);
 // leapdragon.cpp: a leap landed on its target spire
 void NoteLeapLanded();
 
-// Drawn over the HUD (game.cpp): the page's list while ThiefNet shows it; the training's panel; the messages.
+// Drawn over the HUD (game.cpp): ThiefNet's whole Thievius Raccoonus page (shop.cpp hides the frame there); the training's panel; the messages.
 void DrawRaccoonusHud(int width, int height);

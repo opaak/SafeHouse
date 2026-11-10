@@ -309,17 +309,23 @@ void SetShopPage(int s)
         break;
     case 0:
     case 1:
-    case 2:   // (PC: the Thievius Raccoonus page over the Sell page's frame, its list empty: raccoonus.h draws it)
+        if (old == 2) SetScreenObjState(p.plo, 1);   // (PC: back from the Thievius Raccoonus page: the frame shown as on opening)
         if (s == 0) SetScreenObjParts(p.plo, 0x4D4, 0x4D5, 0x4D6);
         else SetScreenObjParts(p.plo, 0x49B, 0x49C, 0x49D);
-        if (s == 2) ResetRaccoonusPage();
-        if (old == (s == 0 ? 1 : 0) || (s == 2 && old == 0))
+        if (old == (s == 0 ? 1 : 0))
         {
             SetScreenObjState(p.plo, 1);
             SetScreenObjState(p.plo, 2);
         }
         else SetScreenObjTimers(p.plo, 2);
         PsndStartSound(0x35);  // (0x1DC260)
+        break;
+    case 2:
+        // (PC: the Thievius Raccoonus, a page of its own: the frame hidden as on closing, the game still paused;
+        // raccoonus.h draws the whole page)
+        ResetRaccoonusPage();
+        HideScreenObj(p.plo);
+        PsndStartSound(0x35);
         break;
     default: break;
     }

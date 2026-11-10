@@ -12,6 +12,7 @@
 #include "hud.h"
 #include "pcprogress.h"
 #include "ref.h"
+#include "region.h"
 #include "savedata.h"
 #include "screenrt.h"
 #include "techicons.h"
@@ -52,6 +53,7 @@ const RACPAGE s_apage[] = {
 constexpr int CPAGE = int(sizeof(s_apage) / sizeof(s_apage[0]));
 
 int s_isel = 0;
+float s_tPageShown = -10.0f;   // (the page's fade in)
 static_assert(sizeof(s_atrain) / sizeof(s_atrain[0]) == sizeof(s_apage) / sizeof(s_apage[0]));
 
 // The training under way (ipage -1: none)
@@ -97,6 +99,37 @@ void DrawLine(const FONTBRX& font, const FONTBRX* picons, const std::string& tex
                       glm::vec4(1.0f), glm::vec4(0.0f), DEPTH + 100.0f, false);
 }
 float DxLine(const FONTBRX& font, const FONTBRX* picons, const std::string& text, float size) { return DxTextUi(font, picons, text, size / 51.2f); }
+
+// the text's lines in w canvas pixels (broken at spaces)
+std::vector<std::string> AstrWrapped(const FONTBRX& font, const FONTBRX* picons, const std::string& text, float size, float w)
+{
+    std::vector<std::string> astr;
+    std::string line;
+    size_t i = 0;
+    while (i < text.size())
+    {
+        size_t j = text.find(' ', i);
+        if (j == std::string::npos) j = text.size();
+        const std::string word = text.substr(i, j - i);
+        const std::string next = line.empty() ? word : line + " " + word;
+        if (!line.empty() && DxLine(font, picons, next, size) > w)
+        {
+            astr.push_back(line);
+            line = word;
+        }
+        else line = next;
+        i = j + 1;
+    }
+    if (!line.empty()) astr.push_back(line);
+    return astr;
+}
+
+// a frame of ThiefNet's look: a light blue border round a dark box
+void FillFrame(float x0, float y0, float x1, float y1, float a, float z)
+{
+    g_hud.FillScreenRect(x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, glm::vec4(16, 62, 84, a), z - 3e-4f);
+    g_hud.FillScreenRect(x0, y0, x1, y1, glm::vec4(7, 11, 24, a), z - 2.5e-4f);
+}
 }  // namespace
 
 int CRaccoonusPages() { return CPAGE; }
@@ -132,7 +165,11 @@ void NoteVaultOpened()
         }
 }
 
-void ResetRaccoonusPage() { s_isel = std::clamp(s_isel, 0, CPAGE - 1); }
+void ResetRaccoonusPage()
+{
+    s_isel = std::clamp(s_isel, 0, CPAGE - 1);
+    s_tPageShown = g_clock.tReal;
+}
 
 void StepRaccoonusPage(int d)
 {
@@ -274,31 +311,55 @@ void DrawRaccoonusHud(int width, int height)
     const float z = DEPTH / 16777216.0f;
     if (fPage)
     {
-        // a page of the book: parchment over the list's place, the four techniques in rows
-        constexpr float x0 = 128.0f, x1 = 512.0f, y0 = 104.0f, dyRow = 34.0f, size = 17.0f;
-        const float y1 = y0 + 40.0f + dyRow * float(CPAGE) + 8.0f;
-        g_hud.FillScreenRect(x0 - 3.0f, y0 - 3.0f, x1 + 3.0f, y1 + 3.0f, glm::vec4(30, 18, 8, 128), z - 3e-4f);
-        g_hud.FillScreenRect(x0, y0, x1, y1, glm::vec4(118, 100, 66, 128), z - 2e-4f);
-        const glm::vec4 offTitle(70, 30, 8, 0), offText(30, 20, 10, 0), offDim(70, 60, 44, 0), offLearned(18, 60, 18, 0),
-            offFound(90, 50, 8, 0);
-        const std::string strTitle = "THIEVIUS RACCOONUS";
-        DrawLine(*pfont, picons, strTitle, (x0 + x1) * 0.5f - DxLine(*pfont, picons, strTitle, 20.0f) * 0.5f, y0 + 8.0f, 20.0f, offTitle);
+        // ThiefNet's third page (shop.cpp hides its frame here): the tabs, the book's page with the four
+        // techniques, the description and the buttons, over a backdrop as ThiefNet's
+        const float u = std::clamp((g_clock.tReal - s_tPageShown) / 0.25f, 0.0f, 1.0f);
+        const float a = 128.0f * u;
+        g_hud.FillScreenRect(-480.0f, -40.0f, 1120.0f, 488.0f, glm::vec4(2, 3, 12, a), z - 4e-4f);
+        const glm::vec4 offTab(22 * u, 38 * u, 58 * u, 0), offHead(34 * u, 62 * u, 84 * u, 0), offBlue(30 * u, 50 * u, 68 * u, 0);
+        // the tabs: the other two pages dim, this one large on the right
+        DrawLine(*pfont, picons, "Buy Gadgets", 52.0f, 36.0f, 17.0f, offTab);
+        DrawLine(*pfont, picons, "Sell Loot", 52.0f + DxLine(*pfont, picons, "Buy Gadgets", 17.0f) + 18.0f, 36.0f, 17.0f, offTab);
+        const std::string strTitle = "Thievius Raccoonus";
+        DrawLine(*pfont, picons, strTitle, 590.0f - DxLine(*pfont, picons, strTitle, 26.0f), 28.0f, 26.0f, offHead);
+
+        // the list's frame and in it the book's page: parchment, the techniques in rows
+        FillFrame(50.0f, 64.0f, 590.0f, 306.0f, a, z);
+        constexpr float x0 = 64.0f, x1 = 576.0f, y0 = 76.0f, dyRow = 54.0f, size = 20.0f;
+        const float y1 = y0 + 8.0f + dyRow * float(CPAGE) + 2.0f;
+        g_hud.FillScreenRect(x0 - 3.0f, y0 - 3.0f, x1 + 3.0f, y1 + 3.0f, glm::vec4(30, 18, 8, a), z - 2e-4f);
+        g_hud.FillScreenRect(x0, y0, x1, y1, glm::vec4(118, 100, 66, a), z - 1.5e-4f);
+        const glm::vec4 offText(30 * u, 20 * u, 10 * u, 0), offDim(70 * u, 60 * u, 44 * u, 0), offLearned(18 * u, 60 * u, 18 * u, 0),
+            offFound(90 * u, 50 * u, 8 * u, 0);
         for (int i = 0; i < CPAGE; ++i)
         {
-            const float y = y0 + 40.0f + dyRow * float(i);
+            const float y = y0 + 6.0f + dyRow * float(i);
             const bool fFound = FRaccoonusPageFound(i), fLearned = FRaccoonusPageLearned(i);
-            if (i == s_isel) g_hud.FillScreenRect(x0 + 6.0f, y - 3.0f, x1 - 6.0f, y + dyRow - 6.0f, glm::vec4(150, 132, 92, 128), z - 1e-4f);
+            if (i == s_isel) g_hud.FillScreenRect(x0 + 6.0f, y, x1 - 6.0f, y + dyRow - 4.0f, glm::vec4(150, 132, 92, a), z - 1e-4f);
             const RACPAGE& p = s_apage[i];
+            const float yMid = y + (dyRow - 4.0f) * 0.5f;
             // its icon (a missing page's dark)
-            DrawTechniqueIcon(p.szIcon, x0 + 26.0f, y + 11.0f, 28.0f, fFound ? 128.0f : 24.0f, fFound ? 128.0f : 90.0f, z);
-            std::string strName = fFound ? std::string(p.szTechnique) : std::string("? ? ?");
-            DrawLine(*pfont, picons, strName, x0 + 48.0f, y, size, fFound ? offText : offDim);
-            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 48.0f,
-                     y + 15.0f, size * 0.65f, offDim);
+            DrawTechniqueIcon(p.szIcon, x0 + 34.0f, yMid, 42.0f, fFound ? 128.0f : 24.0f, (fFound ? 128.0f : 90.0f) * u, z);
+            const std::string strName = fFound ? std::string(p.szTechnique) : std::string("? ? ?");
+            DrawLine(*pfont, picons, strName, x0 + 68.0f, yMid - 19.0f, size, fFound ? offText : offDim);
+            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 68.0f,
+                     yMid + 2.0f, 14.0f, offDim);
             const std::string strState = fLearned ? "Learned" : fFound ? "Found: train" : "Missing";
-            DrawLine(*pfont, picons, strState, x1 - 16.0f - DxLine(*pfont, picons, strState, size * 0.8f), y + 3.0f, size * 0.8f,
+            DrawLine(*pfont, picons, strState, x1 - 18.0f - DxLine(*pfont, picons, strState, 17.0f), yMid - 10.0f, 17.0f,
                      fLearned ? offLearned : fFound ? offFound : offDim);
         }
+
+        // the description, as ThiefNet's box
+        FillFrame(50.0f, 316.0f, 590.0f, 420.0f, a, z);
+        DrawLine(*pfont, picons, "Description", 62.0f, 318.0f, 18.0f, offHead);
+        g_hud.FillScreenRect(50.0f, 339.0f, 590.0f, 340.0f, glm::vec4(16, 62, 84, a), z - 2e-4f);
+        const std::vector<std::string> astr = AstrWrapped(*pfont, picons, StrRaccoonusDescription(), 15.0f, 512.0f);
+        for (size_t i = 0; i < astr.size() && i < 4; ++i)
+            DrawLine(*pfont, picons, astr[i], 62.0f, 345.0f + 18.0f * float(i), 15.0f, offBlue);
+
+        // the buttons
+        const std::string strBtn = std::string(SzMenuConfirmGlyph()) + " Train    &2S&. Buy Gadgets    " + SzMenuBackGlyph() + " Exit";
+        DrawLine(*pfont, picons, strBtn, 590.0f - DxLine(*pfont, picons, strBtn, 13.0f), 425.0f, 13.0f, offTab);
     }
     if (fTrain)
     {
