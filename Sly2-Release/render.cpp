@@ -3534,7 +3534,6 @@ void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROP
 }
 
 // ------------------------------------------------------------ PC: shadow afterimages (render.h RenderGhostPoses)
-GHOSTRENDERDIAG g_ghostrenderdiag;
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw)
 {
 #if defined(__SWITCH__) || defined(__APPLE__)
@@ -3558,7 +3557,6 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
         s_locRgba = s_sh.Loc("rgba");
         glGenBuffers(1, &s_ssbo);
     }
-    g_ghostrenderdiag.state = s_state;
     if (s_state < 0) return;
     InitCommonOnce();   // (the samplers)
 
@@ -3597,8 +3595,8 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
                     const GLOB& glob = gs.aglob[i];
                     const GLOB* pgeom = &glob;
                     if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
-                    if (pgeom->meshk != MESHK_Strips || !pgeom->pgl || pgeom->pgl->cindex <= 0) continue;
-                    const GLGLOB* pgl = psgs && i < psgs->apglInst.size() && psgs->apglInst[i] ? psgs->apglInst[i] : pgeom->pgl;
+                    if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;   // (cindex is set for the shadow meshes only)
+                    const GLGLOB* pgl = psgs && i < psgs->apglInst.size() && psgs->apglInst[i] && psgs->apglInst[i]->vao ? psgs->apglInst[i] : pgeom->pgl;
                     uint32_t iboneFirst = 0, cbone = 0;
                     if (i < part.aamatBone.size() && !part.aamatBone[i].empty())
                     {
@@ -3622,11 +3620,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
             }
         s_aigdEnd.push_back(s_agd.size());
     }
-    g_ghostrenderdiag.cpose = int(adraw.size());
-    g_ghostrenderdiag.cdraw = int(s_agd.size());
-    ++g_ghostrenderdiag.cframe;
     if (s_agd.empty()) return;
-    while (glGetError() != GL_NO_ERROR) {}
 
     // GL state: saved, then the passes' own
     GLint prog = 0, vao = 0, fboDraw = 0, activeTex = 0, tex0 = 0, sampler0 = 0, depthFunc = 0, aviewport[4] = {};
@@ -3722,7 +3716,6 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
         }
     }
     clearBit0();
-    if (const GLenum err = glGetError(); err != GL_NO_ERROR) g_ghostrenderdiag.err = err;
 
     glUseProgram(GLuint(prog));
     glBindVertexArray(GLuint(vao));

@@ -94,10 +94,6 @@ struct GHOSTDRAW
     glm::vec4 rgba{0.0f};   // 0..1, straight alpha
 };
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
-// (diagnostics, ninjamoves.cpp's temporary overlay) the last RenderGhostPoses: its program (0 not built, 1 built, -1
-// failed), poses and draws, and the GL error after it (0: none)
-struct GHOSTRENDERDIAG { int state = 0; int cpose = 0; int cdraw = 0; unsigned err = 0; int cframe = 0; };
-extern GHOSTRENDERDIAG g_ghostrenderdiag;
 
 // More instances of loaded globs to draw this frame (RIPs' models: the glob iglob of an entry at mat, faded by
 // alpha); the particles fill them through the hook.
