@@ -1319,6 +1319,12 @@ void SetSoundUserVolumes(float gMusic, float gEffects, float gDialog)
     for (int ichan = 0; ichan < 4; ++ichan) SendSoundChannelVolume(ichan);
 }
 
+float GSoundUserEffects()
+{
+    std::lock_guard<std::recursive_mutex> lock(g_mtxSound);
+    return s_agUser[3];
+}
+
 // orig: 0x1FEDF0 (all volumes to 1, kind 1 excepted)
 void ResetSoundVolumes()
 {

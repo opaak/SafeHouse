@@ -3,23 +3,33 @@
 #include "ninjamoves.h"
 
 #include "actor.h"
+#include "audio.h"
 #include "brx.h"
 #include "clock.h"
+#include "disc.h"
+#include "display.h"
 #include "emitter.h"
 #include "gadget.h"
+#include "hud.h"
 #include "lo.h"
 #include "pccharacter.h"
 #include "pcprogress.h"
 #include "po.h"
 #include "render.h"
 #include "so.h"
+#include "sound.h"
 #include "sw.h"
+#include "wavfile.h"
+#include "../platform/platform.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <filesystem>
+#include <mutex>
+#include <random>
 #include <vector>
 
 namespace
@@ -46,6 +56,80 @@ uint32_t s_serialGhost = 0;
 float s_tLastGhost = -1e9f;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_NINJAPRINT") != nullptr; return s_f; }
+
+// Rail Sprint's look and sound: when it was last running (real time: a pause ends it), the lines' strength
+float s_tRealRail = -1e9f;
+float s_uRailLines = 0.0f, s_tRealLinesLast = -1e9f;
+
+// The whoosh: 0.55 s of noise through a band-pass sweeping up and back down, swelling and fading, panned from left to
+// right (a thing rushing past); 48 kHz stereo
+struct WHOOSH { int rate = 48000; int cch = 2; std::vector<int16_t> asample; };
+WHOOSH WhooshMade()
+{
+    WHOOSH w;
+    const int c = int(0.55f * float(w.rate));
+    w.asample.resize(size_t(c) * 2);
+    std::minstd_rand rng(1234);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    float low = 0.0f, band = 0.0f;
+    for (int i = 0; i < c; ++i)
+    {
+        const float u = float(i) / float(c);
+        const float frq = 350.0f + 1700.0f * std::sin(3.14159265f * std::pow(u, 0.8f));   // up, then back down
+        const float f = 2.0f * std::sin(3.14159265f * frq / float(w.rate));
+        const float q = 0.35f;
+        // (a state variable filter)
+        const float high = dist(rng) - low - q * band;
+        band += f * high;
+        low += f * band;
+        const float env = u < 0.22f ? std::pow(u / 0.22f, 1.5f) : std::pow((1.0f - u) / 0.78f, 2.2f);
+        const float x = band * env * 0.55f;
+        const float pan = std::clamp(u * 1.4f - 0.2f, 0.0f, 1.0f);   // left to right
+        const float gl = std::cos(pan * 1.5707963f), gr = std::sin(pan * 1.5707963f);
+        w.asample[size_t(i) * 2] = int16_t(std::clamp(x * gl * 1.41f, -1.0f, 1.0f) * 32000.0f);
+        w.asample[size_t(i) * 2 + 1] = int16_t(std::clamp(x * gr * 1.41f, -1.0f, 1.0f) * 32000.0f);
+    }
+    return w;
+}
+
+// the Mods folder's Sounds/rail_sprint.wav (mono or stereo, any rate), else the made one
+const WHOOSH& WhooshRail()
+{
+    static const WHOOSH s_w = [] {
+        if (!g_disc.DirMods().empty())
+        {
+            const std::filesystem::path path = cane::path(g_disc.DirMods()) / "Sounds" / "rail_sprint.wav";
+            std::error_code ec;
+            WAVINFO info;
+            WHOOSH w;
+            if (std::filesystem::is_regular_file(path, ec) && FLoadWav(cane::utf8(path), info, w.asample) && (info.cch == 1 || info.cch == 2) &&
+                info.rate > 0 && !w.asample.empty())
+            {
+                w.rate = info.rate;
+                w.cch = info.cch;
+                return w;
+            }
+        }
+        return WhooshMade();
+    }();
+    return s_w;
+}
+
+// (never destroyed: no voice of it left for after the audio's shutdown; closed when played out, DrawRailSprintLines)
+CPcmStream& StreamWhoosh() { static CPcmStream* s_p = new CPcmStream; return *s_p; }
+
+void PlayRailWhoosh()
+{
+    const float g = 0.8f * GSoundUserEffects();
+    if (g <= 0.0f) return;
+    const WHOOSH& w = WhooshRail();
+    std::lock_guard<std::recursive_mutex> lock(g_mtxSound);
+    CPcmStream& stream = StreamWhoosh();
+    if (!stream.FOpen(w.cch, w.rate)) return;   // (again from the start: an earlier one cut)
+    stream.SetLevels(g, g);
+    stream.FPush(w.asample.data(), w.asample.size() / size_t(w.cch), true);
+    stream.Start();
+}
 
 // The main Sly as the current player (not a PC Extras guest's moves)
 SLY* PslyPlaying(ACTOR* pa)
@@ -75,6 +159,9 @@ bool FSilentSprint(ACTOR* pa) { return PslyPlaying(pa) && FPowerupOwned(kItemSil
 float RRailSprint(ACTOR* pa, const PADCTL* pc)
 {
     if (!pc || !(pc->grfbtn & BTN_R1) || !PslyPlaying(pa) || !FPowerupOwned(kItemRailSprint)) return 1.0f;
+    // (called while Sly runs along the rope: a start after a break of 0.4 s whooshes)
+    if (g_clock.tReal - s_tRealRail > 0.4f) PlayRailWhoosh();
+    s_tRealRail = g_clock.tReal;
     return kRailSprint;
 }
 
@@ -137,4 +224,46 @@ void DrawSprintGhosts(const SCENE& scene, const CAMERA& cam)
         adraw.push_back({&g.apart, glm::vec4(rgbGhost, aGhost * u * u)});
     }
     RenderGhostPoses(scene, cam, adraw);
+}
+
+void DrawRailSprintLines(int width, int height)
+{
+    // the strength: up in 0.15 s while running, down in 0.3 s after
+    const float tReal = g_clock.tReal;
+    const float dt = std::clamp(tReal - s_tRealLinesLast, 0.0f, 0.1f);
+    s_tRealLinesLast = tReal;
+    {
+        std::lock_guard<std::recursive_mutex> lock(g_mtxSound);
+        if (CPcmStream& stream = StreamWhoosh(); stream.FIsOpen() && stream.CBufferQueued() == 0) stream.Close();
+    }
+    const bool fOn = tReal - s_tRealRail < 0.12f;
+    s_uRailLines = std::clamp(s_uRailLines + (fOn ? dt / 0.15f : -dt / 0.3f), 0.0f, 1.0f);
+    if (s_uRailLines <= 0.0f) return;
+    if (static const bool s_fOff = [] { const char* sz = std::getenv("SLY2N_RAILLINES"); return sz && sz[0] == '0'; }(); s_fOff) return;
+
+    // the picture's canvas range (wider than 640 on a wide picture)
+    const glm::vec2 s = g_display.uiScale;
+    const float hx = 320.0f / s.x, hy = 224.0f / s.y;
+    const glm::vec2 c(320.0f, 224.0f);
+    // new lines 20 times a second (a comic's flicker), the same within a step
+    std::minstd_rand rng(uint32_t(tReal * 20.0f) * 2654435761u + 7u);
+    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+    g_hud.Begin();
+    constexpr int cLine = 26;
+    for (int i = 0; i < cLine; ++i)
+    {
+        // spread round the picture, each in its own sector, jittered
+        const float rad = (float(i) + u01(rng)) / float(cLine) * 6.2831853f;
+        const glm::vec2 d(std::cos(rad), std::sin(rad));
+        // from inside the picture's edge out past it (rEdge: where this direction meets the edge), shorter as they
+        // come and go
+        const float rEdge = 1.0f / std::max(std::abs(d.x), std::abs(d.y));
+        const float r0 = rEdge * (0.62f + 0.22f * u01(rng) + (1.0f - s_uRailLines) * 0.3f);
+        const glm::vec2 a = c + glm::vec2(d.x * hx, d.y * hy) * r0;
+        const glm::vec2 b = c + glm::vec2(d.x * hx, d.y * hy) * (rEdge * 1.08f);
+        const float w = 0.8f + 1.8f * u01(rng);
+        const float alpha = (34.0f + 40.0f * u01(rng)) * s_uRailLines;
+        g_hud.FillScreenLine(a, b, w, glm::vec4(128, 128, 128, alpha), 0.5f);
+    }
+    g_hud.Flush(width, height);
 }

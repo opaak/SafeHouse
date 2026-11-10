@@ -320,6 +320,7 @@ void ResetSoundVolumes();                               // 0x1FEDF0
 // PC: the launcher's Music / Sound effects / Dialogue sliders (0..1, the shared settings; linear output factors on
 // channel 1, channels 0 and 3, channel 2), on top of the game's own volumes (its options' kind 1 included)
 void SetSoundUserVolumes(float gMusic, float gEffects, float gDialog);
+float GSoundUserEffects();   // (the Sound effects slider's factor: PC sounds of their own, ninjamoves.cpp)
 void SendSoundChannelVolume(int ichan);                 // (part of 0x1FEA60: the product sent to 989snd)
 void StepSoundMood();                                   // 0x1FEED0
 

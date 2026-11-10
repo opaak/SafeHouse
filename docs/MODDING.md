@@ -146,6 +146,12 @@ can be replaced: a PNG in `Mods/Icons/` named after the technique replaces the b
 Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
 restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.
 
+### Rail Sprint's sound
+
+Rail Sprint whooshes as it starts. `Mods/Sounds/rail_sprint.wav` (mono or stereo, 16 / 24 / 32-bit or float, any
+rate; short: it plays once per start, cut by the next) replaces the built-in one, which is made by the game (filtered
+noise). It follows the Sound effects volume. Read once: restart the game to hear a changed one.
+
 ### The PS3 HD textures (The Sly Collection)
 
 If you own **The Sly Collection** for PS3, SafeHouse can take its redrawn textures (up to 4x sharper) and use them
