@@ -2,6 +2,7 @@
 // interact.h); the parts each function warns about once ("interact: ... not ported") are left out.
 #include "booty.h"
 #include "leapdragon.h"
+#include "ninjamoves.h"
 
 #include <bit>
 #include "interact.h"
@@ -1137,6 +1138,7 @@ void UpdateInteract(ACTOR* pa)
         {
             SetInteractState(pa, 4);
             pa->vecVel = glm::vec3(SetGaitMix(&i.gait240, g));  // 0x20BB58
+            pa->vecVel *= RRailSprint(pa, pc);                   // (PC addition: Rail Sprint, ninjamoves.h)
             SetStepPhysHeading(palo, rad);                       // 0x204660
             UpdateGaitFeet(&i.gait240);                          // 0x20BC08
         }

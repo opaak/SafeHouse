@@ -53,6 +53,7 @@ void BroadcastTaskEvent(SW* psw, int n, LO* plo);  // orig 0x001619A0 (task.h)
 #include "aijobs.h"
 #include "aihit.h"
 #include "ainoise.h"
+#include "ninjamoves.h"
 #include "sound.h"
 #include "physworld.h"
 #include "scpt.h"
@@ -2028,6 +2029,8 @@ int NActorNoisyState(ACTOR* pa)
     if (r != -1) return r;
     if (SLY* psly = dynamic_cast<SLY*>(pa))
     {
+        // (PC addition: Silent Sprint bought, ninjamoves.h: the sprint makes no noise)
+        if (psly->state == 1 && FSilentSprint(psly)) return -1;
         switch (psly->state) { case 1: case 5: case 6: case 9: return 1; default: return -1; }
     }
     if (BENTLEY* pb = dynamic_cast<BENTLEY*>(pa))

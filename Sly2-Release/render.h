@@ -73,6 +73,28 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts);
 // The foreground kinds 22..25 (SCENEGLOBSET::fForeground) after the HUD, over a cleared depth.
 void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts);
 
+// PC addition (ninjamoves.h, Silent Sprint's afterimages): saved poses of an object's globsets drawn as flat
+// translucent silhouettes into the scene target, after RenderScene: depth-tested against the scene (behind what is in
+// front, no depth written), each pose once per pixel (the stencil's bit 0, cleared before each and after all), the
+// destination alpha kept. A pose holds, per globset, what the scene had for it when it was taken (the group
+// matrices, visibility, bone matrices); a globset no longer in the scene is drawn from its glob set's own geometry.
+// Its strip groups only (no cel borders, volumes or hulls); a textured pass's cut-out texels left out.
+// OpenGL on Windows and Linux only (the Switch, macOS: nothing drawn).
+struct GHOSTPART
+{
+    const SCENEGLOBSET* psgs = nullptr;
+    std::shared_ptr<GLOBSET> pglobset;
+    std::vector<glm::mat4> amatGlob;
+    std::vector<uint8_t> afVisible;
+    std::vector<std::vector<glm::mat4>> aamatBone;
+};
+struct GHOSTDRAW
+{
+    const std::vector<GHOSTPART>* papart = nullptr;
+    glm::vec4 rgba{0.0f};   // 0..1, straight alpha
+};
+void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
+
 // More instances of loaded globs to draw this frame (RIPs' models: the glob iglob of an entry at mat, faded by
 // alpha); the particles fill them through the hook.
 struct EXTRADRAW

@@ -69,6 +69,12 @@ can be turned off where it changes how the game looks or plays.
   Sly's own spire jumps away, is marked; let go and Sly leaps across on a long arc and lands perched on it. It costs
   no gadget power. Its purchase is kept in a small `saveN.pc` file beside the save slot, so the save itself stays
   the PS2's format.
+- **More Sly 4 moves for Sly**, each a ThiefNet item kept the same way:
+  - **Silent Sprint** (Rioichi Cooper's, from Episode 1): the sprint (R1) makes no noise for the guards, and Sly
+    leaves dark shadow afterimages behind him.
+  - **Rail Sprint** (from Episode 1): hold R1 on ropes and rails to run along them 1.75 times as fast.
+  - **Climbing Cobra** (Salim al-Kupar's, from Episode 3): hold R1 on poles and pipes to climb 1.8 times as fast.
+  The afterimages are drawn on Windows and Linux; the moves themselves work everywhere.
 
 ## Mods
 

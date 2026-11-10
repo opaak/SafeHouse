@@ -26,6 +26,7 @@
 #include "screenrt.h"
 #include "post.h"
 #include "leapdragon.h"
+#include "ninjamoves.h"
 #include "pcprogress.h"
 #include "overlay.h"
 #include "photo.h"
@@ -507,7 +508,7 @@ void DebugUnlockAll(SW* psw)   // (also the debug menu's Player page, debugmenu.
     refTrue.SetBool(1);
     for (int i = 0; i < 64; ++i)
         if (FSetProgress({"powerUps", "mppukfAcquired", std::to_string(i)}, refTrue)) ++c;
-    SetPcItemOwned(kItemLeapingDragon, true);   // (the PC items too: pcprogress.h)
+    for (int k = 0; k < CPcItems(); ++k) SetPcItemOwned(IdPcItem(k), true);   // (the PC items too: pcprogress.h)
     CRef refCoins;
     refCoins.SetS32(9999);
     FSetProgress({"loot", "ccoin"}, refCoins);
@@ -1987,7 +1988,9 @@ int RunGame(const GAMEOPTS& go)
                 glBeginQuery(GL_TIME_ELAPSED, s_aqGpu[s_iqGpu % 4]);
             }
             if (FAnimatedOverlayDrawNormal()) {
+                UpdateSprintGhosts(scene);   // (PC: Silent Sprint's afterimages, ninjamoves.h)
                 RenderScene(scene, cam, opts);
+                DrawSprintGhosts(scene, cam);
                 PostProcessScene();   // (image quality over the 3D picture, before the HUD: post.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);

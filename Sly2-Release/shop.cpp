@@ -139,7 +139,8 @@ void BuildShopList()
         for (int i = 7; i < 0x2B && p.c < 0x40; ++i)
             if (FItemOpen(i) && !FItemOwned(i)) p.aent[p.c++].id = i;
         // (PC items, after the original's: pcprogress.h)
-        if (FItemOpen(kItemLeapingDragon) && !FItemOwned(kItemLeapingDragon) && p.c < 0x40) p.aent[p.c++].id = kItemLeapingDragon;
+        for (int k = 0; k < CPcItems() && p.c < 0x40; ++k)
+            if (const int id = IdPcItem(k); FItemOpen(id) && !FItemOwned(id)) p.aent[p.c++].id = id;
     }
     else if (p.page == 1)
     {

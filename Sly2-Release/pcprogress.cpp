@@ -22,8 +22,14 @@ struct PCITEM
 };
 // "&2O&." is the circle button's icon in the game's texts (shown as the device's own: pcinput.h)
 const PCITEM s_aitem[] = {
+    {kItemRailSprint, "railSprint", 7, 700, 1, "Rail Sprint",
+     "Hold &2R&. on ropes and rails to run along them"},
+    {kItemSilentSprint, "silentSprint", 7, 900, 1, "Silent Sprint",
+     "Rioichi Cooper's technique. Sprinting with &2R&. makes no sound, and Sly leaves only shadows behind"},
     {kItemLeapingDragon, "leapingDragon", 7, 1200, 2, "Leaping Dragon",
      "Rioichi Cooper's technique. On a spire, hold &2O&. to target a distant spire, then let go to leap onto it"},
+    {kItemClimbingCobra, "climbingCobra", 7, 800, 3, "Climbing Cobra",
+     "Salim al-Kupar's technique. Hold &2R&. on poles and pipes to climb them at speed"},
 };
 
 const PCITEM* PitemOf(int id)
@@ -41,6 +47,8 @@ std::filesystem::path PathPc(const std::string& pathSlot) { return cane::path(pa
 }  // namespace
 
 bool FPcItem(int id) { return PitemOf(id) != nullptr; }
+int CPcItems() { return int(sizeof(s_aitem) / sizeof(s_aitem[0])); }
+int IdPcItem(int i) { return i >= 0 && i < CPcItems() ? s_aitem[i].id : -1; }
 
 bool FPcItemOwned(int id)
 {

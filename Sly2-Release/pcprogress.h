@@ -14,8 +14,17 @@
 
 // Leaping Dragon (leapdragon.h), after Sly 4's Rioichi Cooper: Sly's, on sale from Episode 2.
 constexpr int kItemLeapingDragon = 0x2B;
+// After Sly 4 too (ninjamoves.h): Sly's sprint (R1, the original's noisy state 1) silent, with shadow afterimages
+// (Rioichi's Silent Sprint); faster along ropes and rails with R1 held (ThiefNet's Rail Sprint); faster up and down
+// poles and pipes with R1 held (Salim's Climbing Cobra).
+constexpr int kItemSilentSprint = 0x2C;
+constexpr int kItemRailSprint = 0x2D;
+constexpr int kItemClimbingCobra = 0x2E;
 
 bool FPcItem(int id);
+// the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)
+int CPcItems();
+int IdPcItem(int i);
 bool FPcItemOwned(int id);
 void SetPcItemOwned(int id, bool fOwned);
 

@@ -3532,3 +3532,212 @@ void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROP
     pv.fForeground = true;
     RenderPass(scene, pv, opts);
 }
+
+// ------------------------------------------------------------ PC: shadow afterimages (render.h RenderGhostPoses)
+void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw)
+{
+#if defined(__SWITCH__) || defined(__APPLE__)
+    (void)scene; (void)cam; (void)adraw;
+#else
+    if (adraw.empty() || !g_gl.window) return;
+    static GLSHADER s_sh;
+    static int s_state = 0;   // 0 not built yet, 1 built, -1 failed (no afterimages this session)
+    static GLint s_locClip = -1, s_locModel = -1, s_locBoneFirst = -1, s_locCBone = -1, s_locTex = -1, s_locTextured = -1, s_locRgba = -1;
+    static GLuint s_ssbo = 0;
+    if (s_state == 0)
+    {
+        s_state = s_sh.FInit("ghost.vert", "ghost.frag", "") ? 1 : -1;
+        if (s_state < 0) { std::printf("afterimages: ghost.vert / ghost.frag did not build: none drawn\n"); return; }
+        s_locClip = s_sh.Loc("matWorldToClip");
+        s_locModel = s_sh.Loc("matModel");
+        s_locBoneFirst = s_sh.Loc("iboneFirst");
+        s_locCBone = s_sh.Loc("cbone");
+        s_locTex = s_sh.Loc("tex");
+        s_locTextured = s_sh.Loc("fTextured");
+        s_locRgba = s_sh.Loc("rgba");
+        glGenBuffers(1, &s_ssbo);
+    }
+    if (s_state < 0) return;
+    InitCommonOnce();   // (the samplers)
+
+    // One draw per strip group's entry, with its pose's bones in the buffer's order.
+    struct GDRAW
+    {
+        GLuint vao;
+        int32_t baseVertex;
+        uint32_t firstIndex, count;
+        glm::mat4 mat;
+        uint32_t iboneFirst, cbone;
+        GLuint tex;
+        uint8_t sampler;
+        bool fTextured;
+    };
+    static std::vector<glm::mat4> s_amatBone;
+    static std::vector<GDRAW> s_agd;
+    static std::vector<size_t> s_aigdEnd;   // per pose, its draws' end in s_agd
+    s_amatBone.clear();
+    s_agd.clear();
+    s_aigdEnd.clear();
+    const SCENEGLOBSET* psgsFirst = scene.aglobset.data();
+    const SCENEGLOBSET* psgsEnd = psgsFirst + scene.aglobset.size();
+    for (const GHOSTDRAW& gd : adraw)
+    {
+        if (gd.papart)
+            for (const GHOSTPART& part : *gd.papart)
+            {
+                if (!part.pglobset) continue;
+                // (the entry's own vertex copies only while it is still this globset's entry in the scene)
+                const SCENEGLOBSET* psgs = part.psgs >= psgsFirst && part.psgs < psgsEnd && part.psgs->pglobset == part.pglobset ? part.psgs : nullptr;
+                const GLOBSET& gs = *part.pglobset;
+                for (size_t i = 0; i < gs.aglob.size(); ++i)
+                {
+                    if (i >= part.afVisible.size() || !part.afVisible[i] || i >= part.amatGlob.size()) continue;
+                    const GLOB& glob = gs.aglob[i];
+                    const GLOB* pgeom = &glob;
+                    if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
+                    if (pgeom->meshk != MESHK_Strips || !pgeom->pgl || pgeom->pgl->cindex <= 0) continue;
+                    const GLGLOB* pgl = psgs && i < psgs->apglInst.size() && psgs->apglInst[i] ? psgs->apglInst[i] : pgeom->pgl;
+                    uint32_t iboneFirst = 0, cbone = 0;
+                    if (i < part.aamatBone.size() && !part.aamatBone[i].empty())
+                    {
+                        iboneFirst = uint32_t(s_amatBone.size());
+                        cbone = uint32_t(part.aamatBone[i].size());
+                        s_amatBone.insert(s_amatBone.end(), part.aamatBone[i].begin(), part.aamatBone[i].end());
+                    }
+                    for (const SUBGLOB& sub : pgeom->asubglob)
+                    {
+                        if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3) continue;   // (no projected volumes)
+                        GDRAW d{pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, part.amatGlob[i], iboneFirst, cbone, 0, 0, false};
+                        // the texture of its first pass, as the scene drew it (for the cut-outs)
+                        if (const SUBGLOBGPU* pgpu = sub.pgpu; pgpu && !pgpu->apasscmd.empty() && pgpu->apasscmd[0].istate < s_astate.size())
+                        {
+                            const DSTATE& st = s_astate[pgpu->apasscmd[0].istate];
+                            if (st.fTextured && st.tex) { d.tex = st.tex; d.sampler = st.sampler; d.fTextured = true; }
+                        }
+                        s_agd.push_back(d);
+                    }
+                }
+            }
+        s_aigdEnd.push_back(s_agd.size());
+    }
+    if (s_agd.empty()) return;
+
+    // GL state: saved, then the passes' own
+    GLint prog = 0, vao = 0, fboDraw = 0, activeTex = 0, tex0 = 0, sampler0 = 0, depthFunc = 0, aviewport[4] = {};
+    GLint stencilFunc = 0, stencilRef = 0, stencilValueMask = 0, stencilWriteMask = 0, sfail = 0, dpfail = 0, dppass = 0, clearStencil = 0;
+    GLint blendSrcRgb = 0, blendDstRgb = 0, blendSrcA = 0, blendDstA = 0, blendEqRgb = 0, blendEqA = 0;
+    GLboolean fBlend = glIsEnabled(GL_BLEND), fDepth = glIsEnabled(GL_DEPTH_TEST), fStencil = glIsEnabled(GL_STENCIL_TEST),
+              fCull = glIsEnabled(GL_CULL_FACE), fScissor = glIsEnabled(GL_SCISSOR_TEST), fDepthMask = GL_TRUE;
+    GLboolean acolorMask[4] = {};
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboDraw);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex0);
+    glGetIntegerv(GL_SAMPLER_BINDING, &sampler0);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    glGetIntegerv(GL_VIEWPORT, aviewport);
+    glGetIntegerv(GL_STENCIL_FUNC, &stencilFunc);
+    glGetIntegerv(GL_STENCIL_REF, &stencilRef);
+    glGetIntegerv(GL_STENCIL_VALUE_MASK, &stencilValueMask);
+    glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilWriteMask);
+    glGetIntegerv(GL_STENCIL_FAIL, &sfail);
+    glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &dpfail);
+    glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &dppass);
+    glGetIntegerv(GL_STENCIL_CLEAR_VALUE, &clearStencil);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstA);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &blendEqRgb);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &blendEqA);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &fDepthMask);
+    glGetBooleanv(GL_COLOR_WRITEMASK, acolorMask);
+
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_gl.FboScene());
+    glViewport(0, 0, g_gl.renderWidth, g_gl.renderHeight);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_GREATER);   // (reversed Z: nearer is greater; behind the scene's surfaces, Sly's own included)
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);   // (the frame's alpha is the game's: FBA, DATE)
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_NOTEQUAL, 1, 1);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    glClearStencil(0);
+    auto clearBit0 = [] {
+        glStencilMask(1);
+        glClear(GL_STENCIL_BUFFER_BIT);
+    };
+
+    s_sh.Use();
+    glBindTexture(GL_TEXTURE_2D, 0);   // (until a textured entry binds its own: never the target's own texture)
+    const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
+    CAMERA camDisplay = cam;
+    camDisplay.fovY = glm::degrees(proj.radFovY);
+    const glm::mat4 matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+    glUniformMatrix4fv(s_locClip, 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+    glUniform1i(s_locTex, 0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                 s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssbo);
+    size_t igd = 0;
+    for (size_t ipose = 0; ipose < adraw.size(); ++ipose)
+    {
+        const size_t igdEnd = s_aigdEnd[ipose];
+        if (igd == igdEnd) continue;
+        clearBit0();
+        glStencilMask(1);
+        const glm::vec4& c = adraw[ipose].rgba;
+        glUniform4f(s_locRgba, c.r, c.g, c.b, c.a);
+        GLuint vaoCur = 0, texCur = 0;
+        int fTexturedCur = -1;
+        for (; igd < igdEnd; ++igd)
+        {
+            const GDRAW& d = s_agd[igd];
+            if (d.vao != vaoCur) { glBindVertexArray(d.vao); vaoCur = d.vao; }
+            if (int(d.fTextured) != fTexturedCur) { glUniform1i(s_locTextured, d.fTextured ? 1 : 0); fTexturedCur = int(d.fTextured); }
+            if (d.fTextured && d.tex != texCur)
+            {
+                glBindTexture(GL_TEXTURE_2D, d.tex);
+                glBindSampler(0, s_asampler[d.sampler & 15u]);
+                texCur = d.tex;
+            }
+            glUniform1i(s_locCBone, GLint(d.cbone));
+            glUniform1i(s_locBoneFirst, GLint(d.iboneFirst));
+            if (!d.cbone) glUniformMatrix4fv(s_locModel, 1, GL_FALSE, glm::value_ptr(d.mat));
+            glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        }
+    }
+    clearBit0();
+
+    glUseProgram(GLuint(prog));
+    glBindVertexArray(GLuint(vao));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboDraw));
+    glBindTexture(GL_TEXTURE_2D, GLuint(tex0));
+    glBindSampler(0, GLuint(sampler0));
+    glActiveTexture(GLenum(activeTex));
+    glViewport(aviewport[0], aviewport[1], aviewport[2], aviewport[3]);
+    glDepthFunc(GLenum(depthFunc));
+    glDepthMask(fDepthMask);
+    glColorMask(acolorMask[0], acolorMask[1], acolorMask[2], acolorMask[3]);
+    glBlendEquationSeparate(GLenum(blendEqRgb), GLenum(blendEqA));
+    glBlendFuncSeparate(GLenum(blendSrcRgb), GLenum(blendDstRgb), GLenum(blendSrcA), GLenum(blendDstA));
+    glStencilFunc(GLenum(stencilFunc), stencilRef, GLuint(stencilValueMask));
+    glStencilOp(GLenum(sfail), GLenum(dpfail), GLenum(dppass));
+    glStencilMask(GLuint(stencilWriteMask));
+    glClearStencil(clearStencil);
+    auto set = [](GLenum cap, GLboolean f) { if (f) glEnable(cap); else glDisable(cap); };
+    set(GL_BLEND, fBlend);
+    set(GL_DEPTH_TEST, fDepth);
+    set(GL_STENCIL_TEST, fStencil);
+    set(GL_CULL_FACE, fCull);
+    set(GL_SCISSOR_TEST, fScissor);
+#endif
+}

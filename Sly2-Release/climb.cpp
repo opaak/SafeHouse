@@ -1,4 +1,5 @@
 #include "actioninput.h"
+#include "ninjamoves.h"
 // climb.cpp: the climb (climb.h, actor.h CLIMB; orig ACTOR +0xF50, module 0x19DE10..0x19EF50). From the original's
 // code and the Sly 2 decomp's matching C (0x19DE10, 0x19DE58, 0x19E110, 0x19E950, 0x19E9C8, 0x19EAB0); 0x19DF70,
 // 0x19E1E0, 0x117308, 0x205008 from the asm (the reference's are register-level: native_old_climb_state.cpp,
@@ -353,6 +354,7 @@ void UpdateClimbTransitions(ACTOR* pa)
         nNew = 1;
     }
     if (c.fDown) f20 = -f20;
+    f20 *= RClimbCobra(pa, ppc);   // (PC addition: Climbing Cobra, ninjamoves.h)
     const float sMax = std::fabs(c.sb.agSlope[1]);
     const float dt = g_clock.dt;
     c.gSpeed = ((-dt) * f20) / sMax + (1.0f - dt) * c.gSpeed;
