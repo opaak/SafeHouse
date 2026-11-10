@@ -14,6 +14,7 @@
 #include "ref.h"
 #include "savedata.h"
 #include "screenrt.h"
+#include "techicons.h"
 #include "shop.h"
 #include "sound.h"
 #include "sw.h"
@@ -43,10 +44,10 @@ const TRAINDEF s_atrain[] = {
     {1000.0f, 45.0f, "Climb poles and pipes holding &2R&.", ""},
 };
 const RACPAGE s_apage[] = {
-    {kItemRailSprint, 1, "\"Tennessee Kid\" Cooper", "Rail Sprint", "Hold &2R&. on ropes and rails to run along them"},
-    {kItemSilentSprint, 2, "Rioichi Cooper", "Silent Sprint", "Sprint with &2R&. without a sound; Sly leaves only shadows behind"},
-    {kItemLeapingDragon, 3, "Rioichi Cooper", "Leaping Dragon", "On a spire, hold &2O&. to mark a distant spire, let go to leap onto it"},
-    {kItemClimbingCobra, 4, "Salim al-Kupar", "Climbing Cobra", "Hold &2R&. on poles and pipes to climb them at speed"},
+    {kItemRailSprint, 1, "\"Tennessee Kid\" Cooper", "Rail Sprint", "Hold &2R&. on ropes and rails to run along them", "rail_sprint"},
+    {kItemSilentSprint, 2, "Rioichi Cooper", "Silent Sprint", "Sprint with &2R&. without a sound; Sly leaves only shadows behind", "silent_sprint"},
+    {kItemLeapingDragon, 3, "Rioichi Cooper", "Leaping Dragon", "On a spire, hold &2O&. to mark a distant spire, let go to leap onto it", "leaping_dragon"},
+    {kItemClimbingCobra, 4, "Salim al-Kupar", "Climbing Cobra", "Hold &2R&. on poles and pipes to climb them at speed", "climbing_cobra"},
 };
 constexpr int CPAGE = int(sizeof(s_apage) / sizeof(s_apage[0]));
 
@@ -66,6 +67,7 @@ TRAINING s_train;
 
 // the message over the HUD (a page found / learned): its two lines and when it goes
 std::string s_strMsg1, s_strMsg2;
+const char* s_szMsgIcon = nullptr;   // (techicons.h; null: none)
 float s_tMsgEnd = -1.0f;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_RACPRINT") != nullptr; return s_f; }
@@ -79,10 +81,11 @@ int IepCurrent()
     return i >= 0 && i < int(awrec.size()) ? awrec[size_t(i)].slot : -1;
 }
 
-void ShowMsg(const std::string& s1, const std::string& s2, float dt)
+void ShowMsg(const std::string& s1, const std::string& s2, float dt, const char* szIcon = nullptr)
 {
     s_strMsg1 = s1;
     s_strMsg2 = s2;
+    s_szMsgIcon = szIcon;
     s_tMsgEnd = g_clock.tReal + dt;
 }
 
@@ -124,7 +127,7 @@ void NoteVaultOpened()
         {
             if (FPrint()) std::printf("raccoonus: episode %d's vault: the page of %s\n", iep, s_apage[i].szTechnique);
             ShowMsg(std::string("A page of the Thievius Raccoonus! ") + s_apage[i].szAncestor + ": " + s_apage[i].szTechnique,
-                    "Study it in ThiefNet's Thievius Raccoonus.", 8.0f);
+                    "Train it in ThiefNet's Thievius Raccoonus.", 8.0f, s_apage[i].szIcon);
             return;
         }
 }
@@ -158,7 +161,7 @@ bool FConfirmRaccoonusPage()
     s_train.cAlertStart = g_sound.fModeAlert;
     PsndStartSound(0x29);   // (the shop's purchase)
     SetShopPage(-1);
-    ShowMsg(std::string("Training: ") + s_apage[i].szTechnique, s_apage[i].szHow, 5.0f);
+    ShowMsg(std::string("Training: ") + s_apage[i].szTechnique, s_apage[i].szHow, 5.0f, s_apage[i].szIcon);
     if (FPrint()) std::printf("raccoonus: training %s\n", s_apage[i].szTechnique);
     return true;
 }
@@ -229,7 +232,7 @@ void UpdateRaccoonusTraining()
         SetPcItemOwned(page.item, true);
         s_train = TRAINING{};
         PsndStartSound(0x29);
-        ShowMsg(std::string("Sly learned ") + page.szTechnique + "!", page.szHow, 7.0f);
+        ShowMsg(std::string("Sly learned ") + page.szTechnique + "!", page.szHow, 7.0f, page.szIcon);
         if (FPrint()) std::printf("raccoonus: %s learned\n", page.szTechnique);
         return;
     }
@@ -286,9 +289,11 @@ void DrawRaccoonusHud(int width, int height)
             const bool fFound = FRaccoonusPageFound(i), fLearned = FRaccoonusPageLearned(i);
             if (i == s_isel) g_hud.FillScreenRect(x0 + 6.0f, y - 3.0f, x1 - 6.0f, y + dyRow - 6.0f, glm::vec4(150, 132, 92, 128), z - 1e-4f);
             const RACPAGE& p = s_apage[i];
+            // its icon (a missing page's dark)
+            DrawTechniqueIcon(p.szIcon, x0 + 26.0f, y + 11.0f, 28.0f, fFound ? 128.0f : 24.0f, fFound ? 128.0f : 90.0f, z);
             std::string strName = fFound ? std::string(p.szTechnique) : std::string("? ? ?");
-            DrawLine(*pfont, picons, strName, x0 + 16.0f, y, size, fFound ? offText : offDim);
-            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 16.0f,
+            DrawLine(*pfont, picons, strName, x0 + 48.0f, y, size, fFound ? offText : offDim);
+            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 48.0f,
                      y + 15.0f, size * 0.65f, offDim);
             const std::string strState = fLearned ? "Learned" : fFound ? "Found: train" : "Missing";
             DrawLine(*pfont, picons, strState, x1 - 16.0f - DxLine(*pfont, picons, strState, size * 0.8f), y + 3.0f, size * 0.8f,
@@ -300,8 +305,10 @@ void DrawRaccoonusHud(int width, int height)
         // the training's panel, top left: the technique, the goal, the progress bar, the time left
         const RACPAGE& page = s_apage[s_train.ipage];
         const TRAINDEF& def = s_atrain[s_train.ipage];
-        constexpr float x0 = 24.0f, y0 = 96.0f, w = 236.0f, h = 70.0f;
-        g_hud.FillScreenRect(x0, y0, x0 + w, y0 + h, glm::vec4(0, 0, 0, 88), z - 2e-4f);
+        constexpr float xPanel = 24.0f, y0 = 96.0f, h = 70.0f;
+        g_hud.FillScreenRect(xPanel, y0, xPanel + 300.0f, y0 + h, glm::vec4(0, 0, 0, 88), z - 2e-4f);
+        DrawTechniqueIcon(page.szIcon, xPanel + 32.0f, y0 + h * 0.5f, 56.0f, 128.0f, 128.0f, z);
+        constexpr float x0 = xPanel + 64.0f, w = 236.0f;
         const float tLeft = std::max(0.0f, def.tLimit - (g_clock.t - s_train.tStart));
         char achTime[16];
         std::snprintf(achTime, sizeof(achTime), "%d:%02d", int(tLeft) / 60, int(tLeft) % 60);
@@ -325,8 +332,10 @@ void DrawRaccoonusHud(int width, int height)
         g_hud.FillScreenRect(60.0f, 26.0f, 580.0f, 76.0f, glm::vec4(0, 0, 0, 90.0f * u), z - 1e-4f);
         const glm::vec4 off1(110 * u, 90 * u, 40 * u, 0), off2(90 * u, 90 * u, 90 * u, 0);
         (void)a;
-        DrawLine(*pfont, picons, s_strMsg1, 320.0f - DxLine(*pfont, picons, s_strMsg1, 17.0f) * 0.5f, 32.0f, 17.0f, off1);
-        DrawLine(*pfont, picons, s_strMsg2, 320.0f - DxLine(*pfont, picons, s_strMsg2, 14.0f) * 0.5f, 54.0f, 14.0f, off2);
+        if (s_szMsgIcon) DrawTechniqueIcon(s_szMsgIcon, 92.0f, 51.0f, 44.0f, 128.0f, 128.0f * u, z);
+        const float xText = s_szMsgIcon ? 344.0f : 320.0f;   // (the text's centre, right of the icon)
+        DrawLine(*pfont, picons, s_strMsg1, xText - DxLine(*pfont, picons, s_strMsg1, 17.0f) * 0.5f, 32.0f, 17.0f, off1);
+        DrawLine(*pfont, picons, s_strMsg2, xText - DxLine(*pfont, picons, s_strMsg2, 14.0f) * 0.5f, 54.0f, 14.0f, off2);
     }
     g_hud.Flush(width, height);
 }

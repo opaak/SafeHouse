@@ -85,6 +85,13 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/sly2n_logo.h"
   COMMAND ${CMAKE_COMMAND} -DSOURCE=${CANE_ROOT}/launcher/assets/games/sly2-logo.png -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/generated/sly2n_logo.h -DSYMBOL=sly2n_logo_png -P ${CANE_ROOT}/cmake/embed-image.cmake
   DEPENDS ${CANE_ROOT}/launcher/assets/games/sly2-logo.png ${CANE_ROOT}/cmake/embed-image.cmake VERBATIM)
 target_sources(Sly2-Release PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/sly2n_logo.h")
+# PC addition (techicons.cpp): the Thievius Raccoonus techniques' built-in icons (assets/icons), embedded
+foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra)
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/techicon_${icon}.h"
+    COMMAND ${CMAKE_COMMAND} -DSOURCE=${CANE_ROOT}/assets/icons/${icon}.png -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/generated/techicon_${icon}.h -DSYMBOL=techicon_${icon}_png -P ${CANE_ROOT}/cmake/embed-image.cmake
+    DEPENDS ${CANE_ROOT}/assets/icons/${icon}.png ${CANE_ROOT}/cmake/embed-image.cmake VERBATIM)
+  target_sources(Sly2-Release PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/techicon_${icon}.h")
+endforeach()
 
 # Sound and movies (sound.cpp, snd989.cpp, spiop.cpp, fmv.cpp): FAudio (XAudio2 on SDL2, as Sly1-Release on Linux),
 # FFmpeg's MPEG-2 decoder for the PSS movies, SDL2 for the stand-alone movie window (--play-movie).

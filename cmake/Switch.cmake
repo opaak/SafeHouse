@@ -191,7 +191,15 @@ add_custom_target(sly2_version
           -DOUTPUT=${gen}/sly2/sly2_version.h -P ${root}/cmake/sly2-version.cmake
   BYPRODUCTS "${gen}/sly2/sly2_version.h" VERBATIM)
 add_dependencies(sly2_game sly2_version)
-target_sources(sly2_game PRIVATE "${gen}/sly2/embedded_shaders.h" "${gen}/sly2/sly2n_logo.h" ${prompt_headers})
+# (the Thievius Raccoonus techniques' icons: techicons.cpp)
+set(sly2_techicon_headers "")
+foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra)
+  add_custom_command(OUTPUT "${gen}/sly2/techicon_${icon}.h"
+    COMMAND "${Python3_EXECUTABLE}" "${root}/cmake/switch_embed.py" "${gen}/sly2/techicon_${icon}.h" techicon_${icon}_png "${root}/assets/icons/${icon}.png"
+    DEPENDS "${root}/assets/icons/${icon}.png" "${root}/cmake/switch_embed.py" VERBATIM)
+  list(APPEND sly2_techicon_headers "${gen}/sly2/techicon_${icon}.h")
+endforeach()
+target_sources(sly2_game PRIVATE "${gen}/sly2/embedded_shaders.h" "${gen}/sly2/sly2n_logo.h" ${prompt_headers} ${sly2_techicon_headers})
 
 # ---- Sly 3 (forked from Sly 2: the same build, its numbers in game/)
 file(GLOB sly3_sources CONFIGURE_DEPENDS "${root}/Sly3-Release/*.cpp" "${root}/Sly3-Release/*.c" "${root}/Sly3-Release/game/*.cpp")

@@ -131,6 +131,21 @@ animated (multi-frame) textures and in particles.
 - **Converting by hand:** `Sly2-Release --disc "Sly 2.iso" --convert sly2-files` writes the `Textures` folder too;
   `--no-export-textures` leaves it out.
 
+### Technique icons
+
+The Thievius Raccoonus techniques (ThiefNet's Thievius Raccoonus page, their training and messages) have icons that
+can be replaced: a PNG in `Mods/Icons/` named after the technique replaces the built-in one.
+
+| File | Technique |
+| --- | --- |
+| `Mods/Icons/leaping_dragon.png` | Leaping Dragon |
+| `Mods/Icons/silent_sprint.png` | Silent Sprint |
+| `Mods/Icons/rail_sprint.png` | Rail Sprint |
+| `Mods/Icons/climbing_cobra.png` | Climbing Cobra |
+
+Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
+restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.
+
 ### The PS3 HD textures (The Sly Collection)
 
 If you own **The Sly Collection** for PS3, SafeHouse can take its redrawn textures (up to 4x sharper) and use them

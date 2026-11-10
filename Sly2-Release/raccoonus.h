@@ -27,6 +27,7 @@ struct RACPAGE
     const char* szAncestor;
     const char* szTechnique;
     const char* szHow;        // how to use it (the game's texts' "&2O&." style button icons)
+    const char* szIcon;       // its icon's key (techicons.h)
 };
 int CRaccoonusPages();
 const RACPAGE& RacPage(int i);
