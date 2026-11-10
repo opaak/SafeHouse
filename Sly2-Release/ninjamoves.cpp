@@ -17,6 +17,7 @@
 #include "po.h"
 #include "render.h"
 #include "so.h"
+#include "screenrt.h"
 #include "sound.h"
 #include "sw.h"
 #include "wavfile.h"
@@ -55,6 +56,9 @@ struct GHOST
 std::deque<GHOST> s_aghost;
 uint32_t s_serialGhost = 0;
 float s_tLastGhost = -1e9f;
+// (diagnostics: the temporary overlay, DrawGhostDiagHud)
+struct GHOSTDIAG { int state = -1; bool fOwned = false; float v = 0.0f; int cCaptured = 0; int cSgs = 0; int cPart = 0; float tLast = -1e9f; };
+GHOSTDIAG s_diag;
 glm::vec3 s_posLast(0.0f);   // (Sly's place at s_tPos, game time, and his speed then)
 float s_tPos = -1e9f, s_vGround = 0.0f;
 
@@ -195,11 +199,16 @@ void UpdateSprintGhosts(const SCENE& scene)
     const float dtPos = t - s_tPos;
     const float vGround = psly && dtPos > 0.0f && dtPos < 0.25f ? glm::length(glm::vec2(pos - s_posLast)) / dtPos : s_vGround;
     if (dtPos > 0.0f) { s_posLast = pos; s_tPos = t; s_vGround = vGround; }
+    s_diag.state = psly ? psly->state : -1;
+    s_diag.fOwned = FPowerupOwned(kItemSilentSprint);
+    s_diag.v = vGround;
+    if (psly && psly->state == 1) s_diag.tLast = g_clock.tReal;
     if (!psly || psly->state != 1 || !FPowerupOwned(kItemSilentSprint)) return;
     if (t - s_tLastGhost < dtGhost) return;
     if (vGround < 150.0f) return;   // (standing in the sprint state: no trail)
     std::vector<const SCENEGLOBSET*> apsgs;
     CollectSgs(scene, psly->palo, 0, apsgs);
+    s_diag.cSgs = int(apsgs.size());
     if (apsgs.empty()) return;
     GHOST g;
     g.t = t;
@@ -214,6 +223,9 @@ void UpdateSprintGhosts(const SCENE& scene)
         part.aamatBone = psgs->aamatBone;
         g.apart.push_back(std::move(part));
     }
+    ++s_diag.cCaptured;
+    s_diag.cSgs = int(apsgs.size());
+    s_diag.cPart = int(g.apart.size());
     s_aghost.push_back(std::move(g));
     while (s_aghost.size() > cGhostMax) s_aghost.pop_front();
     s_tLastGhost = t;
@@ -274,5 +286,28 @@ void DrawRailSprintLines(int width, int height)
         const float alpha = (34.0f + 40.0f * u01(rng)) * s_uRailLines;
         g_hud.FillScreenLine(a, b, w, glm::vec4(128, 128, 128, alpha), 0.5f);
     }
+    g_hud.Flush(width, height);
+}
+
+float DxTextUi(const FONTBRX& fontBase, const FONTBRX* pfontOther, const std::string& text, float k88);   // splayer.cpp
+
+// TEMPORARY diagnostics for the afterimages (to be removed): while Sly sprints (and 3 s after) a line at the top left
+// of the picture: Sly's state, the item owned, his speed, the poses taken, the globsets found, the renderer's program,
+// poses, draws and GL error.
+void DrawGhostDiagHud(int width, int height)
+{
+    if (g_clock.tReal - s_diag.tLast > 3.0f) return;
+    const FONTBRX* pfont = PfontHud();
+    if (!pfont) return;
+    const GHOSTRENDERDIAG& r = g_ghostrenderdiag;
+    char ach[256];
+    std::snprintf(ach, sizeof(ach), "ghost diag: state %d owned %d v %.0f | taken %d sgs %d parts %d kept %zu | gl %d poses %d draws %d err 0x%X frames %d",
+                  s_diag.state, s_diag.fOwned ? 1 : 0, s_diag.v, s_diag.cCaptured, s_diag.cSgs, s_diag.cPart, s_aghost.size(), r.state, r.cpose, r.cdraw,
+                  r.err, r.cframe);
+    g_hud.Begin();
+    const float z = 16760000.0f / 16777216.0f;
+    g_hud.FillScreenRect(4.0f, 4.0f, 636.0f, 20.0f, glm::vec4(0, 0, 0, 100), z - 1e-4f);
+    g_hud.DrawTextBox(*pfont, PfontHudIcons(), ach, 8.0f - 320.0f, (6.0f - 224.0f) * 1.1f, 10.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0, 0,
+                      glm::vec4(110, 110, 60, 0), glm::vec4(1.0f), glm::vec4(0.0f), 16760100.0f, false);
     g_hud.Flush(width, height);
 }

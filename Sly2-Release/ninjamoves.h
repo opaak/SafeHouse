@@ -34,3 +34,5 @@ void UpdateSprintGhosts(const SCENE& scene);
 void DrawSprintGhosts(const SCENE& scene, const CAMERA& cam);
 // Rail Sprint's speed lines (game.cpp): over the 3D picture, under the HUD.
 void DrawRailSprintLines(int width, int height);
+// (TEMPORARY) the afterimages' diagnostics line (game.cpp, over the HUD)
+void DrawGhostDiagHud(int width, int height);

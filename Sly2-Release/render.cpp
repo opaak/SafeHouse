@@ -3534,6 +3534,7 @@ void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROP
 }
 
 // ------------------------------------------------------------ PC: shadow afterimages (render.h RenderGhostPoses)
+GHOSTRENDERDIAG g_ghostrenderdiag;
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw)
 {
 #if defined(__SWITCH__) || defined(__APPLE__)
@@ -3557,6 +3558,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
         s_locRgba = s_sh.Loc("rgba");
         glGenBuffers(1, &s_ssbo);
     }
+    g_ghostrenderdiag.state = s_state;
     if (s_state < 0) return;
     InitCommonOnce();   // (the samplers)
 
@@ -3620,7 +3622,11 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
             }
         s_aigdEnd.push_back(s_agd.size());
     }
+    g_ghostrenderdiag.cpose = int(adraw.size());
+    g_ghostrenderdiag.cdraw = int(s_agd.size());
+    ++g_ghostrenderdiag.cframe;
     if (s_agd.empty()) return;
+    while (glGetError() != GL_NO_ERROR) {}
 
     // GL state: saved, then the passes' own
     GLint prog = 0, vao = 0, fboDraw = 0, activeTex = 0, tex0 = 0, sampler0 = 0, depthFunc = 0, aviewport[4] = {};
@@ -3716,6 +3722,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
         }
     }
     clearBit0();
+    if (const GLenum err = glGetError(); err != GL_NO_ERROR) g_ghostrenderdiag.err = err;
 
     glUseProgram(GLuint(prog));
     glBindVertexArray(GLuint(vao));
