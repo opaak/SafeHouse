@@ -287,6 +287,9 @@ jobs:
   macos:
     name: macOS
     needs: version
+    # Built in the public repository; in a fork only with the repository variable SAFEHOUSE_BUILD_MACOS set to true
+    # (Settings > Secrets and variables > Actions > Variables). macos.yml can still be run alone by hand.
+    if: ${{ github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_MACOS == 'true' }}
     uses: ./.github/workflows/macos.yml
     with:
       version: ${{ needs.version.outputs.version }}
