@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 struct LO;
+struct SW;
 
 bool FPickupLive(LO* plo);                        // a pickup with its runtime (launched)
 void SetPickupState(LO* plo, int n);              // vt slot 76
@@ -24,6 +25,8 @@ void SetClueIndex(LO* pproxy, int n);             // the clue bottle proxy's +0x
 // orig: 0x00161868 / 0x001618B0 (the coin / clue bottle counters (screen objects 0x36D / 0x36E) shown for their 5 s)
 void ShowCoinCounter();
 void ShowClueCounter();
+// PC debug (debugmenu.cpp): every clue bottle of the current world collected at once; the number collected
+int CollectAllCluesInWorld(SW* psw);
 // orig: 0x001A58D0(p, 0, 0) (vt slot 10 with no parent: out of its parent, the root record unrotated / unscaled at its
 // world position, as the reference leaves it)
 void SetLoParentNoneRoot(LO* plo);

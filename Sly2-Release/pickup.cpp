@@ -537,6 +537,43 @@ void SetClueState(LO* plo, PICKUP& p, int n)
     SetPickupStateBase(plo, p, n);
 }
 
+// PC debug (debugmenu.cpp, Player > Collect All Clue Bottles): every clue bottle of the current world collected at
+// once, as SetClueState's collect does it but without its sound, noise or splice event (thirty at once would alert the
+// guards): the save's afClue bit set, the proxy removed and, where the bottle's instance is placed on it, the instance
+// taken out (state 2). Returns how many were collected; the counter shows the episode's total after.
+int CollectAllCluesInWorld(SW* psw)
+{
+    if (!psw) return 0;
+    const auto& awrec = AwrecWorlds();
+    const int i = g_transition.iwrecCur;
+    if (i < 0 || i >= static_cast<int>(awrec.size())) return 0;
+    const int16_t symClue = static_cast<int16_t>(NSymProgress("afClue"));
+    // the placed instances by their proxy (the streaming pool's bottles, class 0x5F)
+    std::unordered_map<const LO*, LO*> mpinst;
+    for (LO* pinst : psw->mpcidaplo[0x5F])
+        if (pinst && pinst->fInWorld && !pinst->fRemoved)
+            if (LO* pproxy = PproxyOfInstance(pinst)) mpinst[pproxy] = pinst;
+    std::vector<std::pair<LO*, int>> aclue;
+    for (const auto& [pproxyC, n] : s_mpclue) aclue.emplace_back(const_cast<LO*>(pproxyC), n);
+    int c = 0;
+    for (const auto& [pproxy, n] : aclue)
+    {
+        if (!pproxy || pproxy->fRemoved) continue;   // (collected already)
+        std::vector<int16_t> akey(awrec[i].an.begin(), awrec[i].an.end());
+        akey.push_back(symClue);
+        akey.push_back(static_cast<int16_t>(n));
+        CRef r;
+        r.SetBool(true);
+        FSetProgressKey(akey, r);
+        RemoveLo(psw, pproxy);  // vt slot 9, as the collect
+        if (auto it = mpinst.find(pproxy); it != mpinst.end()) SetPickupState(it->second, 2);   // (the bottle shown: gone)
+        ++c;
+    }
+    if (c > 0) ShowClueCounter();   // 0x1618B0
+    if (FPrint()) std::printf("pickup: %d clue bottles collected by the debug menu\n", c);
+    return c;
+}
+
 // orig: 0x001C68F0 (0x5D, the charm: 0 the rest's time; 1 only when the current player can take it (vt slot 80) and
 // heals it by +0x23C..+0x240 (slot 81): TODO, taken as yes; the HUD effect (kind 9): TODO; +0x210's message; event 5; gone)
 // orig: 0x001C77E8 (0x5E, the loot: 0 the rest's time; 1 the progress loot / mplootkc / "<kind>" + 1 (the kind's entry

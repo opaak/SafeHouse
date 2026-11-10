@@ -65,6 +65,9 @@ const char* PchzPortVersion() { return SLY2_PORT_VERSION; }
 std::string StrLocalized(const SW* psw, int id);   // splayer.cpp
 float DxTextUi(const FONTBRX& fontBase, const FONTBRX* pfontOther, const std::string& text, float k88);   // splayer.cpp
 void DebugUnlockAll(SW* psw);                      // game.cpp (F6)
+int CollectAllCluesInWorld(SW* psw);              // pickup.cpp
+int CClueCollectedCur();                           // vault.cpp
+int CClueNeededCur();
 extern std::unordered_map<int, int> g_mpoidiwrecTask;   // autoplay.cpp / brx.cpp: a filtered-out task's first world
 
 namespace
@@ -732,6 +735,14 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
         });
         item("Unlock Gadgets, 9999 Coins, All Characters (F6)", [] { Defer([](SW* p) { DebugUnlockAll(p); Status("gadgets, coins and characters unlocked"); }); },
              "", true);
+        item("Collect All Clue Bottles (this world)", [] {
+            Defer([](SW* p) {
+                const int c = CollectAllCluesInWorld(p);
+                Status(c > 0 ? "clue bottles: " + std::to_string(c) + " collected, " + std::to_string(CClueCollectedCur()) + "/" +
+                                   std::to_string(CClueNeededCur()) + " in this episode"
+                             : std::string("clue bottles: none left in this world (they are in the episode's hub)"));
+            });
+        }, "", true);
         item("Save Game Now (F5)", [] {
             Defer([](SW*) {
                 const int islot = g_islotChosen >= 0 ? g_islotChosen : 0;
