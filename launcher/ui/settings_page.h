@@ -609,6 +609,7 @@ private:
             s.drawDistance = d.drawDistance, s.fogType = d.fogType, s.longShadows = d.longShadows;
             s.alphaToCoverage = d.alphaToCoverage, s.postAa = d.postAa, s.anisotropy = d.anisotropy;
             s.upscaler = d.upscaler, s.upscalerSharpness = d.upscalerSharpness;
+            s.bloom = d.bloom, s.colorGrade = d.colorGrade, s.vignette = d.vignette, s.outlines = d.outlines;
             break;
         case Audio: settings::defaultAudio(s); break;
         case Controls:
@@ -797,6 +798,22 @@ private:
                  "resolution above the screen's (supersampling).");
         if (m_settings.upscaler == settings::Upscale_Sharp)
             rangeRow("Sharpening", m_settings.upscalerSharpness, 0, 100, 10, "How strongly the 3D picture is sharpened. 0 turns it off.", percent);
+        pictureRows();
+    }
+    // Sly 2's PC picture (system_settings.h v21; Sly2-Release post.h). Every option's first value draws as before.
+    void pictureRows() {
+        static const std::vector<std::string> outlines{ "Original", "Silhouettes", "Silhouettes and creases" };
+        int outline = std::clamp(m_settings.outlines, 0, 2);
+        if (stepperRow("Outlines", &outline, outlines)) m_settings.outlines = outline, commit();
+        describe("Adds ink lines from the depth of the scene to the original's cel borders, closer to Sly 4's look. "
+                 "Creases also line the edges inside a shape, such as where a wall meets the floor.");
+        rangeRow("Bloom", m_settings.bloom, 0, 100, 10, "A soft glow around lights, windows and neon. 0 turns it off.", percent);
+        static const std::vector<std::string> grades{ "Original", "Vivid", "LUT from the Mods folder" };
+        int grade = std::clamp(m_settings.colorGrade, 0, 2);
+        if (stepperRow("Color grading", &grade, grades)) m_settings.colorGrade = grade, commit();
+        describe("Vivid gives livelier colors. LUT uses Mods/ColorGrading/lut.png; the first start without one writes "
+                 "neutral.png there to edit.");
+        rangeRow("Vignette", m_settings.vignette, 0, 100, 10, "Darkens the corners of the picture. 0 turns it off.", percent);
     }
     void audioRows() {
         if (m_game == GameId::Sly1) {   // (Sly 2 has stereo / mono in its own options)

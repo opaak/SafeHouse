@@ -37,6 +37,10 @@ void FromSettings(const st::SystemSettings& s)
     g_display.upscaler = s.upscaler;
     g_display.sharpness = s.upscalerSharpness;
     g_display.anisotropy = s.anisotropy;
+    g_display.bloom = s.bloom;   // (v21, the picture: display.h)
+    g_display.colorGrade = s.colorGrade;
+    g_display.vignette = s.vignette;
+    g_display.outlines = s.outlines;
     PcInputFromSettings(s);   // (the controls and the prompts: pcinput.h)
     SetSoundUserVolumes(s.musicVolume, s.soundEffectsVolume, s.dialogueVolume);   // (the launcher's sliders: sound.h)
 }
@@ -112,6 +116,7 @@ bool FLoadDisplaySettings(const std::filesystem::path& userDir, std::string* pme
     g_display.postAa = 0;
     g_display.upscaler = 0;
     g_display.anisotropy = 1;
+    g_display.bloom = g_display.colorGrade = g_display.vignette = g_display.outlines = 0;
 #endif
     const char* psz = "";
     switch (result)

@@ -33,3 +33,8 @@ int ExportAllTextures(const std::string& dir, bool fProgress);
 // --export-textures without --convert: every world's textures into DIR (main.cpp: --out, else <installation>/Textures), written into
 // DIR.partial and renamed when complete (an existing DIR is replaced).
 int ExportTexturesCommand(const std::string& dir);
+// A PNG (or any image stb_image reads) as RGBA8 rows, top row first; the path is UTF-8. False: missing or unreadable.
+// (post.cpp: the colour-grading LUT)
+bool FLoadImageRgba(const std::string& path, std::vector<uint8_t>& rgba, int* pw, int* ph);
+// RGBA8 rows (top row first) written as a PNG at a UTF-8 path.
+bool FWritePngRgba(const std::string& path, const std::vector<uint8_t>& rgba, int dx, int dy);

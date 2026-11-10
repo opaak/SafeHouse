@@ -1993,7 +1993,7 @@ int RunGame(const GAMEOPTS& go)
                 UpdateSprintGhosts(scene);   // (PC: Silent Sprint's afterimages, ninjamoves.h)
                 RenderScene(scene, cam, opts);
                 DrawSprintGhosts(scene, cam);
-                PostProcessScene();   // (image quality over the 3D picture, before the HUD: post.h)
+                PostProcessScene(cam, opts.rgbaCel);   // (image quality over the 3D picture, before the HUD: post.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;

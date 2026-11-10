@@ -66,6 +66,16 @@ struct DISPLAY
     int upscaler = 0;
     int sharpness = 80;
     int anisotropy = 1;
+    // PC picture (v21; post.h, the launcher's Graphics page). 0 / Original draw exactly as before.
+    // - bloom (0..100): the glow around the picture's brightest parts (lights, windows, neon)
+    // - colorGrade (ColorGradeValue): Original, Vivid (a built-in livelier grade) or Lut (Mods/ColorGrading/lut.png)
+    // - vignette (0..100): the corners darkened
+    // - outlines (OutlinesValue): ink lines from the depth buffer added to the original's cel borders, at the
+    //   silhouettes (1) or the silhouettes and the surfaces' creases (2)
+    int bloom = 0;
+    int colorGrade = 0;
+    int vignette = 0;
+    int outlines = 0;
 
     // The swap (ApplyDisplaySettings): VSync gates the frames at the cap (the pacer then runs 1 % fast, so only the
     // swap gates: platform/frame_pacer.h), and a generation that changes with the swap's configuration

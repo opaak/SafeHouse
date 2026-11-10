@@ -300,7 +300,7 @@ int main(int argc, char** argv)
     VIEWOPTS vo;
     std::string cmRanges = "2DDED0+6A0,2DFBC0+2240,FB1580+1100,FB37E0+80,140C9F0+600,1486000+3400";
     bool fCmFree = false;
-    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1; float drawDistance = -1; } dispo;
+    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1, bloom = -1, grade = -1, vignette = -1, outlines = -1; float drawDistance = -1; } dispo;
     std::vector<std::string> rest, physArgs;
     for (int i = 1; i < argc; ++i)
     {
@@ -332,6 +332,12 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--upscaler") && i + 1 < argc) dispo.upscaler = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--sharpness") && i + 1 < argc) dispo.sharpness = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--aniso") && i + 1 < argc) dispo.aniso = std::atoi(argv[++i]);
+        // (the picture: display.h; --bloom 0..100, --grade 0 original / 1 vivid / 2 LUT, --vignette 0..100,
+        // --outlines 0 original / 1 silhouettes / 2 silhouettes and creases)
+        else if (!std::strcmp(argv[i], "--bloom") && i + 1 < argc) dispo.bloom = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--grade") && i + 1 < argc) dispo.grade = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--vignette") && i + 1 < argc) dispo.vignette = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--outlines") && i + 1 < argc) dispo.outlines = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
         else if (!std::strcmp(argv[i], "--list-keys")) command = "list-keys";
         else if (!std::strcmp(argv[i], "--vt-dump") && i + 1 < argc) { command = "vt-dump"; arg = argv[++i]; }  // (vtaudit.cpp)
@@ -524,6 +530,10 @@ int main(int argc, char** argv)
         if (dispo.upscaler >= 0) g_display.upscaler = std::clamp(dispo.upscaler, 0, 1);
         if (dispo.sharpness >= 0) g_display.sharpness = std::clamp(dispo.sharpness, 0, 100);
         if (dispo.aniso >= 1) g_display.anisotropy = std::clamp(dispo.aniso, 1, 16);
+        if (dispo.bloom >= 0) g_display.bloom = std::clamp(dispo.bloom, 0, 100);
+        if (dispo.grade >= 0) g_display.colorGrade = std::clamp(dispo.grade, 0, 2);
+        if (dispo.vignette >= 0) g_display.vignette = std::clamp(dispo.vignette, 0, 100);
+        if (dispo.outlines >= 0) g_display.outlines = std::clamp(dispo.outlines, 0, 2);
         if (dispo.window >= 0 && dispo.window <= 2) g_display.window = DISPWINDOW(dispo.window);
     };
     applyDisplayOverrides();

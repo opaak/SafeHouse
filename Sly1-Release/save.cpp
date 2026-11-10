@@ -683,8 +683,9 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
     static_assert(sizeof(GS)==6656 && alignof(GS)==4 && sizeof(WS)==1100 && sizeof(LS)==120);
     static_assert(offsetof(GS,aws)==16 && offsetof(GS,gameWorldCur)==6616);
     static_assert(sizeof(SaveFileHeader)==20 && sizeof(cane::settings::Header)==20);
-    static_assert(sizeof(cane::settings::legacy::V8)==196 && sizeof(VIDEOSAVESETTINGS)==348);
+    static_assert(sizeof(cane::settings::legacy::V8)==196 && sizeof(VIDEOSAVESETTINGS)==364);
     static_assert(offsetof(VIDEOSAVESETTINGS,alphaToCoverage)==340 && offsetof(VIDEOSAVESETTINGS,postAa)==344);
+    static_assert(offsetof(VIDEOSAVESETTINGS,bloom)==348 && offsetof(VIDEOSAVESETTINGS,outlines)==360);
     static_assert(offsetof(VIDEOSAVESETTINGS,hackMouseAim)==288 && offsetof(VIDEOSAVESETTINGS,debugKeys)==292 && offsetof(VIDEOSAVESETTINGS,controllerVibration)==296 && offsetof(VIDEOSAVESETTINGS,longShadows)==300);
     static_assert(offsetof(VIDEOSAVESETTINGS,padInvertCameraX)==304 && offsetof(VIDEOSAVESETTINGS,mouseInvertTurretY)==324);
     static_assert(offsetof(VIDEOSAVESETTINGS,alwaysOriginalPsPrompts)==200 && offsetof(VIDEOSAVESETTINGS,instantSkipCutscenes)==284);
@@ -751,8 +752,15 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
          VIDEOSAVESETTINGS loaded{};uint32_t version=0;
          require(cane::settings::load(SystemSettingsPath(),loaded,&version)==cane::settings::LoadResult::Upgraded && version==19 &&
                  loaded.alphaToCoverage==1 && loaded.postAa==cane::settings::PostAa_Off && loaded.longShadows==0,"v19 settings upgrade failed");}
-        // Round-trip the current writer (v20), with the fields Sly 1 does not use kept as loaded.
-        {VIDEOSAVESETTINGS file=cane::settings::defaults();file.alphaToCoverage=0;file.postAa=1;file.fovPercent=35;file.showFps=1;file.streamerMode=1;file.hackMouseAim=0;file.debugKeys=1;file.controllerVibration=0;file.longShadows=0;
+        // v20 files take Sly 2's v21 picture defaults (bloom, grading, vignette, outlines off).
+        {VIDEOSAVESETTINGS file=cane::settings::defaults();file.postAa=1;file.bloom=50;file.outlines=2;
+         require(cane::settings::save(SystemSettingsPath(),file,20),"v20 settings writer failed");
+         VIDEOSAVESETTINGS loaded{};uint32_t version=0;
+         require(cane::settings::load(SystemSettingsPath(),loaded,&version)==cane::settings::LoadResult::Upgraded && version==20 &&
+                 loaded.postAa==1 && loaded.bloom==0 && loaded.colorGrade==cane::settings::Grade_Original && loaded.vignette==0 &&
+                 loaded.outlines==cane::settings::Outlines_Original,"v20 settings upgrade failed");}
+        // Round-trip the current writer (v21), with the fields Sly 1 does not use kept as loaded.
+        {VIDEOSAVESETTINGS file=cane::settings::defaults();file.alphaToCoverage=0;file.postAa=1;file.bloom=40;file.colorGrade=1;file.vignette=30;file.outlines=2;file.fovPercent=35;file.showFps=1;file.streamerMode=1;file.hackMouseAim=0;file.debugKeys=1;file.controllerVibration=0;file.longShadows=0;
          file.padInvertCameraX=1;file.padInvertCameraY=1;file.mouseInvertBinocX=1;file.mouseInvertBinocY=1;file.mouseInvertTurretX=1;file.mouseInvertTurretY=1;
          require(cane::settings::save(SystemSettingsPath(),file),"Settings writer failed");
          VIDEOSAVESETTINGS loaded{};require(LoadSystemSettings(&loaded),"Current settings rejected");
@@ -775,7 +783,8 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
         require(current.autoCameraRotation==0,"Camera rotation setting lost");
         require(current.fovPercent==35 && current.showFps==1 && current.streamerMode==1 && current.hackMouseAim==0 && current.debugKeys==1 && current.controllerVibration==0 && current.longShadows==0 &&
                 current.padInvertCameraX==1 && current.padInvertCameraY==1 && current.mouseInvertBinocX==1 && current.mouseInvertBinocY==1 &&
-                current.mouseInvertTurretX==1 && current.mouseInvertTurretY==1 && current.alphaToCoverage==0 && current.postAa==1,
+                current.mouseInvertTurretX==1 && current.mouseInvertTurretY==1 && current.alphaToCoverage==0 && current.postAa==1 &&
+                current.bloom==40 && current.colorGrade==1 && current.vignette==30 && current.outlines==2,
                 "Other builds' settings not kept");
         // A file from a newer build is reported, never accepted or overwritten.
         {auto newer=bytes(SystemSettingsPath());newer[8]=static_cast<char>(cane::settings::kVersion+1);

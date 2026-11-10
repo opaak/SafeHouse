@@ -259,3 +259,51 @@ int ExportTexturesCommand(const std::string& dirIn)
     }
     return 0;
 }
+
+bool FLoadImageRgba(const std::string& path, std::vector<uint8_t>& rgba, int* pw, int* ph)
+{
+    std::error_code ec;
+    const fs::path file = cane::path(path);
+    const auto cb = fs::file_size(file, ec);
+    if (ec || cb == 0 || cb > (64u << 20)) return false;
+    std::vector<uint8_t> ab(static_cast<size_t>(cb));
+    std::FILE* pf = nullptr;
+#ifdef _WIN32
+    pf = _wfopen(file.c_str(), L"rb");
+#else
+    pf = std::fopen(file.c_str(), "rb");
+#endif
+    if (!pf) return false;
+    const size_t cbRead = std::fread(ab.data(), 1, ab.size(), pf);
+    std::fclose(pf);
+    if (cbRead != ab.size()) return false;
+    int w = 0, h = 0;
+    stbi_uc* pb = stbi_load_from_memory(ab.data(), static_cast<int>(ab.size()), &w, &h, nullptr, 4);
+    if (!pb || w <= 0 || h <= 0 || w > 16384 || h > 16384)
+    {
+        if (pb) stbi_image_free(pb);
+        return false;
+    }
+    rgba.assign(pb, pb + size_t(w) * h * 4);
+    stbi_image_free(pb);
+    *pw = w;
+    *ph = h;
+    return true;
+}
+
+bool FWritePngRgba(const std::string& path, const std::vector<uint8_t>& rgba, int dx, int dy)
+{
+    const fs::path file = cane::path(path);
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    std::FILE* pf = nullptr;
+#ifdef _WIN32
+    pf = _wfopen(file.c_str(), L"wb");
+#else
+    pf = std::fopen(file.c_str(), "wb");
+#endif
+    if (!pf) return false;
+    const int fOk = stbi_write_png_to_func([](void* pv, void* pdata, int cb) { std::fwrite(pdata, 1, size_t(cb), static_cast<std::FILE*>(pv)); },
+                                           pf, dx, dy, 4, rgba.data(), dx * 4);
+    return std::fclose(pf) == 0 && fOk != 0;
+}

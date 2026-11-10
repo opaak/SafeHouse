@@ -42,6 +42,16 @@ can be turned off where it changes how the game looks or plays.
   - **Image scaling: Sharp:** contrast-adaptive sharpening of the 3D picture (with a strength setting) and a better
     filter to the window: Catmull-Rom when scaling up, and a wide filter when scaling down, which makes an internal
     resolution above the screen's (supersampling) worth using; the launcher then offers those heights too.
+- **Picture (Sly 2, Windows and Linux):** also in **Settings > Graphics**, each off by default:
+  - **Outlines:** ink lines from the scene's depth on top of the original's cel borders, in the borders' own colour,
+    closer to Sly 4's look: at the silhouettes, or also at the creases inside a shape (a wall meeting the floor). They
+    fade out with distance.
+  - **Bloom:** a soft glow around the brightest parts of the picture (lights, windows, neon), before the HUD.
+  - **Color grading:** Vivid (a little more saturation and contrast) or a LUT of your own from
+    `Mods/ColorGrading/lut.png` (a 1024x32 strip, as ReShade's and Unity's LUTs; 256x16 and 4096x64 work too). The
+    first start without one writes `neutral.png` there, a LUT that changes nothing: grade a screenshot in an image
+    editor, apply the same adjustments to `neutral.png` and save it as `lut.png`.
+  - **Vignette:** darkens the picture's corners (measured in a 16:9 frame, so ultrawide keeps its middle bright).
 - **Low-end GPUs:** weak integrated graphics start at a lower internal resolution on first launch.
 
 ## Controls
