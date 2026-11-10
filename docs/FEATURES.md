@@ -67,7 +67,16 @@ can be turned off where it changes how the game looks or plays.
 - **Ancestor techniques from the Thievius Raccoonus** (after *Sly Cooper: Thieves in Time*): four techniques for
   Sly, each on a page of the Thievius Raccoonus hidden in an episode's vault (collect its 30 clue bottles and open
   it). Found pages appear in ThiefNet's new third page, **Thievius Raccoonus** (Square, or the stick right from
-  Sell), where they are studied and learned. Saves whose vaults are already open have their pages.
+  Sell). Choosing a found page starts its **training**: ThiefNet closes and Sly has the technique for a challenge
+  against the clock in the hub (a panel shows the goal, the progress and the time); done in time, he has learned
+  it, otherwise it can be tried again from ThiefNet. Saves whose vaults are already open have their pages.
+  | Technique | Training |
+  | --- | --- |
+  | Rail Sprint | 1500 units along ropes and rails holding R1, in 60 s |
+  | Silent Sprint | 15 s of sprinting near guards without alerting them, in 120 s |
+  | Leaping Dragon | three leaps landed on spires, in 90 s |
+  | Climbing Cobra | 1000 units up or down poles and pipes holding R1, in 45 s |
+
   - **Rail Sprint** ("Tennessee Kid" Cooper, Episode 1's vault): hold R1 on ropes and rails to run 1.75 times as fast.
   - **Silent Sprint** (Rioichi Cooper, Episode 2): the sprint (R1) makes no noise for the guards, and Sly leaves dark
     shadow afterimages behind him (drawn on Windows and Linux).

@@ -13,6 +13,7 @@
 #include "jump.h"
 #include "lo.h"
 #include "pcprogress.h"
+#include "raccoonus.h"
 #include "po.h"
 #include "sound.h"
 #include "sw.h"
@@ -48,6 +49,9 @@ struct AIM
     LEAPPLAN plan;
 };
 AIM s_aim;
+// the leap in flight: its spire, until Sly is perched on it (a landed leap: raccoonus.h NoteLeapLanded) or 5 s
+LO* s_ploLeapTo = nullptr;
+float s_tLeap = 0.0f;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_LEAPPRINT") != nullptr; return s_f; }
 
@@ -102,6 +106,16 @@ bool FLeapDragonSpire(ACTOR* pa, LO* ploSpire, PADCTL* pc)
     {
         s_aim = AIM{};
         s_aim.serial = psw->serial;
+        s_ploLeapTo = nullptr;
+    }
+    if (s_ploLeapTo && (ploSpire == s_ploLeapTo || g_clock.t - s_tLeap > 5.0f))
+    {
+        if (ploSpire == s_ploLeapTo)
+        {
+            if (FPrint()) std::printf("leap: landed on spire %d\n", ploSpire->oid);
+            NoteLeapLanded();
+        }
+        s_ploLeapTo = nullptr;
     }
     // (a stale aim, from before Sly left a spire, or another spire's)
     if (s_aim.fAiming && (g_clock.tReal - s_aim.tLast > 0.25f || s_aim.ploOn != ploSpire)) DropAim();
@@ -141,6 +155,8 @@ bool FLeapDragonSpire(ACTOR* pa, LO* ploSpire, PADCTL* pc)
     TurnActorNow(pa);               // 0x204CA8
     SetJumpKind(&pa->jump, 1, 0, nullptr);   // 0x195A00: the jump off the spire, as cross does
     StartLeapToSpire(&pa->jump, ptarget, plan);
+    s_ploLeapTo = ptarget;
+    s_tLeap = g_clock.t;
     return true;
 }
 

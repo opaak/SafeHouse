@@ -368,7 +368,7 @@ void UpdateShop(SW* psw)
     }
     else if (p.page == 2)
     {
-        if (GrfbtnTakePressed(BtnMenuConfirm())) FConfirmRaccoonusPage();
+        if (GrfbtnTakePressed(BtnMenuConfirm()) && FConfirmRaccoonusPage()) return;   // (a training: ThiefNet closed)
     }
     else if (p.page == 1)
     {

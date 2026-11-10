@@ -2,7 +2,13 @@
 
 #include "raccoonus.h"
 
+#include "actor.h"
 #include "clock.h"
+#include "guard.h"
+#include "lo.h"
+#include "po.h"
+#include "so.h"
+#include "sound.h"
 #include "hud.h"
 #include "pcprogress.h"
 #include "ref.h"
@@ -28,6 +34,14 @@ namespace
 {
 // The ancestors after Sly 4's: Tennessee Kid Cooper made the rail walk his escape; Rioichi Cooper his silent sprint and
 // the Leaping Dragon from the spires he perfected; Salim al-Kupar the Climbing Cobra.
+// The trainings (see raccoonus.h): per page its goal (units of progress), time and text.
+struct TRAINDEF { float goal; float tLimit; const char* szGoal; const char* szUnit; };
+const TRAINDEF s_atrain[] = {
+    {1500.0f, 60.0f, "Run along ropes and rails holding &2R&.", ""},
+    {15.0f, 120.0f, "Sprint near guards without being noticed", " s"},
+    {3.0f, 90.0f, "Leap from spire to spire", ""},
+    {1000.0f, 45.0f, "Climb poles and pipes holding &2R&.", ""},
+};
 const RACPAGE s_apage[] = {
     {kItemRailSprint, 1, "\"Tennessee Kid\" Cooper", "Rail Sprint", "Hold &2R&. on ropes and rails to run along them"},
     {kItemSilentSprint, 2, "Rioichi Cooper", "Silent Sprint", "Sprint with &2R&. without a sound; Sly leaves only shadows behind"},
@@ -37,6 +51,18 @@ const RACPAGE s_apage[] = {
 constexpr int CPAGE = int(sizeof(s_apage) / sizeof(s_apage[0]));
 
 int s_isel = 0;
+static_assert(sizeof(s_atrain) / sizeof(s_atrain[0]) == sizeof(s_apage) / sizeof(s_apage[0]));
+
+// The training under way (ipage -1: none)
+struct TRAINING
+{
+    int ipage = -1;
+    uint32_t serial = 0;    // its world's (another world ends it)
+    float tStart = 0.0f;    // game time
+    float progress = 0.0f;
+    int cAlertStart = 0;    // the guards' alert at the start (Silent Sprint: more is a failure)
+};
+TRAINING s_train;
 
 // the message over the HUD (a page found / learned): its two lines and when it goes
 std::string s_strMsg1, s_strMsg2;
@@ -120,17 +146,99 @@ void StepRaccoonusPage(int d)
 bool FConfirmRaccoonusPage()
 {
     const int i = s_isel;
-    if (!FRaccoonusPageFound(i) || FRaccoonusPageLearned(i))
+    if (!FRaccoonusPageFound(i) || FRaccoonusPageLearned(i) || !g_psw)
     {
         PsndStartSound(0x36);
         return false;
     }
-    // [phase 1: studying the page learns it; the training challenge comes here]
-    SetPcItemOwned(s_apage[i].item, true);
+    s_train = TRAINING{};
+    s_train.ipage = i;
+    s_train.serial = g_psw->serial;
+    s_train.tStart = g_clock.t;
+    s_train.cAlertStart = g_sound.fModeAlert;
     PsndStartSound(0x29);   // (the shop's purchase)
-    ShowMsg(std::string("Sly learned ") + s_apage[i].szTechnique + "!", s_apage[i].szHow, 6.0f);
-    if (FPrint()) std::printf("raccoonus: %s learned\n", s_apage[i].szTechnique);
+    SetShopPage(-1);
+    ShowMsg(std::string("Training: ") + s_apage[i].szTechnique, s_apage[i].szHow, 5.0f);
+    if (FPrint()) std::printf("raccoonus: training %s\n", s_apage[i].szTechnique);
     return true;
+}
+
+bool FTrainingItem(int item) { return s_train.ipage >= 0 && s_apage[s_train.ipage].item == item && g_psw && s_train.serial == g_psw->serial; }
+
+void NoteLeapLanded()
+{
+    if (s_train.ipage >= 0 && s_apage[s_train.ipage].item == kItemLeapingDragon) s_train.progress += 1.0f;
+}
+
+void UpdateRaccoonusTraining()
+{
+    if (s_train.ipage < 0) return;
+    const RACPAGE& page = s_apage[s_train.ipage];
+    const TRAINDEF& def = s_atrain[s_train.ipage];
+    if (!g_psw || s_train.serial != g_psw->serial)
+    {
+        // (another world: the hub left, or Sly caught and the world reloaded)
+        s_train = TRAINING{};
+        ShowMsg(std::string("Training stopped: ") + page.szTechnique, "Try it again from ThiefNet's Thievius Raccoonus.", 5.0f);
+        return;
+    }
+    const float dt = g_clock.dt;
+    LO* plo = PloPoCurrent(g_psw);
+    ACTOR* pa = plo ? PactorFromLo(plo) : nullptr;
+    SLY* psly = pa ? PslyFromLo(pa->palo) : nullptr;
+    PODATA* ppd = plo ? PpodataFromLo(plo) : nullptr;
+    const uint32_t grfbtn = ppd && ppd->ppadctl ? ppd->ppadctl->grfbtn : 0u;
+    constexpr uint32_t BTN_R1 = 0x8;
+    if (psly && dt > 0.0f)
+    {
+        switch (page.item)
+        {
+        case kItemRailSprint:
+            if (psly->state == 7 && psly->n4C8 == 3 && (grfbtn & BTN_R1)) s_train.progress += glm::length(glm::vec2(VelAloPos(psly->palo))) * dt;
+            break;
+        case kItemClimbingCobra:
+            if (psly->state == 8 && (grfbtn & BTN_R1)) s_train.progress += std::fabs(psly->gCrvF50) * dt;
+            break;
+        case kItemSilentSprint:
+        {
+            if (g_sound.fModeAlert > s_train.cAlertStart)
+            {
+                s_train = TRAINING{};
+                PsndStartSound(0x36);
+                ShowMsg("Training failed: the guards noticed Sly.", "Try it again from ThiefNet's Thievius Raccoonus.", 6.0f);
+                return;
+            }
+            s_train.cAlertStart = std::min(s_train.cAlertStart, g_sound.fModeAlert);   // (a chase from before that ended)
+            if (psly->state != 1) break;
+            const glm::vec3 pos = PosAloCenter(psly->palo);
+            bool fNear = false;
+            for (CID cid = 0x38; cid <= 0x43 && !fNear; ++cid)
+                for (LO* pg : g_psw->mpcidaplo[cid])
+                {
+                    if (!pg->fInWorld || !FCidDerivedFrom(pg->Cid(), 0x30) || !PguardFromLo(pg)) continue;
+                    if (glm::length(PosAloCenter(static_cast<ALO*>(pg)) - pos) < 900.0f) { fNear = true; break; }
+                }
+            if (fNear) s_train.progress += dt;
+            break;
+        }
+        default: break;   // (Leaping Dragon: NoteLeapLanded)
+        }
+    }
+    if (s_train.progress >= def.goal)
+    {
+        SetPcItemOwned(page.item, true);
+        s_train = TRAINING{};
+        PsndStartSound(0x29);
+        ShowMsg(std::string("Sly learned ") + page.szTechnique + "!", page.szHow, 7.0f);
+        if (FPrint()) std::printf("raccoonus: %s learned\n", page.szTechnique);
+        return;
+    }
+    if (g_clock.t - s_train.tStart > def.tLimit)
+    {
+        s_train = TRAINING{};
+        PsndStartSound(0x36);
+        ShowMsg(std::string("Training failed: out of time."), "Try it again from ThiefNet's Thievius Raccoonus.", 6.0f);
+    }
 }
 
 std::string StrRaccoonusDescription()
@@ -140,7 +248,13 @@ std::string StrRaccoonusDescription()
         return std::string("A missing page. Episode ") + std::to_string(p.iep) +
                ": collect its 30 clue bottles and open the vault to find it.";
     std::string s = std::string(p.szTechnique) + " (" + p.szAncestor + "): " + p.szHow + ".";
-    if (!FRaccoonusPageLearned(s_isel)) s += " Press &2X&. to study it.";
+    if (!FRaccoonusPageLearned(s_isel))
+    {
+        const TRAINDEF& def = s_atrain[std::clamp(s_isel, 0, CPAGE - 1)];
+        char ach[64];
+        std::snprintf(ach, sizeof(ach), "%.0f%s in %.0f s", def.goal, def.szUnit, def.tLimit);
+        s += std::string(" Press &2X&. to train: ") + def.szGoal + ", " + ach + ".";
+    }
     return s;
 }
 
@@ -148,7 +262,8 @@ void DrawRaccoonusHud(int width, int height)
 {
     const bool fPage = FShopShown() && IShopPage() == 2;
     const bool fMsg = g_clock.tReal < s_tMsgEnd;
-    if (!fPage && !fMsg) return;
+    const bool fTrain = s_train.ipage >= 0 && g_psw && s_train.serial == g_psw->serial && !FShopShown();
+    if (!fPage && !fMsg && !fTrain) return;
     const FONTBRX* pfont = PfontHud();
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
@@ -175,10 +290,32 @@ void DrawRaccoonusHud(int width, int height)
             DrawLine(*pfont, picons, strName, x0 + 16.0f, y, size, fFound ? offText : offDim);
             DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 16.0f,
                      y + 15.0f, size * 0.65f, offDim);
-            const std::string strState = fLearned ? "Learned" : fFound ? "Found: study it" : "Missing";
+            const std::string strState = fLearned ? "Learned" : fFound ? "Found: train" : "Missing";
             DrawLine(*pfont, picons, strState, x1 - 16.0f - DxLine(*pfont, picons, strState, size * 0.8f), y + 3.0f, size * 0.8f,
                      fLearned ? offLearned : fFound ? offFound : offDim);
         }
+    }
+    if (fTrain)
+    {
+        // the training's panel, top left: the technique, the goal, the progress bar, the time left
+        const RACPAGE& page = s_apage[s_train.ipage];
+        const TRAINDEF& def = s_atrain[s_train.ipage];
+        constexpr float x0 = 24.0f, y0 = 96.0f, w = 236.0f, h = 70.0f;
+        g_hud.FillScreenRect(x0, y0, x0 + w, y0 + h, glm::vec4(0, 0, 0, 88), z - 2e-4f);
+        const float tLeft = std::max(0.0f, def.tLimit - (g_clock.t - s_train.tStart));
+        char achTime[16];
+        std::snprintf(achTime, sizeof(achTime), "%d:%02d", int(tLeft) / 60, int(tLeft) % 60);
+        const glm::vec4 offTitle(120, 96, 40, 0), offText(100, 100, 100, 0), offTime(tLeft < 10.0f ? 128 : 100, tLeft < 10.0f ? 50 : 100, tLeft < 10.0f ? 40 : 100, 0);
+        const std::string strTitle = std::string("TRAINING: ") + page.szTechnique;
+        DrawLine(*pfont, picons, strTitle, x0 + 8.0f, y0 + 6.0f, 15.0f, offTitle);
+        DrawLine(*pfont, picons, achTime, x0 + w - 8.0f - DxLine(*pfont, picons, achTime, 15.0f), y0 + 6.0f, 15.0f, offTime);
+        DrawLine(*pfont, picons, def.szGoal, x0 + 8.0f, y0 + 26.0f, 12.0f, offText);
+        const float u = std::clamp(s_train.progress / def.goal, 0.0f, 1.0f);
+        g_hud.FillScreenRect(x0 + 8.0f, y0 + 48.0f, x0 + w - 8.0f, y0 + 60.0f, glm::vec4(30, 30, 30, 110), z - 1e-4f);
+        g_hud.FillScreenRect(x0 + 8.0f, y0 + 48.0f, x0 + 8.0f + (w - 16.0f) * u, y0 + 60.0f, glm::vec4(118, 84, 24, 128), z - 5e-5f);
+        char achProg[32];
+        std::snprintf(achProg, sizeof(achProg), "%.0f / %.0f%s", std::min(s_train.progress, def.goal), def.goal, def.szUnit);
+        DrawLine(*pfont, picons, achProg, x0 + w * 0.5f - DxLine(*pfont, picons, achProg, 10.0f) * 0.5f, y0 + 48.5f, 10.0f, offText);
     }
     if (fMsg)
     {

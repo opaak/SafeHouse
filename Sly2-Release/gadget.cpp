@@ -6,6 +6,7 @@
 #include "worldglobals.h"
 #include "pccharacter.h"   // (PC addition, debug menu only: Carmelita's moveset)
 #include "pcprogress.h"
+#include "raccoonus.h"
 #include "damage.h"
 #include "objmethod.h"
 
@@ -340,7 +341,7 @@ void SetAbilityState(ACTOR* pa, ABSLOT& e, int s)
 
 bool FPowerupOwned(int id)
 {
-    if (FPcItem(id)) return FPcItemOwned(id);   // (PC items: pcprogress.h)
+    if (FPcItem(id)) return FPcItemOwned(id) || FTrainingItem(id);   // (PC items: pcprogress.h; in training: raccoonus.h)
     const CRef r = RefGetProgress({"powerUps", "mppukfAcquired", std::to_string(id)});
     return r.m_tagk == TAGK_S32 ? r.m_n != 0 : r.m_tagk == TAGK_Bool ? r.m_bool != 0 : false;
 }

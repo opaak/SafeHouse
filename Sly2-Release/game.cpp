@@ -1602,6 +1602,7 @@ int RunGame(const GAMEOPTS& go)
         if ((g_grfjoyLock & 8) && g_clock.rDt != 0.0f && 0.1f < g_clock.t / g_clock.rDt) UnlockJoy(8);
         UpdateWipe(psw.get());
         UpdateHud(psw.get());
+        UpdateRaccoonusTraining();   // (PC: the Thievius Raccoonus' training, once a game step: raccoonus.h)
         // debug: SLY2N_F6AT=frame does F6 headless
         static const int s_iframeF6 = std::getenv("SLY2N_F6AT") ? std::atoi(std::getenv("SLY2N_F6AT")) : -1;
         if (frame == s_iframeF6) DebugUnlockAll(psw.get());
