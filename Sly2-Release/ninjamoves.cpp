@@ -40,10 +40,11 @@ constexpr float kRailSprint = 1.75f;
 constexpr float kClimbCobra = 1.8f;
 
 // The afterimages: a pose every dtGhost of sprinting, each drawn tGhostLife after it was taken, the newest skipped
-// until it is tGhostMin old (it would lie on Sly himself); dark violet, alpha from aGhost fading to 0.
+// until it is tGhostMin old (it would lie on Sly himself); violet (light enough for the night levels), alpha from
+// aGhost fading to 0.
 constexpr float dtGhost = 0.05f, tGhostLife = 0.3f, tGhostMin = 0.045f;
-constexpr float aGhost = 0.42f;
-const glm::vec3 rgbGhost(0.05f, 0.02f, 0.10f);
+constexpr float aGhost = 0.5f;
+const glm::vec3 rgbGhost(0.14f, 0.07f, 0.28f);
 constexpr size_t cGhostMax = 8;
 
 struct GHOST
@@ -54,6 +55,8 @@ struct GHOST
 std::deque<GHOST> s_aghost;
 uint32_t s_serialGhost = 0;
 float s_tLastGhost = -1e9f;
+glm::vec3 s_posLast(0.0f);   // (Sly's place at s_tPos, game time, and his speed then)
+float s_tPos = -1e9f, s_vGround = 0.0f;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_NINJAPRINT") != nullptr; return s_f; }
 
@@ -186,9 +189,15 @@ void UpdateSprintGhosts(const SCENE& scene)
     LO* plo = PloPoCurrent(psw);
     ACTOR* pa = plo ? PactorFromLo(plo) : nullptr;
     SLY* psly = PslyPlaying(pa);
+    // Sly's speed over the ground from his place a frame ago (his position transform has no velocity of its own: he
+    // moves by the step physics, so VelAloPos is zero)
+    const glm::vec3 pos = psly ? PosAloCenter(psly->palo) : glm::vec3(0.0f);
+    const float dtPos = t - s_tPos;
+    const float vGround = psly && dtPos > 0.0f && dtPos < 0.25f ? glm::length(glm::vec2(pos - s_posLast)) / dtPos : s_vGround;
+    if (dtPos > 0.0f) { s_posLast = pos; s_tPos = t; s_vGround = vGround; }
     if (!psly || psly->state != 1 || !FPowerupOwned(kItemSilentSprint)) return;
     if (t - s_tLastGhost < dtGhost) return;
-    if (glm::length(glm::vec2(VelAloPos(psly->palo))) < 150.0f) return;   // (standing in the sprint state: no trail)
+    if (vGround < 150.0f) return;   // (standing in the sprint state: no trail)
     std::vector<const SCENEGLOBSET*> apsgs;
     CollectSgs(scene, psly->palo, 0, apsgs);
     if (apsgs.empty()) return;
@@ -221,7 +230,7 @@ void DrawSprintGhosts(const SCENE& scene, const CAMERA& cam)
         const float age = t - g.t;
         if (age < tGhostMin || age > tGhostLife) continue;
         const float u = 1.0f - (age - tGhostMin) / (tGhostLife - tGhostMin);
-        adraw.push_back({&g.apart, glm::vec4(rgbGhost, aGhost * u * u)});
+        adraw.push_back({&g.apart, glm::vec4(rgbGhost, aGhost * u)});
     }
     RenderGhostPoses(scene, cam, adraw);
 }
