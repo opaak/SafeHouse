@@ -76,6 +76,9 @@ jobs:
   linux:
     name: Linux ${{ matrix.arch }} (Ubuntu 22.04)
     needs: version
+    # Built in the public repository; in a fork only with the repository variable SAFEHOUSE_BUILD_LINUX set to true
+    # (Settings > Secrets and variables > Actions > Variables).
+    if: ${{ github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_LINUX == 'true' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -259,6 +262,8 @@ jobs:
   switch:
     name: Nintendo Switch (devkitPro)
     needs: version
+    # Built in the public repository; in a fork only with the repository variable SAFEHOUSE_BUILD_SWITCH set to true.
+    if: ${{ github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_SWITCH == 'true' }}
     runs-on: ubuntu-24.04
     container: devkitpro/devkita64:20260219
     timeout-minutes: 120
