@@ -55,6 +55,21 @@ float UpdateJumpTargetPath(JUMP* pj);
 // orig: 0x0019C688 (the flight to the target is over: the target's action / the owner's state)
 void ArriveJumpTarget(JUMP* pj);
 
+// PC addition (leapdragon.h, Leaping Dragon after Sly 4's Rioichi Cooper): a long leap from where the actor is to a
+// spire, flown as circle's spire target is (state 9: the record driven to the spire's point, then perched on it), from
+// a launch velocity that reaches the point ballistically: the time grows with the distance (1300 / s across, 0.6 to
+// 2.2 s) and leaves the arc falling at the end. False when the spire is not reached that way or the path is blocked
+// (0x19AE00 as circle's targets test it).
+struct LEAPPLAN
+{
+    float t = 0.0f;
+    glm::vec3 vLaunch{0.0f}, posT{0.0f}, velT{0.0f};
+};
+bool FPlanLeapToSpire(ACTOR* pa, LO* pspire, LEAPPLAN* pplan);
+// The leap planned: the launch velocity, the record's goal (+0xA8 / +0xC0 / +0xD0), the jump's state 9 on the spire.
+// Called right after the jump's kind 1 (the jump off the spire) in the same step.
+void StartLeapToSpire(JUMP* pj, LO* pspire, const LEAPPLAN& plan);
+
 // The ledge grab (jumpledge.cpp, orig 0x199D48 and the state 17 parts of 0x195FB8 / 0x197500): falling onto a
 // geometry edge with room behind it hangs from it (the jump's state 17)
 bool FJumpGrabLedge(JUMP* pj);        // the best ledge among the contacts: state 17 on it

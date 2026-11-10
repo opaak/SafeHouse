@@ -1,6 +1,7 @@
 // interact.cpp: the players' interaction sub-object ACTOR +0x4C0 (interact.h). Ported from the original's code (see
 // interact.h); the parts each function warns about once ("interact: ... not ported") are left out.
 #include "booty.h"
+#include "leapdragon.h"
 
 #include <bit>
 #include "interact.h"
@@ -868,6 +869,8 @@ void UpdateInteractTransitions(ACTOR* pa)
             binoc();
             break;
         case 3: case 4:
+            // (PC addition: Leaping Dragon on a spire, leapdragon.h: circle held aims, let go leaps)
+            if (pa->n4C8 == 4 && FLeapDragonSpire(pa, i.ploTarget, pc)) break;
             if (FTake(pc, GRF_CROSS, 0.1f)) { SetJumpKind(&pa->jump, 1, 0, 0); break; }
             binoc();
             break;

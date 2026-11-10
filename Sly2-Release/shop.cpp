@@ -25,6 +25,7 @@
 #include "update.h"
 #include "actor.h"
 #include "gadget.h"
+#include "pcprogress.h"
 #include "pcinput.h"
 #include "worldaccess.h"
 
@@ -45,11 +46,15 @@ int NRef(const CRef& r) { return r.m_tagk == TAGK_S32 ? r.m_n : r.m_tagk == TAGK
 
 // the items (0x2BCD00: 0x2B of 0x20 bytes): +4 the kind (7 / 8 / 9: the character), +8 the cost, +0x10 the
 // episode it opens in, +0x14 its name, +0x18 its description
-int ItemKind(int i) { return NElf(0x2BCD00 + 0x20 * uint32_t(i) + 4); }
-int ItemCost(int i) { return NElf(0x2BCD00 + 0x20 * uint32_t(i) + 8); }
-int ItemEpisode(int i) { return NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x10); }
-int ItemName(int i) { return NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x14); }
-int ItemDesc(int i) { return NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x18); }
+// (PC items after them, pcprogress.h: their own data; their name and description are texts, not text ids: StrItemName)
+int ItemKind(int i) { return FPcItem(i) ? NPcItemKind(i) : NElf(0x2BCD00 + 0x20 * uint32_t(i) + 4); }
+int ItemCost(int i) { return FPcItem(i) ? NPcItemCost(i) : NElf(0x2BCD00 + 0x20 * uint32_t(i) + 8); }
+int ItemEpisode(int i) { return FPcItem(i) ? NPcItemEpisode(i) : NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x10); }
+int ItemName(int i) { return FPcItem(i) ? -1 : NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x14); }
+int ItemDesc(int i) { return FPcItem(i) ? -1 : NElf(0x2BCD00 + 0x20 * uint32_t(i) + 0x18); }
+bool FShopItem(int i) { return (i >= 0 && i < 0x2B) || FPcItem(i); }
+std::string StrItemName(const SW* psw, int i) { return FPcItem(i) ? std::string(SzPcItemName(i)) : StrLocalized(psw, ItemName(i)); }
+std::string StrItemDesc(const SW* psw, int i) { return FPcItem(i) ? std::string(SzPcItemDesc(i)) : StrLocalized(psw, ItemDesc(i)); }
 // the loot (0x2C3288: 0x40 of 0xC bytes): +0 its value, +4 its name
 int LootValue(int i) { return NElf(0x2C3288 + 0xC * uint32_t(i)); }
 int LootName(int i) { return NElf(0x2C3288 + 0xC * uint32_t(i) + 4); }
@@ -62,7 +67,7 @@ int CCoins() { return NRef(RefGetProgress({"loot", "ccoin"})); }
 void SetCoins(int n) { CRef r; r.SetS32(n); FSetProgress({"loot", "ccoin"}, r); }
 // orig 0x001DAE58 / 0x001DAEA8 / 0x001DAF38: an item open, owned, bought
 bool FItemOpen(int i) { return ItemEpisode(i) != -1 && NRef(RefGetProgress({"episodeBest"})) >= ItemEpisode(i); }
-bool FItemOwned(int i) { return NRef(RefGetProgress({"powerUps", "mppukfAcquired", std::to_string(i)})) != 0; }
+bool FItemOwned(int i) { return FPcItem(i) ? FPcItemOwned(i) : NRef(RefGetProgress({"powerUps", "mppukfAcquired", std::to_string(i)})) != 0; }
 int CLoot(int i) { return NRef(RefGetProgress({"loot", "mplootkc", std::to_string(i)})); }
 
 // orig 0x003DA150
@@ -133,6 +138,8 @@ void BuildShopList()
     {
         for (int i = 7; i < 0x2B && p.c < 0x40; ++i)
             if (FItemOpen(i) && !FItemOwned(i)) p.aent[p.c++].id = i;
+        // (PC items, after the original's: pcprogress.h)
+        if (FItemOpen(kItemLeapingDragon) && !FItemOwned(kItemLeapingDragon) && p.c < 0x40) p.aent[p.c++].id = kItemLeapingDragon;
     }
     else if (p.page == 1)
     {
@@ -330,7 +337,8 @@ void UpdateShop(SW* psw)
                     SetCoins(have - cost);
                     CRef r;
                     r.SetBool(true);
-                    FSetProgress({"powerUps", "mppukfAcquired", std::to_string(item)}, r);
+                    if (FPcItem(item)) SetPcItemOwned(item, true);   // (PC items: pcprogress.h, saved with the slot)
+                    else FSetProgress({"powerUps", "mppukfAcquired", std::to_string(item)}, r);
                     g_taskmgr.nItemC = item;   // (0x1DAF38: the task manager's +0xC)
                     if (psw) BroadcastTaskEvent(psw, 0x3B, nullptr);
                     BuildShopList();
@@ -373,18 +381,18 @@ std::string StrShopScript(int id)
 {
     const SHOP& p = s_shop;
     const SW* psw = p.psw;
-    char ach[256];
+    char ach[512];
     if (!p.plo) return "";
     // orig 0x001DC790 / 0x001DC820 (0x43C..0x447): row i's powerup name / cost
     if (id >= 0x43C && id <= 0x441)
     {
         const int n = p.aent[std::min(p.first + id - 0x43C, 0x3F)].id;
-        return n >= 0 && n < 0x2B && ItemName(n) != -1 ? StrLocalized(psw, ItemName(n)) : "";
+        return FShopItem(n) && (FPcItem(n) || ItemName(n) != -1) ? StrItemName(psw, n) : "";
     }
     if (id >= 0x442 && id <= 0x447)
     {
         const int n = p.aent[std::min(p.first + id - 0x442, 0x3F)].id;
-        if (n < 0 || n >= 0x2B) return "";
+        if (!FShopItem(n)) return "";
         std::snprintf(ach, sizeof(ach), "%d", ItemCost(n));
         return ach;
     }
@@ -423,9 +431,9 @@ std::string StrShopScript(int id)
         if (p.page == 0)
         {
             const int i = p.itemBuy;
-            if (i >= 0 && i < 0x2B && ItemDesc(i) != p.msg)
+            if (FShopItem(i) && (FPcItem(i) || ItemDesc(i) != p.msg))
             {
-                std::snprintf(ach, sizeof(ach), "%s: %s. %s", StrLocalized(psw, ItemName(i)).c_str(), StrLocalized(psw, ItemDesc(i)).c_str(),
+                std::snprintf(ach, sizeof(ach), "%s: %s. %s", StrItemName(psw, i).c_str(), StrItemDesc(psw, i).c_str(),
                               StrLocalized(psw, IdText(CCoins() < ItemCost(i) ? 0xD9 : 0xDA)).c_str());
                 return ach;
             }

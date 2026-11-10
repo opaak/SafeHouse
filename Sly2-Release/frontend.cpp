@@ -7,6 +7,7 @@
 
 #include "rumble.h"
 #include "frontend.h"
+#include "pcprogress.h"
 #include "replay.h"
 #include "game.h"
 
@@ -658,6 +659,7 @@ bool FWriteSaveSlot(int islot)
     MergeReplaySave(gs);   // (QoL Replay Jobs: a replay keeps the save's progress)
     std::string err;
     if (!FWriteGameSaveBlock(s.path, gs, err)) { std::printf("save: %s\n", err.c_str()); return false; }
+    if (!FSavePcProgress(s.path)) std::printf("save: the PC progress beside %s not written\n", s.path.c_str());   // (pcprogress.h)
     s.save = gs;
     s.fFile = true;
     s.tWrite = std::filesystem::last_write_time(cane::path(s.path), ec).time_since_epoch().count();
@@ -742,6 +744,7 @@ void OnGameRecordEvent(int grfReq)
         g_gamesave = GAMESAVE{};
         ValidateGameSave();
         g_islotChosen = -1;
+        ResetPcProgress();   // (the title: no game, pcprogress.h)
     }
     else if ((grfReq & 0x40) && s_fPending)
     {
@@ -833,6 +836,11 @@ void StartGameFromSave(SW* psw, const GAMESAVE* pgs)
 {
     const float dt = GRef(RefProgressOfSave(*pgs, {"dt"}));
     std::printf("game: start from a save (dt %g, slot %d)\n", dt, g_islotChosen + 1);
+    // (PC additions' progress, pcprogress.h: a new game's is empty, a slot's game reads the slot's)
+    ResetPcProgress();
+    if (dt != 0.0f)
+        for (int i = 0; i < kSlotMax; ++i)
+            if (pgs == &g_aslot[i].save) { LoadPcProgress(g_aslot[i].path); break; }
     if (s_fTitle && dt == 0.0f)
     {
         // a new game in the title's world: the title goes (0x1D54B8: the vibration setting; 0x1DD888)

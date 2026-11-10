@@ -732,6 +732,54 @@ void ChooseJumpTarget(JUMP* pj, LO* ploPrev)
     SetJumpAnimState(pj, stBest, ploBest);  // 0x195FB8
 }
 
+// PC addition: Leaping Dragon's leap (see jump.h)
+bool FPlanLeapToSpire(ACTOR* pa, LO* pspire, LEAPPLAN* pplan)
+{
+    if (!pa || !pspire || !pplan) return false;
+    JUMP* pj = &pa->jump;
+    const glm::vec3 pos = PosActorJ(pa);
+    const glm::vec3 posS = PosJtLo(pspire) - glm::vec3(pa->vecBase);  // (as circle's spires: 0x1FF4F0)
+    const glm::vec3 g = GravActor(pa);
+    if (!(g.z < -1.0f)) return false;
+    const glm::vec3 d = posS - pos;
+    const float dh = std::sqrt(d.x * d.x + d.y * d.y);
+    float t = std::clamp(dh / 1300.0f, 0.6f, 2.2f);
+    // (a spire above: long enough that the arc is falling when it gets there, as FitJumpToPoint's later root wants)
+    if (d.z > 0.0f) t = std::max(t, std::sqrt(2.0f * d.z / -g.z) * 1.25f + 0.15f);
+    const glm::vec3 v = (d - g * (0.5f * t * t)) / t;
+    float tFit = 0.0f, sc = 0.0f;
+    glm::vec3 posT(0.0f), velT(0.0f);
+    FitJumpToPoint(pj, v, pspire, posS, glm::vec3(0.0f), &tFit, &sc, &posT, &velT);  // 0x19A4A0
+    if (!(tFit > 0.05f) || 1000000.0f <= sc) return false;   // (out of reach: 1010000 less the apex height)
+    velT.z = v.z + tFit * g.z;
+    const bool fBlocked = FJumpPathBlocked(pa, tFit, pos, v, posT, velT, nullptr);  // 0x19AE00
+    if (FPrint())
+        std::printf("jumptgt: leap to spire %d: across %.0f up %.0f t %.2f (fit %.2f) v %.0f %.0f %.0f score %.0f%s\n", pspire->oid, dh, d.z, t,
+                    tFit, v.x, v.y, v.z, sc, fBlocked ? " blocked" : "");
+    if (fBlocked) return false;
+    pplan->t = tFit;
+    pplan->vLaunch = v;
+    pplan->posT = posT;
+    pplan->velT = velT;
+    return true;
+}
+
+void StartLeapToSpire(JUMP* pj, LO* pspire, const LEAPPLAN& plan)
+{
+    ACTOR* pa = pj->pactor;
+    SetAloVelocityTo(pa->palo, plan.vLaunch);  // vt slot 35 (over the jump's own launch)
+    // as 0x19B110's end for a spire: the record driven to the end by the time, then the jump's state 9 on it
+    if (XF* pxf = PxfPos(pa->palo))
+    {
+        pxf->tTarget = g_clock.t + plan.t;
+        pxf->aseg[0] = glm::vec4(plan.posT, 0.0f);
+        pxf->aseg[1] = glm::vec4(plan.velT, 0.0f);
+    }
+    pj->g10 = 0.0f;
+    pj->s14 = 0.0f;
+    SetJumpAnimState(pj, 9, pspire);  // 0x195FB8
+}
+
 // orig: 0x0019C688
 void ArriveJumpTarget(JUMP* pj)
 {

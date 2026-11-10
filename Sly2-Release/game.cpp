@@ -25,6 +25,8 @@
 #include "objmethod.h"
 #include "screenrt.h"
 #include "post.h"
+#include "leapdragon.h"
+#include "pcprogress.h"
 #include "overlay.h"
 #include "photo.h"
 #include <unordered_map>
@@ -505,6 +507,7 @@ void DebugUnlockAll(SW* psw)   // (also the debug menu's Player page, debugmenu.
     refTrue.SetBool(1);
     for (int i = 0; i < 64; ++i)
         if (FSetProgress({"powerUps", "mppukfAcquired", std::to_string(i)}, refTrue)) ++c;
+    SetPcItemOwned(kItemLeapingDragon, true);   // (the PC items too: pcprogress.h)
     CRef refCoins;
     refCoins.SetS32(9999);
     FSetProgress({"loot", "ccoin"}, refCoins);
@@ -1989,6 +1992,7 @@ int RunGame(const GAMEOPTS& go)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;
+                DrawLeapDragonHud(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Leaping Dragon's target, leapdragon.h)
                 RenderSceneForeground(scene, cam, opts);   // kinds 22..25 over the HUD (group 10, 0x157CF0)
                 DrawDebugOverlay(g_gl.renderWidth, g_gl.renderHeight);   // (debugmenu.h: the debug menu over all; Debug keys only)
                 g_gl.RememberOverlaySourceFrame();
