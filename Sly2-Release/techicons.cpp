@@ -12,6 +12,9 @@
 #include "techicon_rail_sprint.h"
 #include "techicon_climbing_cobra.h"
 
+// (stb_image's functions compiled into this file, static: as texmod.cpp and qolview.cpp, so no clash)
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 #include <cstdio>
