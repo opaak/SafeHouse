@@ -26,6 +26,7 @@
 #include "actor.h"
 #include "gadget.h"
 #include "pcprogress.h"
+#include "raccoonus.h"
 #include "pcinput.h"
 #include "worldaccess.h"
 
@@ -138,9 +139,7 @@ void BuildShopList()
     {
         for (int i = 7; i < 0x2B && p.c < 0x40; ++i)
             if (FItemOpen(i) && !FItemOwned(i)) p.aent[p.c++].id = i;
-        // (PC items, after the original's: pcprogress.h)
-        for (int k = 0; k < CPcItems() && p.c < 0x40; ++k)
-            if (const int id = IdPcItem(k); FItemOpen(id) && !FItemOwned(id)) p.aent[p.c++].id = id;
+        // (the PC techniques are not sold: they are learned from the Thievius Raccoonus, raccoonus.h, page 2)
     }
     else if (p.page == 1)
     {
@@ -205,9 +204,21 @@ void SetShopDir(int n)
     if (n == p.dir) return;
     p.dir = n;
     p.tDir = g_clock.tReal;
+    if (p.page == 2)
+    {
+        // (PC: the Thievius Raccoonus page, raccoonus.h)
+        switch (n)
+        {
+        case 4: SetShopPage(1); break;
+        case 1: case 2: case 3: StepRaccoonusPage(-1); break;
+        case 5: case 6: case 7: StepRaccoonusPage(1); break;
+        default: break;
+        }
+        return;
+    }
     switch (n)
     {
-    case 0: SetShopPage(1); break;
+    case 0: SetShopPage(p.page == 1 ? 2 : 1); break;   // (PC: past Sell, the Thievius Raccoonus page)
     case 4: SetShopPage(0); break;
     case 1: case 2: case 3:
         if (p.isel > 0)
@@ -270,6 +281,7 @@ void InitShop(SW* psw)
 }
 
 bool FShopShown() { return s_shop.page != -1; }
+int IShopPage() { return s_shop.page; }   // (raccoonus.cpp)
 
 void SetShopPage(int s)
 {
@@ -297,9 +309,11 @@ void SetShopPage(int s)
         break;
     case 0:
     case 1:
+    case 2:   // (PC: the Thievius Raccoonus page over the Sell page's frame, its list empty: raccoonus.h draws it)
         if (s == 0) SetScreenObjParts(p.plo, 0x4D4, 0x4D5, 0x4D6);
         else SetScreenObjParts(p.plo, 0x49B, 0x49C, 0x49D);
-        if (old == (s == 0 ? 1 : 0))
+        if (s == 2) ResetRaccoonusPage();
+        if (old == (s == 0 ? 1 : 0) || (s == 2 && old == 0))
         {
             SetScreenObjState(p.plo, 1);
             SetScreenObjState(p.plo, 2);
@@ -352,6 +366,10 @@ void UpdateShop(SW* psw)
             else PsndStartSound(0x36);
         }
     }
+    else if (p.page == 2)
+    {
+        if (GrfbtnTakePressed(BtnMenuConfirm())) FConfirmRaccoonusPage();
+    }
     else if (p.page == 1)
     {
         if (GrfbtnTakePressed(BtnMenuConfirm()))
@@ -372,7 +390,7 @@ void UpdateShop(SW* psw)
     if (GrfbtnTakePressed(0x80))
     {
         SetShopMsg(-1, -1);
-        SetShopPage(p.page == 0 ? 1 : 0);
+        SetShopPage(p.page == 0 ? 1 : p.page == 1 ? 2 : 0);   // (PC: Buy, Sell, Thievius Raccoonus)
     }
     if (p.msg != 0) UpdateShopStick();
     UpdateShopLook();
@@ -429,6 +447,7 @@ std::string StrShopScript(int id)
     {
         // orig 0x001DCAB0: the message, else the selected item's name, description and whether it is affordable
         if (p.msg != -1) return StrLocalized(psw, IdText(p.idMsg));   // (USA ids: 0x34 / 0x35)
+        if (p.page == 2) return StrRaccoonusDescription();   // (PC: raccoonus.h)
         if (p.page == 0)
         {
             const int i = p.itemBuy;

@@ -64,17 +64,19 @@ can be turned off where it changes how the game looks or plays.
   play their parts in sequence, as in the story; each part can also be played alone.
 - **30 save slots:** ten pages of three.
 - **Skippable cutscenes** where the original paused the game for a scene.
-- **Leaping Dragon** (after Rioichi Cooper's technique in *Thieves in Time*): a new ThiefNet item for Sly, on sale
-  from Episode 2. On a spire, hold Circle: the spire you point the stick (or the camera) at, up to about five times
-  Sly's own spire jumps away, is marked; let go and Sly leaps across on a long arc and lands perched on it. It costs
-  no gadget power. Its purchase is kept in a small `saveN.pc` file beside the save slot, so the save itself stays
-  the PS2's format.
-- **More Sly 4 moves for Sly**, each a ThiefNet item kept the same way:
-  - **Silent Sprint** (Rioichi Cooper's, from Episode 1): the sprint (R1) makes no noise for the guards, and Sly
-    leaves dark shadow afterimages behind him.
-  - **Rail Sprint** (from Episode 1): hold R1 on ropes and rails to run along them 1.75 times as fast.
-  - **Climbing Cobra** (Salim al-Kupar's, from Episode 3): hold R1 on poles and pipes to climb 1.8 times as fast.
-  The afterimages are drawn on Windows and Linux; the moves themselves work everywhere.
+- **Ancestor techniques from the Thievius Raccoonus** (after *Sly Cooper: Thieves in Time*): four techniques for
+  Sly, each on a page of the Thievius Raccoonus hidden in an episode's vault (collect its 30 clue bottles and open
+  it). Found pages appear in ThiefNet's new third page, **Thievius Raccoonus** (Square, or the stick right from
+  Sell), where they are studied and learned. Saves whose vaults are already open have their pages.
+  - **Rail Sprint** ("Tennessee Kid" Cooper, Episode 1's vault): hold R1 on ropes and rails to run 1.75 times as fast.
+  - **Silent Sprint** (Rioichi Cooper, Episode 2): the sprint (R1) makes no noise for the guards, and Sly leaves dark
+    shadow afterimages behind him (drawn on Windows and Linux).
+  - **Leaping Dragon** (Rioichi Cooper, Episode 3): on a spire, hold Circle: the spire you point the stick (or the
+    camera) at, up to about five times Sly's own spire jumps away, is marked; let go and Sly leaps across on a long
+    arc and lands perched on it.
+  - **Climbing Cobra** (Salim al-Kupar, Episode 4): hold R1 on poles and pipes to climb 1.8 times as fast.
+  What Sly has learned is kept in a small `saveN.pc` file beside the save slot, so the save itself stays the PS2's
+  format.
 
 ## Mods
 

@@ -40,6 +40,7 @@
 #include "ai.h"
 #include "actor.h"
 #include "hudwidget.h"
+#include "raccoonus.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -308,6 +309,7 @@ void SetVaultState(LO* plo, VAULT& v, int n)
             FSetProgress({"powerUps", "mppukfAcquired", std::to_string(v.idReward)}, r);
         }
         if (v.idDialogOpen != 0 && v.idDialogOpen != -1) v.fDialog = PsndStartDialog(v.idDialogOpen, 1) != nullptr;
+        NoteVaultOpened();   // (PC: the Thievius Raccoonus page it holds, raccoonus.h)
         break;
     case 0:
         if (v.ploActor) ++g_gamepause.c84;  // 0x20F198
