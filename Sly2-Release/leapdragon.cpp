@@ -73,7 +73,14 @@ AURA s_aura;
 std::mutex s_mtxAura;   // (the placement runs on the pass helpers)
 // the leap in flight: its spire, until Sly is perched on it (a landed leap: raccoonus.h NoteLeapLanded) or 5 s
 LO* s_ploLeapTo = nullptr;
-float s_tLeap = 0.0f;
+float s_tLeap = 0.0f, s_tLeapEnd = 0.0f;
+ACTOR* s_paLeap = nullptr;
+
+// The leap's shadow trail: Sly's places in flight (game time; real time laid, for the fade), drawn behind him as a dark
+// smoky line, each point fading over tTrailLife
+constexpr float tTrailLife = 0.7f;
+struct TRAILPT { glm::vec3 pos; float tReal; };
+std::vector<TRAILPT> s_atrail;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_LEAPPRINT") != nullptr; return s_f; }
 
@@ -180,6 +187,9 @@ bool FLeapDragonSpire(ACTOR* pa, LO* ploSpire, PADCTL* pc)
     StartLeapToSpire(&pa->jump, ptarget, plan);
     s_ploLeapTo = ptarget;
     s_tLeap = g_clock.t;
+    s_tLeapEnd = g_clock.t + plan.t;
+    s_paLeap = pa;
+    s_atrail.clear();
     return true;
 }
 
@@ -212,6 +222,13 @@ bool FAimShown()
 void UpdateLeapDragon()
 {
     SW* psw = g_psw;
+    // the trail: Sly's place each step of the flight (and a moment after: the landing)
+    if (psw && s_ploLeapTo && s_paLeap && s_paLeap->palo && g_clock.t <= s_tLeapEnd + 0.05f && s_aim.serial == psw->serial)
+    {
+        const glm::vec3 pos = PosAloCenter(s_paLeap->palo);
+        if (s_atrail.empty() || glm::distance(pos, s_atrail.back().pos) > 8.0f) s_atrail.push_back({pos, g_clock.tReal});
+    }
+    while (!s_atrail.empty() && g_clock.tReal - s_atrail.front().tReal > tTrailLife) s_atrail.erase(s_atrail.begin());
     std::lock_guard<std::mutex> lock(s_mtxAura);
     if (!psw || s_aura.serial != (psw ? psw->serial : 0))
     {
@@ -282,59 +299,49 @@ void DrawLeapDragonAura(const SCENE& scene, const CAMERA& cam)
     // a slow breath, as the aim's
     const float u = 0.85f + 0.15f * std::sin(g_clock.tReal * 6.0f);
     std::vector<GHOSTDRAW> adraw;
-    adraw.push_back({&apart, glm::vec4(rgbAura * u, a), 1});
+    adraw.push_back({&apart, glm::vec4(rgbAura * u, a), 1, true});   // (its glow only: not the emblem)
     RenderGhostPoses(scene, cam, adraw);
 }
 
 void DrawLeapDragonHud(int width, int height)
 {
-    if (!FAimShown()) return;
-    LO* ptarget = s_aim.ploTarget;
-    const glm::vec3 posTarget = PosJtLo(ptarget);
-    bool fAura = false;
-    {
-        std::lock_guard<std::mutex> lock(s_mtxAura);
-        fAura = s_aura.plo && !s_aura.apart.empty() && s_aura.tOff < 0.0f;
-    }
-    g_hud.Begin();
+    const bool fAim = FAimShown();
+    if (!fAim && s_atrail.size() < 2) return;
     constexpr float z = 0.9995f;
-    const glm::vec4 rgbaRed(128, 20, 10, 110), rgbaDark(20, 0, 0, 70);
+    g_hud.Begin();
 
-    // the leap's arc: Sly's start to the spire (the flight's own curve: its start and end points and velocities, as the
-    // driven record's), red dashes, fainter toward Sly
-    if (ACTOR* pa = s_aim.pa; pa && s_aim.plan.t > 0.0f)
+    // the leap's shadow: a dark smoky line along Sly's flight, thin and faint at its tail, each point fading out
+    if (s_atrail.size() >= 2 && g_psw && s_aim.serial == g_psw->serial)
     {
-        const LEAPPLAN& p = s_aim.plan;
-        const glm::vec3 base(pa->vecBase);
-        const glm::vec3 p0 = p.pos0 + base, p1 = p.posT + base;
-        const glm::vec3 m0 = p.vLaunch * p.t, m1 = p.velT * p.t;
-        constexpr int cSeg = 40;
-        const float tPhase = std::fmod(g_clock.tReal * 2.0f, 1.0f);   // (the dashes run toward the spire)
+        const size_t c = s_atrail.size();
         glm::vec2 cPrev(0.0f);
         bool fPrev = false;
-        for (int i = 0; i <= cSeg; ++i)
+        for (size_t i = 0; i < c; ++i)
         {
-            const float s = float(i) / float(cSeg);
-            const float s2 = s * s, s3 = s2 * s;
-            const glm::vec3 pos = (2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * m0 + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * m1;
-            glm::vec2 c;
-            const bool f = FCanvasOf(pos, &c);
-            // every other segment, the dashes moving along
-            const bool fDash = std::fmod(float(i) * 0.5f - tPhase, 1.0f) < 0.5f;
-            if (f && fPrev && fDash && s > 0.06f)
+            glm::vec2 cc;
+            const bool f = FCanvasOf(s_atrail[i].pos, &cc);
+            if (f && fPrev)
             {
-                const float a = 0.35f + 0.65f * s;
-                g_hud.FillScreenLine(cPrev, c, 4.5f, glm::vec4(rgbaDark.r, rgbaDark.g, rgbaDark.b, rgbaDark.a * a), z - 1e-4f);
-                g_hud.FillScreenLine(cPrev, c, 2.5f, glm::vec4(rgbaRed.r, rgbaRed.g, rgbaRed.b, rgbaRed.a * a), z);
+                const float age = std::clamp((g_clock.tReal - s_atrail[i].tReal) / tTrailLife, 0.0f, 1.0f);
+                const float along = float(i) / float(c - 1);   // (0 the tail, 1 Sly)
+                const float a = (1.0f - age) * (1.0f - age) * (0.35f + 0.65f * along);
+                const float w = 3.0f + 9.0f * along * (1.0f - 0.5f * age);
+                g_hud.FillScreenLine(cPrev, cc, w * 1.8f, glm::vec4(10, 4, 16, 40.0f * a), z - 2e-4f);   // (the haze)
+                g_hud.FillScreenLine(cPrev, cc, w, glm::vec4(6, 2, 10, 70.0f * a), z - 1e-4f);           // (its core)
             }
-            cPrev = c;
+            cPrev = cc;
             fPrev = f;
         }
     }
 
     // without the aura (none free, or its proxy missing): a red ring on the target instead
+    bool fAura = false;
+    {
+        std::lock_guard<std::mutex> lock(s_mtxAura);
+        fAura = s_aura.plo && !s_aura.apart.empty() && s_aura.tOff < 0.0f;
+    }
     glm::vec2 c;
-    if (!fAura && FCanvasOf(posTarget, &c) && std::fabs(c.x - 320.0f) < 400.0f && std::fabs(c.y - 224.0f) < 280.0f)
+    if (fAim && !fAura && FCanvasOf(PosJtLo(s_aim.ploTarget), &c) && std::fabs(c.x - 320.0f) < 400.0f && std::fabs(c.y - 224.0f) < 280.0f)
     {
         const float u = 0.5f + 0.5f * std::sin(g_clock.tReal * 6.0f);
         const float r = 15.0f + 3.0f * u, w = 3.0f;

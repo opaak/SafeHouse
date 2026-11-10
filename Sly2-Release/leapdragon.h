@@ -7,10 +7,9 @@
 //   - perched on a spire (the interaction kind 4), hold circle: the spire to leap to is chosen and marked on the
 //     picture: the one nearest the direction of the left stick (or, the stick at rest, of the camera), within 40
 //     degrees of it, 250 to 2400 across, at most 900 above and 1600 below, whose leap's path is clear. The mark: the
-//     game's own target aura (the blue glow of circle's targets) in red on it, and the leap's arc from Sly to it as a
-//     red dashed line;
+//     game's own target aura (the blue glow of circle's targets) in red on it, its glow only (not the emblem);
 //   - let go of circle: Sly turns to it, jumps off and flies there on a long arc (jump.h FPlanLeapToSpire /
-//     StartLeapToSpire: circle's own spire target, state 9), landing perched on it;
+//     StartLeapToSpire: circle's own spire target, state 9), landing perched on it, a dark shadow trail behind him;
 //   - cross while holding circle jumps off as usual (the aim dropped); without a target, letting go does nothing.
 //
 // It costs no gadget power and takes no gadget slot. Sly only (the main Sly, as the current player).

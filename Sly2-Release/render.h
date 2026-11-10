@@ -93,6 +93,8 @@ struct GHOSTDRAW
     const std::vector<GHOSTPART>* papart = nullptr;
     glm::vec4 rgba{0.0f};   // 0..1, straight alpha
     int mode = 0;           // 0 a silhouette (once per pixel, blended); 1 a glow recoloured, added (ghost.frag)
+    bool fAdditiveOnly = false;   // only the parts the game draws added (GS ALPHA (Cs - 0) As + Cd): a glow without its
+                                  // emblem (Leaping Dragon's aura)
 };
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
 

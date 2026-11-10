@@ -3608,6 +3608,13 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
                     for (const SUBGLOB& sub : pgeom->asubglob)
                     {
                         if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3) continue;   // (no projected volumes)
+                        if (gd.fAdditiveOnly)
+                        {
+                            // (the first pass blended (Cs - 0) x As + Cd: GS ALPHA's B 2 (zero), D 1 (the frame))
+                            if (sub.pshd->apass.empty()) continue;
+                            const SHDPASS& ps = sub.pshd->apass[0];
+                            if (!ps.fBlend || ((ps.alpha >> 2) & 3) != 2 || ((ps.alpha >> 6) & 3) != 1) continue;
+                        }
                         GDRAW d{pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, part.amatGlob[i], iboneFirst, cbone, 0, 0, false};
                         // the texture of its first pass, as the scene drew it (for the cut-outs)
                         if (const SUBGLOBGPU* pgpu = sub.pgpu; pgpu && !pgpu->apasscmd.empty() && pgpu->apasscmd[0].istate < s_astate.size())
