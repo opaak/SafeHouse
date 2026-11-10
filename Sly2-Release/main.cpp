@@ -23,6 +23,7 @@
 #include "animtest.h"
 #include "../platform/platform.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -299,7 +300,7 @@ int main(int argc, char** argv)
     VIEWOPTS vo;
     std::string cmRanges = "2DDED0+6A0,2DFBC0+2240,FB1580+1100,FB37E0+80,140C9F0+600,1486000+3400";
     bool fCmFree = false;
-    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1; float drawDistance = -1; } dispo;
+    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1; float drawDistance = -1; } dispo;
     std::vector<std::string> rest, physArgs;
     for (int i = 1; i < argc; ++i)
     {
@@ -323,6 +324,14 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--hq-logo") && i + 1 < argc) dispo.hqLogo = std::atoi(argv[++i]);   // (QoL: the launcher's logo in the front end)
         else if (!std::strcmp(argv[i], "--long-shadows") && i + 1 < argc) dispo.longShadows = std::atoi(argv[++i]);   // (QoL: display.h fLongShadows)
         else if (!std::strcmp(argv[i], "--window-mode") && i + 1 < argc) dispo.window = std::atoi(argv[++i]);
+        // (image quality: display.h; --msaa 0 / 2 / 4 / 8, --upscaler 0 bilinear / 1 sharp, --sharpness 0..100,
+        // --aniso 1 / 2 / 4 / 8 / 16, --post-aa 0 off / 1 FXAA, --alpha-coverage 0 / 1)
+        else if (!std::strcmp(argv[i], "--msaa") && i + 1 < argc) dispo.msaa = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--alpha-coverage") && i + 1 < argc) dispo.alphaCoverage = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--post-aa") && i + 1 < argc) dispo.postAa = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--upscaler") && i + 1 < argc) dispo.upscaler = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--sharpness") && i + 1 < argc) dispo.sharpness = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--aniso") && i + 1 < argc) dispo.aniso = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
         else if (!std::strcmp(argv[i], "--list-keys")) command = "list-keys";
         else if (!std::strcmp(argv[i], "--vt-dump") && i + 1 < argc) { command = "vt-dump"; arg = argv[++i]; }  // (vtaudit.cpp)
@@ -509,6 +518,12 @@ int main(int argc, char** argv)
         if (dispo.wideBackgrounds >= 0) g_display.fWideBackgrounds = dispo.wideBackgrounds != 0;
         if (dispo.hqLogo >= 0) g_display.fHqLogo = dispo.hqLogo != 0;
         if (dispo.longShadows >= 0) g_display.fLongShadows = dispo.longShadows != 0;
+        if (dispo.msaa >= 0) g_display.msaaSamples = dispo.msaa > 1 ? std::min(dispo.msaa, 16) : 0;
+        if (dispo.alphaCoverage >= 0) g_display.fAlphaCoverage = dispo.alphaCoverage != 0;
+        if (dispo.postAa >= 0) g_display.postAa = std::clamp(dispo.postAa, 0, 1);
+        if (dispo.upscaler >= 0) g_display.upscaler = std::clamp(dispo.upscaler, 0, 1);
+        if (dispo.sharpness >= 0) g_display.sharpness = std::clamp(dispo.sharpness, 0, 100);
+        if (dispo.aniso >= 1) g_display.anisotropy = std::clamp(dispo.aniso, 1, 16);
         if (dispo.window >= 0 && dispo.window <= 2) g_display.window = DISPWINDOW(dispo.window);
     };
     applyDisplayOverrides();

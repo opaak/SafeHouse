@@ -6,7 +6,7 @@
 //
 // File: 20-byte header {char magic[8]="PCANESYS"; u32 version; u32 payloadSize;
 // u32 fnv1a32(payload)} followed by the raw little-endian payload. Every
-// historic version (1-19) still loads; a write produces kVersion. A
+// historic version (1-20) still loads; a write produces kVersion. A
 // file with a higher version (for example from a newer or forked build) is
 // reported as Newer and never overwritten.
 #include <algorithm>
@@ -21,7 +21,7 @@
 namespace cane::settings {
 namespace fs = std::filesystem;
 inline constexpr char kMagic[8] = { 'P', 'C', 'A', 'N', 'E', 'S', 'Y', 'S' };
-inline constexpr uint32_t kVersion = 19;
+inline constexpr uint32_t kVersion = 20;
 // Action order: Up, Down, Left, Right, Square, Circle, Cross, Triangle, Start,
 // Select, L1, R1, L2, R2, L3, R3 (Input.h JOY_BUTTON).
 inline constexpr int kBindingCount = 16;
@@ -70,8 +70,12 @@ enum PromptStyleValue : int { Prompt_Auto = 0, Prompt_PlayStation = 1, Prompt_Xb
                               Prompt_Nintendo = 3, Prompt_SteamDeck = 4, Prompt_SteamController = 5,
                               Prompt_PS4 = 6, Prompt_PS5 = 7, Prompt_SteamController2026 = 8 };
 inline constexpr int kInternalResolutions[] = { 0, 360, 480, 720, 1080, 1440, 2160 };
-// v11 video options (ThiefRush's layout; Sly2-Release does not read them yet).
-enum UpscalerValue : int { Upscale_Bilinear = 0, Upscale_Fsr1 = 1 };
+// v11 video options (ThiefRush's layout). Sly2-Release reads anisotropy, upscaler and upscalerSharpness (display.h).
+// upscaler: Bilinear, the original's one-sample scaling; Sharp (value 1, ThiefRush's FSR 1 slot): Sly 2's quality
+// scaling (Catmull-Rom up, a wide filter down) and contrast-adaptive sharpening of the 3D picture at upscalerSharpness.
+enum UpscalerValue : int { Upscale_Bilinear = 0, Upscale_Sharp = 1 };
+// v20 postAa: a post-process anti-aliasing pass over the 3D picture before the HUD (Sly 2).
+enum PostAaValue : int { PostAa_Off = 0, PostAa_Fxaa = 1 };
 inline constexpr int kAnisotropyLevels[] = { 1, 2, 4, 8, 16 }; // 1 = off
 inline constexpr int kFovPercentMax = 50, kFovPercentStep = 5;
 
@@ -183,9 +187,14 @@ struct V18 {
     V17 base;
     int autoCameraRotation;
 };
+// v19: + tankKeyBindings.
+struct V19 {
+    V18 base;
+    int tankKeyBindings[2];
+};
 } // namespace legacy
 
-// Current (v19) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
+// Current (v20) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
 // Append new fields only at the end, bump kVersion and add a legacy::V<n> snapshot plus a load branch.
 struct SystemSettings {
     int fogType;                  // 0 off, 1 PS2 (default), 2 PS3
@@ -257,6 +266,12 @@ struct SystemSettings {
     int autoCameraRotation;       // 0/1, default 1
     // v19, offset 332 (Sly 2, keyboard): the tank's tracks (the Ep5 RC tank reads both sticks' Y): left, right
     int tankKeyBindings[2];       // GLFW keys, default A / D
+    // v20, offset 340 (Sly 2, PC image quality; v19 files load with the defaults below):
+    // alphaToCoverage: with MSAA, the alpha-tested edges (foliage, fences, grates) cover a pixel's samples in
+    // proportion instead of all or none (glob.frag ALPHA_COVERAGE). Without MSAA it draws exactly as the original.
+    int alphaToCoverage;          // 0/1, default 1
+    // postAa: PostAaValue, an anti-aliasing pass over the 3D picture (the HUD is drawn after it)
+    int postAa;                   // default PostAa_Off
 };
 static_assert(sizeof(Header) == 20);
 static_assert(sizeof(legacy::V1) == 36 && sizeof(legacy::V2) == 40 && sizeof(legacy::V3) == 104);
@@ -265,7 +280,8 @@ static_assert(sizeof(legacy::V7) == 180 && sizeof(legacy::V8) == 196 && sizeof(l
 static_assert(sizeof(legacy::V10) == 208 && sizeof(legacy::V11) == 284 && sizeof(legacy::V12) == 288);
 static_assert(sizeof(legacy::V13) == 292 && sizeof(legacy::V14) == 296 && sizeof(legacy::V15) == 300);
 static_assert(sizeof(legacy::V16) == 304 && sizeof(legacy::V17) == 328 && sizeof(legacy::V18) == 332);
-static_assert(sizeof(SystemSettings) == 340);
+static_assert(sizeof(legacy::V19) == 340);
+static_assert(sizeof(SystemSettings) == 348);
 static_assert(offsetof(SystemSettings, guiStyle) == 40 && offsetof(SystemSettings, keyboardBindings) == 44);
 static_assert(offsetof(SystemSettings, gamepadBindings) == 108);
 static_assert(offsetof(SystemSettings, disableControllerInputWhenUnfocused) == 172);
@@ -278,6 +294,7 @@ static_assert(offsetof(SystemSettings, debugKeys) == 292 && offsetof(SystemSetti
 static_assert(offsetof(SystemSettings, longShadows) == 300 && offsetof(SystemSettings, padInvertCameraX) == 304);
 static_assert(offsetof(SystemSettings, mouseInvertTurretY) == 324);
 static_assert(offsetof(SystemSettings, autoCameraRotation) == 328);
+static_assert(offsetof(SystemSettings, alphaToCoverage) == 340 && offsetof(SystemSettings, postAa) == 344);
 
 inline uint32_t checksum(const void* data, size_t size) {
     const auto* bytes = static_cast<const uint8_t*>(data);
@@ -367,6 +384,8 @@ inline SystemSettings defaults() {
     s.longShadows = 1;
     s.autoCameraRotation = 1;
     std::copy(std::begin(kDefaultTankKeys), std::end(kDefaultTankKeys), s.tankKeyBindings);
+    s.alphaToCoverage = 1;
+    s.postAa = PostAa_Off;
     return s;
 }
 // Sly 2's defaults: defaults() with Sly 2's keyboard / mouse layout. (A file that lacks the bindings still takes
@@ -415,6 +434,7 @@ inline SystemSettings upgrade(const legacy::V15& old) { return detail::fromPrefi
 inline SystemSettings upgrade(const legacy::V16& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V17& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V18& old) { return detail::fromPrefix(old); }
+inline SystemSettings upgrade(const legacy::V19& old) { return detail::fromPrefix(old); }
 
 // Ok: current version. Upgraded: an older version, converted in memory (the
 // file is untouched until save()). Missing: no file. Corrupt: unreadable,
@@ -472,6 +492,7 @@ inline LoadResult load(const fs::path& file, SystemSettings& out, uint32_t* vers
     case 16: result = detail::loadLegacy<legacy::V16>(stream, header, out); break;
     case 17: result = detail::loadLegacy<legacy::V17>(stream, header, out); break;
     case 18: result = detail::loadLegacy<legacy::V18>(stream, header, out); break;
+    case 19: result = detail::loadLegacy<legacy::V19>(stream, header, out); break;
     case kVersion: {
         SystemSettings current{};
         if (detail::readPayload(stream, header, current)) {
@@ -499,6 +520,7 @@ inline uint32_t payloadSize(uint32_t version) {
     case 16: return sizeof(legacy::V16);
     case 17: return sizeof(legacy::V17);
     case 18: return sizeof(legacy::V18);
+    case 19: return sizeof(legacy::V19);
     case kVersion: return sizeof(SystemSettings);
     default: return 0;
     }
@@ -576,7 +598,7 @@ inline void sanitizeStatic(SystemSettings& s, int monitorHeight, int maxSamples,
     if (std::find(std::begin(kAnisotropyLevels), std::end(kAnisotropyLevels), s.anisotropy) == std::end(kAnisotropyLevels))
         s.anisotropy = 1;
     s.showFps = s.showFps != 0;
-    s.upscaler = std::clamp(s.upscaler, static_cast<int>(Upscale_Bilinear), static_cast<int>(Upscale_Fsr1));
+    s.upscaler = std::clamp(s.upscaler, static_cast<int>(Upscale_Bilinear), static_cast<int>(Upscale_Sharp));
     s.upscalerSharpness = std::clamp(s.upscalerSharpness, 0, 100);
     s.cameraSensitivity = std::clamp(s.cameraSensitivity, 25, 300);
     s.mouseCamera = s.mouseCamera != 0;
@@ -600,6 +622,8 @@ inline void sanitizeStatic(SystemSettings& s, int monitorHeight, int maxSamples,
     s.controllerVibration = s.controllerVibration != 0;
     s.longShadows = s.longShadows != 0;
     s.autoCameraRotation = s.autoCameraRotation != 0;
+    s.alphaToCoverage = s.alphaToCoverage != 0;
+    s.postAa = std::clamp(s.postAa, static_cast<int>(PostAa_Off), static_cast<int>(PostAa_Fxaa));
     for (int i = 0; i < kCameraKeyCount; ++i)
         if (!validCameraKey(s.cameraKeyBindings[i])) s.cameraKeyBindings[i] = kDefaultCameraKeys[i];
     for (int i = 0; i < 2; ++i)
@@ -613,7 +637,9 @@ inline void sanitizeStatic(SystemSettings& s, int monitorHeight, int maxSamples,
     if (std::find(std::begin(kInternalResolutions), std::end(kInternalResolutions),
                   s.internalResolutionHeight) == std::end(kInternalResolutions))
         s.internalResolutionHeight = 0;
-    if (monitorHeight > 0 && s.internalResolutionHeight > monitorHeight) {
+    // (above the monitor's height: supersampling, kept only with the Sharp scaling, whose wide filter scales the
+    // picture down without the one-sample scaling's aliasing)
+    if (monitorHeight > 0 && s.internalResolutionHeight > monitorHeight && s.upscaler != Upscale_Sharp) {
         s.internalResolutionHeight = 0;
         for (int height : kInternalResolutions)
             if (height <= monitorHeight) s.internalResolutionHeight = height;

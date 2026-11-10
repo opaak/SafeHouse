@@ -607,6 +607,8 @@ private:
         case Graphics:
             s.internalResolutionHeight = d.internalResolutionHeight, s.msaaEnabled = d.msaaEnabled, s.msaaSamples = d.msaaSamples;
             s.drawDistance = d.drawDistance, s.fogType = d.fogType, s.longShadows = d.longShadows;
+            s.alphaToCoverage = d.alphaToCoverage, s.postAa = d.postAa, s.anisotropy = d.anisotropy;
+            s.upscaler = d.upscaler, s.upscalerSharpness = d.upscalerSharpness;
             break;
         case Audio: settings::defaultAudio(s); break;
         case Controls:
@@ -716,8 +718,12 @@ private:
         const int monitor = monitorHeight();
         std::vector<int> heights;
         std::vector<std::string> labels;
+        // (Sly 2 with the Sharp scaling: above the monitor's height too, supersampling; its filter scales it down
+        // cleanly. system_settings.h sanitizeStatic keeps such a height only with Sharp.)
+        const bool fSupersample = m_game == GameId::Sly2 && m_settings.upscaler == settings::Upscale_Sharp;
         for (int h : settings::kInternalResolutions)
-            if (h == 0 || monitor <= 0 || h <= monitor) heights.push_back(h), labels.push_back(h ? std::to_string(h) + "p" : "Native");
+            if (h == 0 || monitor <= 0 || h <= monitor || fSupersample)
+                heights.push_back(h), labels.push_back(h ? std::to_string(h) + "p" + (monitor > 0 && h > monitor ? " (supersampling)" : "") : "Native");
         int index = indexOf(heights, m_settings.internalResolutionHeight);
         // A height above this monitor's (set on a bigger display) is kept
         // and shown as it is until another value is picked.
@@ -738,6 +744,7 @@ private:
             commit();
         }
         describe("Smooths jagged edges (MSAA). Higher values cost more GPU time.");
+        if (m_game == GameId::Sly2) imageQualityRows();
         static const std::vector<float> distances{ 0.75f, 1.0f, 1.5f, 2.0f, 3.0f };
         static const std::vector<std::string> distanceLabels{ "Low", "Original", "High", "Very high", "Extreme" };
         int d = -1;
@@ -760,6 +767,36 @@ private:
         if (stepperRow("Fog", &fog, fogs, nullptr, fog < 0 ? "Off" : nullptr))
             m_settings.fogType = fog == 1 ? settings::Fog_PS3 : settings::Fog_PS2, commit();
         describe("PS2 style is the original look. PS3 style follows the remaster.");
+    }
+    // Sly 2's PC image quality (system_settings.h v11 / v20; Sly2-Release display.h, post.h). Every option's first value
+    // draws as the port did before them. OpenGL on Windows and Linux: macOS and the Switch ignore them.
+    void imageQualityRows() {
+        toggle("Smooth cut-out edges", m_settings.alphaToCoverage,
+               "With anti-aliasing on, also smooths the edges of foliage, fences and grates. No effect with anti-aliasing off.");
+        static const std::vector<std::string> postAa{ "Off", "FXAA" };
+        int post = std::clamp(m_settings.postAa, 0, 1);
+        if (stepperRow("Post-process anti-aliasing", &post, postAa)) m_settings.postAa = post, commit();
+        describe("FXAA smooths the edges MSAA leaves, at almost no cost, before the HUD is drawn. It softens fine detail a little.");
+        static const std::vector<int> anisos{ 1, 2, 4, 8, 16 };
+        static const std::vector<std::string> anisoLabels{ "Original", "Trilinear, 2x anisotropic", "Trilinear, 4x anisotropic",
+                                                           "Trilinear, 8x anisotropic", "Trilinear, 16x anisotropic" };
+        int aniso = indexOf(anisos, m_settings.anisotropy);
+        if (stepperRow("Texture filtering", &aniso, anisoLabels, nullptr, aniso < 0 ? "Custom" : nullptr))
+            m_settings.anisotropy = anisos[static_cast<size_t>(aniso)], commit();
+        describe("Keeps distant ground and walls from shimmering. Original matches the PS2.");
+        static const std::vector<std::string> scalers{ "Bilinear (original)", "Sharp" };
+        int scaler = m_settings.upscaler == settings::Upscale_Sharp ? 1 : 0;
+        if (stepperRow("Image scaling", &scaler, scalers)) {
+            m_settings.upscaler = scaler == 1 ? settings::Upscale_Sharp : settings::Upscale_Bilinear;
+            // (back to bilinear: a supersampling height falls back to the monitor's, as sanitizeStatic would)
+            const int monitor = monitorHeight();
+            if (scaler == 0 && monitor > 0 && m_settings.internalResolutionHeight > monitor) m_settings.internalResolutionHeight = 0;
+            commit();
+        }
+        describe("Sharp sharpens the 3D picture and scales it to the window with a better filter. It also allows an internal "
+                 "resolution above the screen's (supersampling).");
+        if (m_settings.upscaler == settings::Upscale_Sharp)
+            rangeRow("Sharpening", m_settings.upscalerSharpness, 0, 100, 10, "How strongly the 3D picture is sharpened. 0 turns it off.", percent);
     }
     void audioRows() {
         if (m_game == GameId::Sly1) {   // (Sly 2 has stereo / mono in its own options)

@@ -9,6 +9,7 @@
 
 #include "display.h"
 #include "overlay.h"
+#include "post.h"
 #include "embedded_shaders.h"
 #include "controller_family.h"
 #include "gamepad_mappings.h"
@@ -280,13 +281,28 @@ bool GL::FInit(int w, int h, bool fVisible, const char* title, std::string& erro
     // (the prefix and stages the glob program was built with: its NOKILL variant below takes the same)
     std::string globPrefix;
     bool fGlobGeom = false;
+    // (image quality: the alpha tests' sample coverage under MSAA, glob.frag ALPHA_COVERAGE; display.h fAlphaCoverage.
+    // Not on the Switch, whose offline programs have no such variant, nor through the Metal translation)
+#if defined(__SWITCH__) || defined(__APPLE__)
+    const std::string strCoverage;
+#else
+    const std::string strCoverage = g_display.fAlphaCoverage ? "#define ALPHA_COVERAGE 1\n" : "";
+#endif
     auto initGlob = [&](const char* szPrefix) {
-        globPrefix = szPrefix;
+        globPrefix = std::string(szPrefix) + strCoverage;
         fGlobGeom = s_fNearClip && glGlobShader.FInit("glob.vert", "glob.geom", "glob.frag", (globPrefix + "#define GEOM 1\n").c_str());
-        return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", szPrefix);
+        return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", globPrefix.c_str());
     };
     g_fGlobBindless = fBindlessWanted && FBindlessWorks() && initGlob("#extension GL_ARB_bindless_texture : require\n#define BINDLESS 1\n");
-    if (!g_fGlobBindless && !initGlob(""))
+    // (a driver that rejects the coverage variant: the programs without it)
+    auto initGlobPlain = [&]() {
+        if (strCoverage.empty()) return false;
+        std::printf("OpenGL: the alpha-coverage glob program did not build: without it\n");
+        globPrefix.clear();
+        fGlobGeom = s_fNearClip && glGlobShader.FInit("glob.vert", "glob.geom", "glob.frag", "#define GEOM 1\n");
+        return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", "");
+    };
+    if (!g_fGlobBindless && !initGlob("") && !initGlobPlain())
     {
         glGlobShader.Init("glob.vert", "glob.frag");
         globPrefix.clear();
@@ -440,8 +456,10 @@ void GL::Present()
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     const DISPLAY& d = g_display;
-    glBlitFramebuffer(0, 0, renderWidth, renderHeight, d.presentX, d.presentY, d.presentX + d.presentWidth,
-                      d.presentY + d.presentHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    // (the Sharp scaling, post.h; else, and as the original port, one bilinear sample per window pixel)
+    if (!FPresentScaled(fbc, renderWidth, renderHeight, d.presentX, d.presentY, d.presentWidth, d.presentHeight))
+        glBlitFramebuffer(0, 0, renderWidth, renderHeight, d.presentX, d.presentY, d.presentX + d.presentWidth,
+                          d.presentY + d.presentHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -473,6 +491,7 @@ void GL::Terminate()
     if (window) {
         ReleaseOverlayFrame();
         ResetAnimatedOverlayGraphics();
+        ShutdownPostProcess();
         glOverlayShader.Delete();
         cane::gl::DestroyContext(window);
     }

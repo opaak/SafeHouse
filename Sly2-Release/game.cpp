@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include "objmethod.h"
 #include "screenrt.h"
+#include "post.h"
 #include "overlay.h"
 #include "photo.h"
 #include <unordered_map>
@@ -1984,6 +1985,7 @@ int RunGame(const GAMEOPTS& go)
             }
             if (FAnimatedOverlayDrawNormal()) {
                 RenderScene(scene, cam, opts);
+                PostProcessScene();   // (image quality over the 3D picture, before the HUD: post.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;

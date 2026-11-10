@@ -32,6 +32,11 @@ void FromSettings(const st::SystemSettings& s)
     g_display.window = DISPWINDOW(std::clamp(s.windowMode, 0, 2));
     g_display.fVsync = s.vsyncEnabled != 0;
     g_display.fLongShadows = s.longShadows != 0;   // (v16, QoL: render.cpp FBuildShadow2)
+    g_display.fAlphaCoverage = s.alphaToCoverage != 0;   // (v20, image quality: display.h)
+    g_display.postAa = s.postAa;
+    g_display.upscaler = s.upscaler;
+    g_display.sharpness = s.upscalerSharpness;
+    g_display.anisotropy = s.anisotropy;
     PcInputFromSettings(s);   // (the controls and the prompts: pcinput.h)
     SetSoundUserVolumes(s.musicVolume, s.soundEffectsVolume, s.dialogueVolume);   // (the launcher's sliders: sound.h)
 }
@@ -100,6 +105,13 @@ bool FLoadDisplaySettings(const std::filesystem::path& userDir, std::string* pme
     if (g_display.frameRate != 30) g_display.frameRate = 60;
     g_display.msaaSamples = 0;
     if (g_display.internalHeight > 1080) g_display.internalHeight = 0;
+#endif
+#if defined(__SWITCH__) || defined(__APPLE__)
+    // (deko3d's offline programs and the Metal translation have no variants for the image-quality passes: post.h)
+    g_display.fAlphaCoverage = false;
+    g_display.postAa = 0;
+    g_display.upscaler = 0;
+    g_display.anisotropy = 1;
 #endif
     const char* psz = "";
     switch (result)

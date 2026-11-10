@@ -33,6 +33,7 @@ void CollectHackSwarmDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra); 
 #include <deque>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 
 RENDERSTATS g_renderstats;
@@ -110,8 +111,22 @@ GLuint s_texWhite = 0;
 GLuint s_asampler[16] = {};  // bit 0 clamp S, 1 clamp T, 2 nearest, 3 mipmapped (a texture mod's own mip chain: texmod.h)
 // The mipmapped samplers' anisotropy (texture mods only; SLY2N_MODANISO=N, 1: off): clamped to the GPU's maximum
 const float s_rModAniso = std::getenv("SLY2N_MODANISO") ? float(std::atof(std::getenv("SLY2N_MODANISO"))) : 8.0f;
-// The sampler for a texture: the mipmapped one for a texture mod
-inline uint8_t SamplerFor(GLuint tex, uint8_t sampler) { return uint8_t(sampler | (FTextureIsMod(tex) ? 8 : 0)); }
+// (image quality, display.h anisotropy above 1: the original textures get a mip chain too, made at upload, and the
+// mipmapped samplers this anisotropy. 1: the original's single level, as before.)
+std::unordered_set<GLuint> s_settexMip;
+inline bool FMipOriginals()
+{
+#if defined(__SWITCH__) || defined(__APPLE__)
+    return false;
+#else
+    return g_display.anisotropy > 1;
+#endif
+}
+// The sampler for a texture: the mipmapped one for a texture mod or a mipmapped original
+inline uint8_t SamplerFor(GLuint tex, uint8_t sampler)
+{
+    return uint8_t(sampler | (FTextureIsMod(tex) || (!s_settexMip.empty() && s_settexMip.count(tex)) ? 8 : 0));
+}
 GLuint s_vaoEmpty = 0;
 // Geometry arenas: the globs built by one BuildSceneGpu share one VBO / EBO / VAO, so a run of draws with one GL
 // state is one glMultiDrawElementsIndirect. Attribute 6 is the draw index (an iota buffer, divisor 1, selected by
@@ -200,6 +215,12 @@ GLuint TexFromSel(const TEXSEL& sel)
         glBindTexture(GL_TEXTURE_2D, tex);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sel.pbmp->dx, sel.pbmp->dy, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        if (FMipOriginals() && (sel.pbmp->dx > 1 || sel.pbmp->dy > 1))
+        {
+            // (a mip texel is a mean of the level above: never below the texture's lowest alpha, so AllPassOf holds)
+            glGenerateMipmap(GL_TEXTURE_2D);
+            s_settexMip.insert(tex);
+        }
         uint8_t aMin = 255;
         for (size_t i = 3; i < rgba.size(); i += 4) aMin = std::min(aMin, rgba[i]);
         NoteTexMinAlpha(tex, rgba.size() >= 4 ? aMin : 0);
@@ -230,7 +251,7 @@ void InitCommon()
     GLfloat rAnisoMax = 0.0f;
     glGetFloatv(kMaxAniso, &rAnisoMax);
     while (glGetError() != GL_NO_ERROR) {}
-    const float rAniso = std::min(s_rModAniso, rAnisoMax);
+    const float rAniso = std::min(FMipOriginals() ? float(g_display.anisotropy) : s_rModAniso, rAnisoMax);
     for (int i = 0; i < 16; ++i)
     {
         glSamplerParameteri(s_asampler[i], GL_TEXTURE_WRAP_S, (i & 1) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
@@ -1883,6 +1904,7 @@ void ResetTextureCache()
             ForgetModTexture(tex);
         }
     s_mptex.clear();
+    s_settexMip.clear();
     s_aallpass.clear();
     ++s_genTexCache;
 }

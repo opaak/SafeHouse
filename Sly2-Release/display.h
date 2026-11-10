@@ -52,6 +52,20 @@ struct DISPLAY
     // the type-2 cast shadows (Sly's, the guards') reach the floor instead of ending at the original's fixed far cap
     // (render.cpp FBuildShadow2, render.md "Long shadows", R39). Off: the original's prisms exactly.
     bool fLongShadows = true;
+    // PC image quality (system_settings.dat; the launcher's Graphics page, read at start). Off / 1 / Bilinear / 0 draw
+    // exactly as before. (OpenGL on Windows and Linux only: the Switch and macOS keep the original paths.)
+    // - fAlphaCoverage (v20 alphaToCoverage, default on): with MSAA, alpha-tested edges cover the samples in
+    //   proportion (glob.frag ALPHA_COVERAGE; built into the glob programs at start, gl.cpp)
+    // - postAa (v20, PostAaValue): FXAA over the 3D picture before the HUD (post.h)
+    // - upscaler (v11, UpscalerValue) and sharpness (v11 upscalerSharpness, 0..100): Sharp: contrast-adaptive
+    //   sharpening of the 3D picture (post.h) and quality scaling to the window (GL::Present)
+    // - anisotropy (v11, 1 / 2 / 4 / 8 / 16): above 1 the original textures get mipmaps and trilinear filtering with
+    //   this anisotropy (render.cpp TexFromSel; texture mods always have them)
+    bool fAlphaCoverage = true;
+    int postAa = 0;
+    int upscaler = 0;
+    int sharpness = 80;
+    int anisotropy = 1;
 
     // The swap (ApplyDisplaySettings): VSync gates the frames at the cap (the pacer then runs 1 % fast, so only the
     // swap gates: platform/frame_pacer.h), and a generation that changes with the swap's configuration

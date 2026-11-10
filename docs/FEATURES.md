@@ -33,6 +33,15 @@ can be turned off where it changes how the game looks or plays.
 - **Long shadows (Sly 2):** characters' shadows from low lights (the title screen's window, some interiors) reach the
   floor in full instead of ending in a straight cut, which shows most at wide aspect ratios.
   **Settings > Graphics > Long shadows**; off gives the original's shadows exactly.
+- **Image quality (Sly 2, Windows and Linux):** in **Settings > Graphics**, each off or at the original by default:
+  - **Smooth cut-out edges:** with MSAA on, the edges of foliage, fences and grates are smoothed too (alpha to
+    coverage). With MSAA off the game draws exactly as before.
+  - **Post-process anti-aliasing:** FXAA over the 3D picture, before the HUD, so menus and text stay crisp.
+  - **Texture filtering:** mipmaps and trilinear filtering with 2x to 16x anisotropic filtering for the original
+    textures, so distant ground and walls no longer shimmer.
+  - **Image scaling: Sharp:** contrast-adaptive sharpening of the 3D picture (with a strength setting) and a better
+    filter to the window: Catmull-Rom when scaling up, and a wide filter when scaling down, which makes an internal
+    resolution above the screen's (supersampling) worth using; the launcher then offers those heights too.
 - **Low-end GPUs:** weak integrated graphics start at a lower internal resolution on first launch.
 
 ## Controls
