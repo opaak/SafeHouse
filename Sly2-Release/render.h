@@ -92,6 +92,7 @@ struct GHOSTDRAW
 {
     const std::vector<GHOSTPART>* papart = nullptr;
     glm::vec4 rgba{0.0f};   // 0..1, straight alpha
+    int mode = 0;           // 0 a silhouette (once per pixel, blended); 1 a glow recoloured, added (ghost.frag)
 };
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
 

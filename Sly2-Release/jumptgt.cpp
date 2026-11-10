@@ -761,6 +761,7 @@ bool FPlanLeapToSpire(ACTOR* pa, LO* pspire, LEAPPLAN* pplan)
     pplan->vLaunch = v;
     pplan->posT = posT;
     pplan->velT = velT;
+    pplan->pos0 = pos;
     return true;
 }
 

@@ -1603,6 +1603,7 @@ int RunGame(const GAMEOPTS& go)
         UpdateWipe(psw.get());
         UpdateHud(psw.get());
         UpdateRaccoonusTraining();   // (PC: the Thievius Raccoonus' training, once a game step: raccoonus.h)
+        UpdateLeapDragon();          // (PC: Leaping Dragon's red aura, leapdragon.h)
         // debug: SLY2N_F6AT=frame does F6 headless
         static const int s_iframeF6 = std::getenv("SLY2N_F6AT") ? std::atoi(std::getenv("SLY2N_F6AT")) : -1;
         if (frame == s_iframeF6) DebugUnlockAll(psw.get());
@@ -1993,6 +1994,7 @@ int RunGame(const GAMEOPTS& go)
                 UpdateSprintGhosts(scene);   // (PC: Silent Sprint's afterimages, ninjamoves.h)
                 RenderScene(scene, cam, opts);
                 DrawSprintGhosts(scene, cam);
+                DrawLeapDragonAura(scene, cam);   // (PC: Leaping Dragon's red aura, leapdragon.h)
                 PostProcessScene(cam, opts.rgbaCel);   // (image quality over the 3D picture, before the HUD: post.h)
                 DrawRailSprintLines(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Rail Sprint's speed lines, ninjamoves.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;

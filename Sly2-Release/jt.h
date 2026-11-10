@@ -126,3 +126,5 @@ glm::vec3 PosJtDesc(LO* plo, JTL jtl, ACTOR* pa, float g, float* prad);
 extern bool g_fHookLinkedPosition;  // orig: D_002DFB84, alternate 0x184510 target mode
 
 void RandomJtPoint(LO* plo, JTL jtl, float g, glm::vec3* ppos, glm::vec3* pdir);  // descriptor slot 5
+// (PC: Leaping Dragon's red aura) an aura instance of the player's proxy (+0x9C4) at pos, fading in; null: none free
+LO* PloNewLeapAura(ACTOR* pa, const glm::vec3& pos);

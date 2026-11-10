@@ -1033,3 +1033,13 @@ bool FUseAllows(LO* puse, const ACTOR* pa)
     if (!puse || !pa || !FIsLoDerivedFrom(puse, 0x23)) return false;
     return (JtDescOf(puse, JTL_Use).mask & static_cast<uint32_t>(pa->n1000)) != 0;
 }
+
+// (PC: Leaping Dragon's aura, leapdragon.cpp) an aura of the player's proxy at pos, as a tracked target's
+LO* PloNewLeapAura(ACTOR* pa, const glm::vec3& pos)
+{
+    LO* pproxy = PloAuraProxy(pa);
+    if (!pproxy) return nullptr;
+    JTENT e;
+    e.pos = pos;
+    return PloNewJtAura(pproxy, e);
+}

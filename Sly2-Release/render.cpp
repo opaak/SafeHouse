@@ -3542,7 +3542,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     if (adraw.empty() || !g_gl.window) return;
     static GLSHADER s_sh;
     static int s_state = 0;   // 0 not built yet, 1 built, -1 failed (no afterimages this session)
-    static GLint s_locClip = -1, s_locModel = -1, s_locBoneFirst = -1, s_locCBone = -1, s_locTex = -1, s_locTextured = -1, s_locRgba = -1;
+    static GLint s_locClip = -1, s_locModel = -1, s_locBoneFirst = -1, s_locCBone = -1, s_locTex = -1, s_locTextured = -1, s_locRgba = -1, s_locMode = -1;
     static GLuint s_ssbo = 0;
     if (s_state == 0)
     {
@@ -3555,6 +3555,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
         s_locTex = s_sh.Loc("tex");
         s_locTextured = s_sh.Loc("fTextured");
         s_locRgba = s_sh.Loc("rgba");
+        s_locMode = s_sh.Loc("mode");
         glGenBuffers(1, &s_ssbo);
     }
     if (s_state < 0) return;
@@ -3692,8 +3693,21 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     {
         const size_t igdEnd = s_aigdEnd[ipose];
         if (igd == igdEnd) continue;
-        clearBit0();
-        glStencilMask(1);
+        const bool fGlow = adraw[ipose].mode == 1;
+        glUniform1i(s_locMode, fGlow ? 1 : 0);
+        if (fGlow)
+        {
+            // (a glow: added, every layer of it, in front of the scene's surfaces only)
+            glDisable(GL_STENCIL_TEST);
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+        }
+        else
+        {
+            glEnable(GL_STENCIL_TEST);
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+            clearBit0();
+            glStencilMask(1);
+        }
         const glm::vec4& c = adraw[ipose].rgba;
         glUniform4f(s_locRgba, c.r, c.g, c.b, c.a);
         GLuint vaoCur = 0, texCur = 0;

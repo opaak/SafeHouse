@@ -2,6 +2,7 @@
 #include "simdmat.h"
 #include "passhelpers.h"
 #include "drawdist.h"
+#include "leapdragon.h"
 #include "display.h"
 #include "pccharacter.h"
 #include "rope.h"
@@ -163,6 +164,7 @@ void PlaceGlobsetFinish(ALO* palo, SCENEGLOBSET& sgs)
     const glm::mat4 matAlo = palo->axf.empty() ? glm::mat4(1.0f) : palo->axf[0]->matWorld;
     PlaceTrailScene(palo, sgs);
     PlaceRopeMeshScene(palo, sgs);
+    NoteLeapAuraPlaced(palo, sgs);   // (PC: Leaping Dragon's aura, drawn red by leapdragon.cpp instead)
     // debug: SLY2N_SCENELIST=t: every object placed in the scene in the frame at clock t: its bounds' screen point
     if (static const char* s_szList = std::getenv("SLY2N_SCENELIST"); s_szList)
         if (const float t = float(std::atof(s_szList)); g_clock.t >= t && g_clock.t < t + 0.0166f)

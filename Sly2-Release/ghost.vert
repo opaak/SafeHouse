@@ -4,6 +4,7 @@
 // vertex arrays (attributes 0 / 1 / 5 / 7 of the arena); the saved bones in their own buffer.
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aUv;
+layout (location = 2) in vec4 aRgbaA;   // the vertex colour (GS units: 0x80 = 1; the glow mode's)
 layout (location = 5) in uvec4 aBone;
 layout (location = 7) in vec4 aWeight;
 layout (std430, binding = 7) readonly buffer GHOSTBONES { mat4 abone[]; };
@@ -12,6 +13,7 @@ uniform mat4 matModel;
 uniform int iboneFirst;
 uniform int cbone;        // 0: not skinned (matModel)
 out vec2 vUv;
+out vec4 vColor;
 void main()
 {
     vec4 p = vec4(aPos, 1.0);
@@ -26,4 +28,5 @@ void main()
     else posWorld = matModel * p;
     gl_Position = matWorldToClip * posWorld;
     vUv = aUv;
+    vColor = aRgbaA / 128.0;
 }

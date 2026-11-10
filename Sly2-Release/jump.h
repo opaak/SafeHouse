@@ -64,6 +64,7 @@ struct LEAPPLAN
 {
     float t = 0.0f;
     glm::vec3 vLaunch{0.0f}, posT{0.0f}, velT{0.0f};
+    glm::vec3 pos0{0.0f};   // (where it starts: the arc drawn while aiming, leapdragon.cpp)
 };
 bool FPlanLeapToSpire(ACTOR* pa, LO* pspire, LEAPPLAN* pplan);
 // The leap planned: the launch velocity, the record's goal (+0xA8 / +0xC0 / +0xD0), the jump's state 9 on the spire.
