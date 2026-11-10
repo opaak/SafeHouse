@@ -537,6 +537,8 @@ void SetClueState(LO* plo, PICKUP& p, int n)
     SetPickupStateBase(plo, p, n);
 }
 
+}  // namespace (CollectAllCluesInWorld is called from debugmenu.cpp: outside it)
+
 // PC debug (debugmenu.cpp, Player > Collect All Clue Bottles): every clue bottle of the current world collected at
 // once, as SetClueState's collect does it but without its sound, noise or splice event (thirty at once would alert the
 // guards): the save's afClue bit set, the proxy removed and, where the bottle's instance is placed on it, the instance
@@ -573,6 +575,9 @@ int CollectAllCluesInWorld(SW* psw)
     if (FPrint()) std::printf("pickup: %d clue bottles collected by the debug menu\n", c);
     return c;
 }
+
+namespace
+{
 
 // orig: 0x001C68F0 (0x5D, the charm: 0 the rest's time; 1 only when the current player can take it (vt slot 80) and
 // heals it by +0x23C..+0x240 (slot 81): TODO, taken as yes; the HUD effect (kind 9): TODO; +0x210's message; event 5; gone)
