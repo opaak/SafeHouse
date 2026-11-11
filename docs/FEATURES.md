@@ -159,7 +159,10 @@ The guide: [MODDING.md](MODDING.md).
 ## The debug menu and PC Extras
 
 With **Settings > Advanced > Debug mode** on, Sly 2 has a debug menu (F10, or R1 + Select): warps to every world,
-character switching, noclip, teleports, job tools, game speed, a free camera and a frame-rate display. Its **PC Extras**
+character switching, noclip, teleports, job tools, game speed, a free camera and a frame-rate display. **Display >
+Graphics** changes the PC's looks as the game runs (ambient occlusion, shadow edges, character and level shadows, the
+level shadows of the episode you are in, outlines, bloom, colour grade, vignette; character smoothing for the next
+start) and can save them as the launcher's settings. Its **PC Extras**
 let you play as **Carmelita** (with her own moves), as the game's **guards and bosses**, or fly **Bentley's RC chopper**
 in any world. Sly 1 has its own debug window (F3).
 

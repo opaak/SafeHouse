@@ -33,7 +33,7 @@ alone. Back up your saves before experimenting.
 | **Jobs** | **Complete Current Job [save]** (as F9), or **start** one of this world's jobs the way the game does. |
 | **Player** | Infinite health and power (F7), a refill, unlock all gadgets / 9999 coins / all characters (F6) **[save]**, Save Game Now (F5) **[save]**. |
 | **Speed** | The game's speed, from 0.1x to 2x. |
-| **Display** | Hide the HUD (F11), a performance line (frame rate, world, position), the free camera (F1). |
+| **Display** | Hide the HUD (F11), a performance line (frame rate, world, position), the free camera (F1), and **Graphics...**: the PC's looks changed live (cross steps each on: ambient occlusion, shadow edges, character shadows, level shadows and this episode's own, outlines, bloom, colour grade, vignette), character smoothing and its strength for the next start, and **Save to the launcher's settings**. |
 | **Reset World** | Reloads the current world at its entrance. |
 
 ## Noclip

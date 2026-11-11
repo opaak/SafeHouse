@@ -153,6 +153,28 @@ bool FSaveDisplaySettings(const std::filesystem::path& userDir)
     return st::save(file, s);
 }
 
+bool FSavePictureSettings(const std::filesystem::path& userDir, int smoothChars, int smoothStrength)
+{
+    const auto file = st::settingsPath(userDir);
+    st::SystemSettings s{};
+    const st::LoadResult result = st::load(file, s);
+    if (result == st::LoadResult::Newer) return false;
+    if (!st::loaded(result)) s = st::sly2Defaults();
+    s.bloom = g_display.bloom;
+    s.colorGrade = g_display.colorGrade;
+    s.vignette = g_display.vignette;
+    s.outlines = g_display.outlines;
+    s.ambientOcclusion = g_display.ambientOcclusion;
+    s.softShadows = g_display.softShadows;
+    s.shadowMaps = g_display.shadowMaps;
+    s.worldShadows = g_display.worldShadows;
+    for (int i = 0; i < st::kWorldShadowsEpisodes && i < 9; ++i) s.worldShadowsEpisode[i] = g_display.aWorldShadowsEpisode[i];
+    s.smoothChars = smoothChars;
+    s.smoothStrength = smoothStrength;
+    st::sanitizeStatic(s, 0, 0, st::kSly2DefaultKeyboardBindings);
+    return st::save(file, s);
+}
+
 void LayoutDisplay(int outputWidth, int outputHeight)
 {
     DISPLAY& d = g_display;

@@ -73,7 +73,7 @@ extern std::unordered_map<int, int> g_mpoidiwrecTask;   // autoplay.cpp / brx.cp
 namespace
 {
 // ------------------------------------------------------------ state
-enum PAGEK { PK_Root, PK_Episodes, PK_Worlds, PK_Character, PK_Teleport, PK_Jobs, PK_JobList, PK_Player, PK_Speed, PK_Display,
+enum PAGEK { PK_Root, PK_Episodes, PK_Worlds, PK_Character, PK_Teleport, PK_Jobs, PK_JobList, PK_Player, PK_Speed, PK_Display, PK_Graphics,
              PK_Extras, PK_ExtrasChars, PK_ExtrasSly, PK_ExtrasCarm, PK_ExtrasGuardEps, PK_ExtrasGuards, PK_ExtrasBosses };
 struct PAGE
 {
@@ -771,7 +771,51 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
             g_fDebugFreeCam = !g_fDebugFreeCam;
             if (g_fDebugFreeCam) Close();
         }, StrOnOff(g_fDebugFreeCam) + "  (W A S D, Q E, right mouse; pad: sticks, R2 / L2, Select)");
+        item("Graphics...", [] { Push(PK_Graphics); }, "the PC's looks, live");
         break;
+    case PK_Graphics:
+    {
+        // (PC) the picture's options, changed as the game runs (each read every frame); Character smoothing is built into
+        // the shaders and the models at the start, so it is only saved, for the next start. Cross steps a row on.
+        *pstrTitle = "Graphics";
+        static int s_smoothChars = -1, s_smoothStrength = -1;   // (the next start's: from the display at first)
+        if (s_smoothChars < 0) s_smoothChars = g_display.smoothChars, s_smoothStrength = g_display.smoothStrength;
+        auto cycle = [&](const std::string& label, int* pv, const std::vector<int>& av, const std::vector<std::string>& asz) {
+            size_t i = 0;
+            while (i < av.size() && av[i] != *pv) ++i;
+            const std::string value = i < av.size() ? asz[i] : std::to_string(*pv);
+            item(label, [pv, av, asz, label] {
+                size_t j = 0;
+                while (j < av.size() && av[j] != *pv) ++j;
+                *pv = av[j < av.size() ? (j + 1) % av.size() : 0];
+                size_t k = 0;
+                while (k < av.size() && av[k] != *pv) ++k;
+                Status(label + ": " + asz[k]);
+            }, value);
+        };
+        const std::vector<std::string> aszPct4{"Off", "30%", "60%", "100%"};
+        cycle("Ambient occlusion", &g_display.ambientOcclusion, {0, 30, 60, 100}, aszPct4);
+        cycle("Shadow edges", &g_display.softShadows, {0, 1, 2}, {"Original", "Soft", "Softer"});
+        cycle("Character shadows", &g_display.shadowMaps, {0, 1}, {"Original", "Shadow maps"});
+        cycle("Level shadows", &g_display.worldShadows, {0, 30, 60, 100}, aszPct4);
+        {
+            const int iep = IepisodeCur();
+            if (iep >= 0 && iep < 9)
+                cycle("Level shadows here (" + StrEpisodeName(iep) + ")", &g_display.aWorldShadowsEpisode[iep], {-1, 0, 30, 60, 100},
+                      {"Global", "Off", "30%", "60%", "100%"});
+        }
+        cycle("Outlines", &g_display.outlines, {0, 1, 2}, {"Original", "Silhouettes", "Creases"});
+        cycle("Bloom", &g_display.bloom, {0, 25, 50, 100}, {"Off", "25%", "50%", "100%"});
+        cycle("Colour grade", &g_display.colorGrade, {0, 1, 2}, {"Original", "Vivid", "LUT"});
+        cycle("Vignette", &g_display.vignette, {0, 30, 60}, {"Off", "30%", "60%"});
+        cycle("Character smoothing (next start)", &s_smoothChars, {0, 2, 3, 4}, {"Off", "Low", "Medium", "High"});
+        cycle("Smoothing strength (next start)", &s_smoothStrength, {25, 50, 75, 100}, {"25%", "50%", "75%", "100%"});
+        item("Save to the launcher's settings", [] {
+            Status(FSavePictureSettings(cane::userDirectory(), s_smoothChars, s_smoothStrength) ? "graphics saved: the launcher shows them"
+                                                                                              : "graphics not saved (the settings file is newer or not writable)");
+        }, "", true);
+        break;
+    }
     }
     return a;
 }

@@ -123,6 +123,10 @@ int DisplayRefreshRate(GLFWwindow* window);
 bool FLoadDisplaySettings(const std::filesystem::path& userDir, std::string* pmessage = nullptr);
 // Writes the options back into the file (the other fields, key bindings and audio, kept).
 bool FSaveDisplaySettings(const std::filesystem::path& userDir);
+// (the debug menu's Graphics page) the picture's options as they are now into system_settings.dat (what the launcher
+// shows): the post-processing, the lighting, the shadows; the character smoothing as smoothChars / smoothStrength
+// (taken at the next start)
+bool FSavePictureSettings(const std::filesystem::path& userDir, int smoothChars, int smoothStrength);
 
 // The window's framebuffer changed (or an option did): the picture, the scene target (g_gl.CreateFramebuffers
 // when its size or MSAA changes) and the 2D canvas.
