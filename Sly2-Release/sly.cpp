@@ -551,6 +551,23 @@ void UpdateSlySlideInput(SLY* p)
     }
 }
 
+// (PC) Sly 4's Moving Pickpocket (state 11) and Run While Charging (state 5's wind-up, substates 6 / 7): a walk by the
+// stick, after the step motion as the slide's, by an acceleration in the world toward the stick's velocity (the feet
+// push nothing: these states keep vecVel 0), so it goes straight whichever way the pose turns him
+void UpdateSlyPcWalk(SLY* p)
+{
+    float speed = 0.0f;
+    if (p->state == 11 && FPowerupOwned(kItemMovingPickpocket)) speed = 260.0f;
+    else if (p->state == 5 && (p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging)) speed = 330.0f;
+    if (speed <= 0.0f || g_clock.dt <= 0.0f) return;
+    const float rad = RadJoy(p), u = UJoy(p);
+    const glm::vec3 v = VelAloPos(p->palo);
+    const glm::vec3 wanted(std::cos(rad) * u * speed, std::sin(rad) * u * speed, v.z);
+    glm::vec3 acc = (wanted - v) * (1.0f / g_clock.dt);
+    acc.z = 0.0f;
+    AccelAloPos(p->palo, cmm::LimitVectorLength(acc, 3000.0f));
+}
+
 // orig: 0x00188960 (state 24's addition, following the base STEP motion)
 void UpdateSlySlideMotion(SLY* p)
 {
@@ -1673,13 +1690,7 @@ void UpdateSlyInput(SLY* p)
     case 7: UpdateInteract(p); break;  // 0x191A10 (+0x4C0)
     case 11:
         UpdatePickpocketPose(p);  // 0x18B460
-        // (PC: Sly 4's Moving Pickpocket, pcprogress.h: a slow walk by the stick, still facing the guard)
-        if (FPowerupOwned(kItemMovingPickpocket))
-        {
-            // (vecVel is in the heading's frame: the stick's world direction less the heading)
-            const float rad = RadJoy(p) - p->radHeading, u = UJoy(p);
-            p->vecVel = glm::vec3(std::cos(rad) * u * 260.0f, std::sin(rad) * u * 260.0f, 0.0f);
-        }
+        // (PC: Sly 4's Moving Pickpocket: its walk, UpdateSlyPcWalk after the step motion)
         break;
     case 16:
         if (FPowerupOwned(0x1C)) UpdateSlyJuggleVelocity(p);  // 0x18E1E0
@@ -1717,15 +1728,8 @@ void UpdateSlyInput(SLY* p)
                 SetStepPhysHeadingToward(p->palo, PosAloCenter(static_cast<ALO*>(p->plo10DC)) - PosAloCenter(p->palo));
         }
         else if (p->substate == 5) MoveAroundTarget(p, &p->rb13D0, true, RadJoy(p), UJoy(p));  // 0x1A0720
-        else if ((p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging))
-        {
-            // (PC: Sly 4's Run While Charging, pcprogress.h: the wind-up walks by the stick, turned toward it)
-            // (vecVel is in the heading's frame: turned toward the stick, it walks straight ahead)
-            const float rad = RadJoy(p), u = UJoy(p);
-            if (0.0f < u) SetStepPhysHeading(p->palo, rad);
-            const float radV = rad - p->radHeading;
-            p->vecVel = glm::vec3(std::cos(radV) * u * 330.0f, std::sin(radV) * u * 330.0f, 0.0f);
-        }
+        else if ((p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging) && 0.0f < UJoy(p))
+            SetStepPhysHeading(p->palo, RadJoy(p));   // (PC: Run While Charging: turned toward the stick, UpdateSlyPcWalk walks)
         else if (p->substate == 8 || p->substate == 9)
         {
             // the strike steered by the stick: its direction (behind the heading, x 1000: 0x2BF3C0) in Sly's frame
@@ -2750,6 +2754,7 @@ void UpdateSlyMotion(ALO* palo)
         break;
     }
     case 6: UpdateSlyDodgeMotion(p); break;  // 0x137248, after the base step motion
+    case 5: case 11: UpdateSlyPcWalk(p); break;   // (PC: Run While Charging / Moving Pickpocket)
     case 24: UpdateSlySlideMotion(p); break;
     case 3: UpdateSlyHangMotion(p); break;  // 0x1903B8
     default: break;
