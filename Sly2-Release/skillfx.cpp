@@ -42,6 +42,9 @@ struct FXP
     float size0 = 10.0f, size1 = 0.0f; // world units
     glm::vec4 rgba0, rgba1;            // (the alpha fades to rgba1's)
     bool fStreak = false;
+    bool fFlame = false;               // a tongue of flame: size0 its length along dir, size1 its width
+    glm::vec3 dir{0.0f, 0.0f, 1.0f};
+    float seed = 0.0f;
 };
 std::vector<FXP> s_ap;
 
@@ -80,6 +83,16 @@ FXP Dot(const glm::vec3& pos, const glm::vec3& vel, float life, float s0, float 
     p.pos = pos, p.vel = vel, p.life = life, p.size0 = s0, p.size1 = s1, p.rgba0 = c0, p.rgba1 = c1, p.grav = grav, p.drag = drag;
     p.t0 = g_clock.t;
     return p;
+}
+
+// a tongue of flame at pos (moving at vel), pointing along dir: len long, w wide (world units)
+void Flame(const glm::vec3& pos, const glm::vec3& vel, const glm::vec3& dir, float life, float len, float w)
+{
+    FXP p = Dot(pos, vel, life, len, w, glm::vec4(0.0f), glm::vec4(0.0f), 0.0f, 1.5f);
+    p.fFlame = true;
+    p.dir = glm::length(dir) > 1e-4f ? glm::normalize(dir) : glm::vec3(0, 0, 1);
+    p.seed = Rand(0.0f, 100.0f);
+    Add(p);
 }
 
 void Ring(const glm::vec3& pos, float r0, float r1, float life, float w, glm::vec4 c, float dz = 0.0f, float tDelay = 0.0f)
@@ -212,10 +225,10 @@ void SkillFxRecharge(ALO* palo)
 void SkillFxBurn(const glm::vec3& pos)
 {
     if (!FStep()) return;
-    Sparks(pos + glm::vec3(0, 0, 60), 12, 500.0f, kFlame, 0.9f);
-    for (int i = 0; i < 6; ++i)
-        Add(Dot(pos + glm::vec3(Rand(-30.f, 30.f), Rand(-30.f, 30.f), Rand(40.f, 110.f)), glm::vec3(0, 0, Rand(80.f, 200.f)), 0.45f, 18.0f, 4.0f,
-                kOrange, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+    Sparks(pos + glm::vec3(0, 0, 60), 10, 450.0f, kSpark, 1.2f);
+    for (int i = 0; i < 7; ++i)
+        Flame(pos + glm::vec3(Rand(-35.f, 35.f), Rand(-35.f, 35.f), Rand(30.f, 100.f)), glm::vec3(Rand(-20.f, 20.f), Rand(-20.f, 20.f), Rand(70.f, 140.f)),
+              glm::vec3(Rand(-0.15f, 0.15f), Rand(-0.15f, 0.15f), 1.0f), Rand(0.4f, 0.65f), Rand(55.f, 95.f), Rand(12.f, 17.f));
 }
 
 void NoteSkillFxHover(ALO* palo) { s_paloHover = palo; }
@@ -233,8 +246,8 @@ void UpdateSkillFx()
     {
         const glm::vec3 pos = PosAloCenter(s_paloHover) + glm::vec3(0, 0, 45);
         for (int i = 0; i < 3; ++i)
-            Add(Dot(pos + glm::vec3(Rand(-10.f, 10.f), Rand(-10.f, 10.f), 0), glm::vec3(Rand(-60.f, 60.f), Rand(-60.f, 60.f), Rand(-650.f, -450.f)),
-                    Rand(0.18f, 0.3f), 16.0f, 3.0f, kFlame, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+            Flame(pos + glm::vec3(Rand(-8.f, 8.f), Rand(-8.f, 8.f), 0), glm::vec3(Rand(-40.f, 40.f), Rand(-40.f, 40.f), Rand(-380.f, -240.f)),
+                  glm::vec3(Rand(-0.12f, 0.12f), Rand(-0.12f, 0.12f), -1.0f), Rand(0.14f, 0.24f), Rand(45.f, 75.f), Rand(9.f, 13.f));
     }
     if (s_paloRocket && s_paloRocket == pcur)
     {
@@ -248,7 +261,11 @@ void UpdateSkillFx()
             p.fStreak = true;
             Add(p);
         }
-        Add(Dot(pos, glm::vec3(0.0f), 0.18f, 14.0f, 4.0f, glm::vec4(kOrange.r, kOrange.g, kOrange.b, 70), glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+        // flames trailing from the feet, back along his way and a little up
+        const glm::vec2 vh(v);
+        const glm::vec3 back = glm::length(vh) > 30.0f ? glm::vec3(-glm::normalize(vh), 0.35f) : glm::vec3(0, 0, 1);
+        for (int i = 0; i < 2; ++i)
+            Flame(pos + glm::vec3(Rand(-10.f, 10.f), Rand(-10.f, 10.f), 0), glm::vec3(v.x, v.y, 0.0f) * 0.6f, back, Rand(0.12f, 0.2f), Rand(30.f, 48.f), Rand(7.f, 9.f));
     }
     else s_posRocketLast = glm::vec3(0.0f);
     if (s_paloFeather && s_paloFeather == pcur)
@@ -369,7 +386,52 @@ void DrawSkillFx(int width, int height)
         const glm::vec4 rgba = glm::mix(p.rgba0, p.rgba1, u);
         glm::vec2 c;
         if (!FCanvas(p.pos, &c)) continue;
-        if (p.fStreak)
+        if (p.fFlame)
+        {
+            // three layers (red-orange edge, orange-yellow, a pale core), each a tongue: its tip along dir, flickering
+            // across, its sides curving in, a round base; thinner and redder as it ages
+            const float alpha = std::pow(1.0f - u, 1.6f) * std::min(1.0f, u * 10.0f);
+            const float lenk = 0.85f + 0.15f * std::sin(t * 23.0f + p.seed * 7.0f);
+            const float flick = std::sin(t * 37.0f + p.seed * 13.0f), f2 = 0.25f * std::sin(t * 29.0f + p.seed * 5.0f);
+            glm::vec2 cTip;
+            if (!FCanvas(p.pos + p.dir * p.size0 * lenk, &cTip)) continue;
+            glm::vec2 ax = cTip - c;
+            const float l = glm::length(ax);
+            if (l < 0.5f) ax = glm::vec2(0.0f, -1.0f);
+            const glm::vec2 a = l < 0.5f ? ax : ax / l, n(-a.y, a.x);
+            const float wpx = std::clamp(PixelsOf(p.pos, p.size1, c), 0.8f, 40.0f) * (1.0f - 0.45f * u);
+            struct LAYER { float s, sl; glm::vec4 rgba; };
+            const LAYER alayer[3] = {{1.0f, 1.0f, glm::vec4(128, 40, 8, 0.55f)}, {0.68f, 0.8f, glm::vec4(128, 92, 20, 0.75f)},
+                                     {0.38f, 0.55f, glm::vec4(128, 124, 88, 0.9f)}};
+            for (int il = 0; il < 3; ++il)
+            {
+                const LAYER& ly = alayer[il];
+                if (il == 2 && u > 0.6f) break;   // (the core gone as it dies down)
+                const float w = wpx * ly.s;
+                const glm::vec2 tip = c + ax * ly.sl + n * flick * w * 0.5f;
+                const glm::vec2 mid = c + ax * ly.sl * 0.45f + n * flick * w * 0.2f;
+                glm::vec2 apt[13];
+                int cpt = 0;
+                apt[cpt++] = tip;
+                apt[cpt++] = mid + n * w * (0.62f + f2);
+                for (int k = 0; k <= 8; ++k)
+                {
+                    const float ang = 3.14159265f * float(k) / 8.0f;   // (from +n round the back to -n)
+                    apt[cpt++] = c + (n * std::cos(ang) - a * std::sin(ang)) * w;
+                }
+                apt[cpt++] = mid - n * w * (0.62f - f2);
+                glm::vec2 atri[13 * 3];
+                int ctri = 0;
+                for (int i = 0; i < cpt; ++i)
+                {
+                    atri[ctri++] = c;
+                    atri[ctri++] = apt[i];
+                    atri[ctri++] = apt[(i + 1) % cpt];
+                }
+                g_hud.FillScreenTris(atri, ctri, glm::vec4(glm::vec3(ly.rgba), 128.0f * ly.rgba.a * alpha), z + 1e-5f * float(il));
+            }
+        }
+        else if (p.fStreak)
         {
             glm::vec2 c2;
             if (!FCanvas(p.pos - p.vel * 0.025f, &c2)) continue;
@@ -377,8 +439,11 @@ void DrawSkillFx(int width, int height)
         }
         else
         {
+            // a soft puff: discs one inside the other, so its edge fades out and its middle is denser
             const float rpx = std::clamp(PixelsOf(p.pos, p.size0 + (p.size1 - p.size0) * u, c), 0.5f, 40.0f);
-            g_hud.DrawRing(c.x, c.y, rpx, 0.0f, 1.0f, rgba, z);
+            if (rpx < 2.5f) { g_hud.DrawRing(c.x, c.y, rpx, 0.0f, 1.0f, rgba, z); continue; }
+            for (float k : {1.0f, 0.72f, 0.45f})
+                g_hud.DrawRing(c.x, c.y, rpx * k, 0.0f, 1.0f, glm::vec4(glm::vec3(rgba), rgba.a * 0.4f), z);
         }
     }
     if (fFlash)
