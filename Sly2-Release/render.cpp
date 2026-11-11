@@ -2300,6 +2300,36 @@ constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
 GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
+// (the frame's colour copied for its alpha: the characters' pixels left alone)
+GLuint s_fboWsCol = 0, s_texWsCol = 0;
+int s_dxWsCol = 0, s_dyWsCol = 0;
+bool FEnsureWsColor(int dx, int dy)
+{
+    if (s_fboWsCol && dx == s_dxWsCol && dy == s_dyWsCol) return true;
+    if (s_fboWsCol) glDeleteFramebuffers(1, &s_fboWsCol), s_fboWsCol = 0;
+    if (s_texWsCol) glDeleteTextures(1, &s_texWsCol), s_texWsCol = 0;
+    GLint activePrev = 0, texPrev = 0, fboPrev = 0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+    glActiveTexture(GL_TEXTURE5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+    glGenTextures(1, &s_texWsCol);
+    glBindTexture(GL_TEXTURE_2D, s_texWsCol);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, dx, dy);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+    glActiveTexture(GLenum(activePrev));
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+    glGenFramebuffers(1, &s_fboWsCol);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWsCol);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texWsCol, 0);
+    const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    if (!fOk) return false;
+    s_dxWsCol = dx;
+    s_dyWsCol = dy;
+    return true;
+}
 
 bool FWorldShadowsReady()
 {
@@ -2394,7 +2424,7 @@ int NWorldShadowsNow()
 void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
                       GLuint fbo, int dx, int dy)
 {
-    if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy)) return;
+    if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy) || !FEnsureWsColor(dx, dy)) return;
     const glm::vec3 L = DirWorldShadowLight();
     // the box: round the point ahead of the camera, its centre snapped to the map's texels in the light's frame
     const glm::vec3 up = std::fabs(L.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
@@ -2502,6 +2532,8 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
     glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWsCol);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, dx, dy);
     glActiveTexture(GL_TEXTURE3);
@@ -2510,10 +2542,17 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, s_texWs);
     glBindSampler(4, 0);
+    GLint texUnit5 = 0, samplerUnit5 = 0;
+    glActiveTexture(GL_TEXTURE5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit5);
+    glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit5);
+    glBindTexture(GL_TEXTURE_2D, s_texWsCol);
+    glBindSampler(5, 0);
     glActiveTexture(GL_TEXTURE0);
     s_shWsApply.Use();
     glUniform1i(s_shWsApply.Loc("texDepth"), 3);
     glUniform1i(s_shWsApply.Loc("texWs"), 4);
+    glUniform1i(s_shWsApply.Loc("texColor"), 5);
     const glm::mat4 matClipToWorld = glm::inverse(matWorldToClip);
     glUniformMatrix4fv(s_shWsApply.Loc("matClipToWorld"), 1, GL_FALSE, glm::value_ptr(matClipToWorld));
     glUniformMatrix4fv(s_shWsApply.Loc("matLight"), 1, GL_FALSE, glm::value_ptr(matLight));
@@ -2532,6 +2571,10 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    glActiveTexture(GL_TEXTURE5);   // (unit 5 put back: SMSAVE keeps units 3 and 4)
+    glBindTexture(GL_TEXTURE_2D, GLuint(texUnit5));
+    glBindSampler(5, GLuint(samplerUnit5));
+    glActiveTexture(GL_TEXTURE0);
 }
 #endif
 }  // namespace

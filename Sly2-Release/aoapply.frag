@@ -17,7 +17,9 @@ void main()
     ivec2 lim = textureSize(tex, 0) - 1;
     vec4 c = texelFetch(tex, p, 0);
     float d0 = texelFetch(texDepth, p, 0).r;
-    if (d0 <= 0.0)
+    // (the characters' own pixels, the frame alpha's bit 7 as the shadows' DATE: their low-poly creases would step into
+    // dark triangles; they have their own cel shading)
+    if (d0 <= 0.0 || int(round(c.a * 128.0)) >= 128)
     {
         FragColor = c;
         return;

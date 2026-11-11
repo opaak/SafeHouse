@@ -4,10 +4,11 @@
 // directional light, an orthographic box round the camera's view). Behind a caster it is in shadow: 3 x 3
 // hardware-compared taps, then a narrow step (one cel tone, as the shading's own, not a smooth gradient). Surfaces
 // already turned away from the light are left as the art painted them (no second darkening), and the shadow fades out
-// toward the box's edge. Only the colour is drawn (blend 0 x Cs + (1 - As) x Cd); the alpha is kept.
+// toward the box's edge. The characters' own pixels (the frame alpha's bit 7) are left alone. Only the colour is drawn (blend 0 x Cs + (1 - As) x Cd); the alpha is kept.
 
 uniform sampler2D texDepth;        // unit 3: the scene's depth (reversed Z, [0, 1]; 0 nothing drawn)
 uniform sampler2DShadow texWs;     // unit 4: the shadow map (standard depth, LEQUAL compare)
+uniform sampler2D texColor;        // unit 5: the frame's colour (its alpha: bit 7 the characters' own pixels)
 uniform mat4 matClipToWorld;       // the frame's world-to-clip, inverted
 uniform mat4 matLight;             // world to the map's clip ([-1, 1] across, [0, 1] deep)
 uniform vec3 dirLight;             // the light's direction (from the light, normalized)
@@ -30,6 +31,8 @@ void main()
     ivec2 p = ivec2(gl_FragCoord.xy);
     float d0 = texelFetch(texDepth, p, 0).r;
     if (d0 <= 0.0) discard;   // (the sky)
+    // (the characters: their own shadows and shading; their low-poly facets would take the shadow triangle by triangle)
+    if (int(round(texelFetch(texColor, p, 0).a * 128.0)) >= 128) discard;
     vec3 P = WorldAt(p, d0);
 
     // the surface's normal from the nearer neighbour of each side (no smearing across silhouettes)
