@@ -35,11 +35,11 @@ const PCITEM s_aitem[] = {
      "Salim al-Kupar's technique. Hold &2R&. on poles and pipes to climb them at speed"},
     // the extra powerups (extrapowerups.h); their use and power here, what they do there
     {kItemMeterRechargerSly, "meterRechargerSly", 7, 1500, 3, "Meter Recharger",
-     "From Sly 4. Fills the gadget meter at once. It needs a while to recharge before it can be used again", 2, 0, true},
+     "From Sly 4. When the gadget meter runs empty, it fills up again at once; then it needs 60 s to recharge", -1, 0, true},
     {kItemMeterRechargerBentley, "meterRechargerBentley", 9, 1500, 3, "Meter Recharger",
-     "From Sly 4. Fills the gadget meter at once. It needs a while to recharge before it can be used again", 2, 0, true},
+     "From Sly 4. When the gadget meter runs empty, it fills up again at once; then it needs 60 s to recharge", -1, 0, true},
     {kItemMeterRechargerMurray, "meterRechargerMurray", 8, 1500, 3, "Meter Recharger",
-     "From Sly 4. Fills the gadget meter at once. It needs a while to recharge before it can be used again", 2, 0, true},
+     "From Sly 4. When the gadget meter runs empty, it fills up again at once; then it needs 60 s to recharge", -1, 0, true},
     // Sly 4's passive upgrades, in ThiefNet as the story goes on (always on once bought)
     {kItemMovingPickpocket, "movingPickpocket", 7, 500, 2, "Moving Pickpocket",
      "From Sly 4. Sly keeps walking while he picks a guard's pocket, so he can follow a guard on its round", -1, 0, true},
@@ -119,7 +119,8 @@ const char* SzPcItemIcon(int id)
 
 int IdPcSlot(int ichar, int j)
 {
-    return ichar >= 0 && ichar < 3 && j >= 0 && j < 3 ? s_aidSlot[ichar][j] : -1;
+    const int id = ichar >= 0 && ichar < 3 && j >= 0 && j < 3 ? s_aidSlot[ichar][j] : -1;
+    return id != -1 && NPcItemUse(id) == -1 ? -1 : id;   // (a passive one on a button from an older .pc: none)
 }
 void SetPcSlot(int ichar, int j, int id)
 {

@@ -3,6 +3,7 @@
 #include "extrapowerups.h"
 
 #include "actor.h"
+#include "brx.h"
 #include "clock.h"
 #include "gadget.h"
 #include "pcprogress.h"
@@ -26,13 +27,15 @@ bool FMeterRechargerReady(int id)
     // (the game clock starts again with a world: a time ahead of it is an earlier world's)
     return it == s_mpidTUsed.end() || g_clock.t < it->second || g_clock.t - it->second >= kTMeterRecharge;
 }
-bool FMeterRechargerCanDo(ACTOR* pa, int id) { return FMeterRechargerReady(id) && NActorPower(pa) < pa->n1300; }
-void StartMeterRecharger(ACTOR* pa, int id)
+// passive (UpdatePcPowerupsPassive): the meter run empty fills again at once, if ready
+void UpdateMeterRecharger(ACTOR* pa, int id)
 {
+    if (!FPowerupOwned(id) || !FMeterRechargerReady(id) || pa->n1300 <= 0 || NActorPower(pa) > 0) return;
     SetActorPower(pa, pa->n1300);
     pa->g1304 = g_clock.t;   // (the meter's flash, as a spend shows it)
     s_mpidTUsed[id] = g_clock.t;
     PsndStartSound(0x29);    // (ThiefNet's purchase sound)
+    if (FPrint()) std::printf("gadget: Meter Recharger %d refilled the meter t %.2f\n", id, g_clock.t);
 }
 
 // ---- the table: an item's handlers (null: none)
@@ -45,9 +48,7 @@ struct PCPOWERUP
     void (*pfnHeld)(ACTOR* pa, int id);
 };
 const PCPOWERUP s_apup[] = {
-    {kItemMeterRechargerSly, FMeterRechargerCanDo, StartMeterRecharger, nullptr, nullptr},
-    {kItemMeterRechargerBentley, FMeterRechargerCanDo, StartMeterRecharger, nullptr, nullptr},
-    {kItemMeterRechargerMurray, FMeterRechargerCanDo, StartMeterRecharger, nullptr, nullptr},
+    {-1, nullptr, nullptr, nullptr, nullptr},   // (none on a button yet: Meter Recharger is passive, below)
 };
 
 const PCPOWERUP* PpupOf(int id)
@@ -84,4 +85,13 @@ void UpdatePcPowerupHeld(ACTOR* pa, int id)
 {
     const PCPOWERUP* p = PpupOf(id);
     if (p && p->pfnHeld) p->pfnHeld(pa, id);
+}
+
+void UpdatePcPowerupsPassive(ACTOR* pa)
+{
+    if (!pa || !pa->palo) return;
+    // Meter Recharger: the character's own
+    const int id = FIsLoDerivedFrom(pa->palo, 0x35) ? kItemMeterRechargerSly : FIsLoDerivedFrom(pa->palo, 0x37) ? kItemMeterRechargerBentley
+                 : FIsLoDerivedFrom(pa->palo, 0x36) ? kItemMeterRechargerMurray : -1;
+    if (id != -1) UpdateMeterRecharger(pa, id);
 }

@@ -20,3 +20,6 @@ bool FPcPowerupCanDo(ACTOR* pa, int id);    // vt slot 99
 void StartPcPowerup(ACTOR* pa, int id);     // vt slot 100
 void EndPcPowerup(ACTOR* pa, int id);       // vt slot 102 (held ones)
 void UpdatePcPowerupHeld(ACTOR* pa, int id);   // vt slot 101 (held ones, each frame)
+// The passive ones that act on their own (each frame for each player, gadget.cpp UpdateActorAbilities): Meter
+// Recharger (the meter run empty fills again at once, then 60 s before it can again)
+void UpdatePcPowerupsPassive(ACTOR* pa);

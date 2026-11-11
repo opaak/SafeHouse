@@ -104,8 +104,8 @@ can be turned off where it changes how the game looks or plays.
   selected one on L1, L2 or R2.
   Which buttons hold them is kept in the same `saveN.pc` file, so the PS2 save never holds an id the PS2 game
   doesn't know. So far:
-  - **Meter Recharger** (Sly, Bentley and Murray, from Episode 3, 1500 coins each): fills the gadget meter at once,
-    then needs 60 s to recharge.
+  - **Meter Recharger** (Sly, Bentley and Murray, from Episode 3, 1500 coins each): passive; when the gadget meter
+    runs empty it fills up again at once, then needs 60 s to recharge.
   - Sly 4's passive upgrades, always on once bought:
     - **Moving Pickpocket** (Sly, Episode 2, 500): Sly keeps walking while he picks a pocket.
     - **Run While Charging** (Sly, Episode 2, 700): Sly walks while winding up a charged cane swing.

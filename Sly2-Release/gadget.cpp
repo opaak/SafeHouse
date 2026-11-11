@@ -533,6 +533,7 @@ void UpdateActorAbilities(ACTOR* pa)
     PADCTL* pc = PpadctlOfActor(pa);
     if (!pc) return;   // (+0x150)
     if (FPcCarm(pa->palo)) return;   // (PC addition, debug menu only: Carmelita's moveset has no gadgets)
+    UpdatePcPowerupsPassive(pa);     // (PC: the passive extra powerups, extrapowerups.h)
     ABILITIES& ab = AbOf(pa);
     for (int i = 0; i < 3; ++i)
     {
