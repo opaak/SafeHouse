@@ -10,6 +10,7 @@
 #include "emitter.h"
 #include "gl.h"
 #include "light.h"
+#include "transition.h"
 #include "laserrender.h"
 #include "pocket.h"
 void CollectHackSwarmDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra);  // (hack.cpp: the swarms' particles)
@@ -2381,6 +2382,14 @@ glm::vec3 DirWorldShadowLight()
     return s_dir;
 }
 
+// The level's shadows' strength (0..100) in the current episode: its own setting, else the global one.
+int NWorldShadowsNow()
+{
+    const int iep = IepisodeCur();
+    if (iep >= 0 && iep < 9 && g_display.aWorldShadowsEpisode[iep] >= 0) return std::min(g_display.aWorldShadowsEpisode[iep], 100);
+    return std::clamp(g_display.worldShadows, 0, 100);
+}
+
 void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
                       GLuint fbo, int dx, int dy)
 {
@@ -2488,7 +2497,7 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glUniform2f(s_shWsApply.Loc("viewSize"), float(dx), float(dy));
     glUniform1f(s_shWsApply.Loc("rcpMap"), 1.0f / float(kcWsMap));
     glUniform1f(s_shWsApply.Loc("texelWorld"), texel);
-    glUniform1f(s_shWsApply.Loc("strength"), float(std::clamp(g_display.worldShadows, 0, 100)) / 100.0f);
+    glUniform1f(s_shWsApply.Loc("strength"), float(NWorldShadowsNow()) / 100.0f);
     glBindVertexArray(s_vaoEmpty);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -4250,7 +4259,7 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     RenderPass(scene, pv, opts);
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
-    if (g_display.worldShadows > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
+    if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
 #endif
 }
 

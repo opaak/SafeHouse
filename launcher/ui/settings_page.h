@@ -611,6 +611,8 @@ private:
             s.upscaler = d.upscaler, s.upscalerSharpness = d.upscalerSharpness;
             s.bloom = d.bloom, s.colorGrade = d.colorGrade, s.vignette = d.vignette, s.outlines = d.outlines;
             s.ambientOcclusion = d.ambientOcclusion, s.softShadows = d.softShadows;
+            s.shadowMaps = d.shadowMaps, s.worldShadows = d.worldShadows;
+            for (int i = 0; i < settings::kWorldShadowsEpisodes; ++i) s.worldShadowsEpisode[i] = d.worldShadowsEpisode[i];
             break;
         case Audio: settings::defaultAudio(s); break;
         case Controls:
@@ -821,6 +823,36 @@ private:
         int soft = std::clamp(m_settings.softShadows, 0, 2);
         if (stepperRow("Shadow edges", &soft, softShadows)) m_settings.softShadows = soft, commit();
         describe("Blurs the hard, jagged edges of the characters' shadows.");
+        shadowRows();
+    }
+    // Sly 2's PC shadows (system_settings.h v23; Sly2-Release display.h shadowMaps / worldShadows, render.cpp). Test
+    // features: every option's first value draws as before.
+    void shadowRows() {
+        static const std::vector<std::string> shadowMaps{ "Original", "Shadow maps (test)" };
+        int maps = std::clamp(m_settings.shadowMaps, 0, 1);
+        if (stepperRow("Character shadows", &maps, shadowMaps)) m_settings.shadowMaps = maps, commit();
+        describe("Shadow maps draw the characters' shadows from their own shapes, with soft edges. A test: Original is the PS2's.");
+        rangeRow("Level shadows", m_settings.worldShadows, 0, 100, 10,
+                 "Buildings, walls and props cast shadows from the level's main light, in one cel tone. 0 turns them off. A test.", percent);
+        section("Level shadows per episode");
+        static const char* const episodes[settings::kWorldShadowsEpisodes] = {
+            "Prologue: A Shadow From the Past", "Episode 1: The Black Chateau", "Episode 2: A Starry Eyed Encounter",
+            "Episode 3: The Predator Awakes", "Episode 4: Jailbreak", "Episode 5: A Tangled Web",
+            "Episode 6: He Who Tames the Iron Horse", "Episode 7: Menace from the North, Eh!", "Episode 8: Anatomy for Disaster" };
+        // (Global: the setting above; Off; 10..100%)
+        static const std::vector<std::string> strengths = [] {
+            std::vector<std::string> v{ "Global", "Off" };
+            for (int p = 10; p <= 100; p += 10) v.push_back(std::to_string(p) + "%");
+            return v;
+        }();
+        for (int i = 0; i < settings::kWorldShadowsEpisodes; ++i) {
+            int& field = m_settings.worldShadowsEpisode[i];
+            int index = field < 0 ? 0 : field == 0 ? 1 : field % 10 == 0 ? 1 + field / 10 : -1;
+            const std::string custom = std::to_string(field) + "%";
+            if (stepperRow(episodes[i], &index, strengths, nullptr, index < 0 ? custom.c_str() : nullptr))
+                field = index == 0 ? settings::WorldShadows_Global : index == 1 ? 0 : (index - 1) * 10, commit();
+            describe("This episode's level shadows: Global follows Level shadows above; Off or a strength of its own in its place.");
+        }
     }
     void audioRows() {
         if (m_game == GameId::Sly1) {   // (Sly 2 has stereo / mono in its own options)

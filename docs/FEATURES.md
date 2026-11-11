@@ -56,6 +56,11 @@ can be turned off where it changes how the game looks or plays.
     two soft steps that suit the cel shading rather than a smooth photographic gradient. Fades out with distance.
   - **Shadow edges:** Soft or Softer blurs the hard, jagged edges of the characters' cast shadows over about 2 or 4
     PS2 pixels (the shadows themselves, their shapes and darkness, are the original's).
+  - **Character shadows** (test): Shadow maps draw the characters' cast shadows from their own shapes, with soft edges,
+    in place of the original's shadow volumes.
+  - **Level shadows** (test): buildings, walls and props cast shadows from the level's main light, in one cel tone,
+    darker with the value; **Level shadows per episode** gives each episode (the prologue to Episode 8) Global, Off
+    or a strength of its own.
 - **Low-end GPUs:** weak integrated graphics start at a lower internal resolution on first launch.
 
 ## Controls

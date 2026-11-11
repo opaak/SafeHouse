@@ -81,15 +81,17 @@ struct DISPLAY
     // - softShadows (SoftShadowsValue): the cast shadows' edges blurred over about 2 (1) or 4 (2) PS2 pixels
     int ambientOcclusion = 0;
     int softShadows = 0;
-    // PC character shadow maps (TEST; not in system_settings.dat: --shadow-maps / SLY2N_SHADOWMAPS). 1: the characters'
+    // PC character shadow maps (settings v23 shadowMaps; --shadow-maps / SLY2N_SHADOWMAPS over it). 1: the characters'
     // cast shadows (render kind 7's type-2 casters) drawn from a depth map of their own meshes seen from the shadow's
     // light (render.cpp, shadowmap.frag) in place of the original's volumes of their shadow hulls, filtered (soft
     // edges); the darkness each surface takes is the original's (its frame-alpha level, the kind-7 ramp). 0: the volumes.
     int shadowMaps = 0;
-    // PC world shadows (TEST; not in system_settings.dat: --world-shadows / SLY2N_WORLDSHADOWS, 0..100). The level's static
-    // meshes cast shadows from its main directional light (render.cpp DrawWorldShadows, wsapply.frag; the light's
+    // PC world shadows (settings v23 worldShadows, 0..100; --world-shadows / SLY2N_WORLDSHADOWS over it). The level's
+    // static meshes cast shadows from its main directional light (render.cpp DrawWorldShadows, wsapply.frag; the light's
     // direction SLY2N_WORLDSHADOWDIR "x y z" for testing), one cel tone over the picture, darker with the value. 0: off.
+    // aWorldShadowsEpisode: per episode (0 the prologue .. 8) its own strength in place of worldShadows (-1: worldShadows).
     int worldShadows = 0;
+    int aWorldShadowsEpisode[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
     // PC character smoothing (TEST; not in system_settings.dat: --smooth-chars / SLY2N_SMOOTH, --smooth-strength /
     // SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel

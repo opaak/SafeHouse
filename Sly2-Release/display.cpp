@@ -43,6 +43,9 @@ void FromSettings(const st::SystemSettings& s)
     g_display.outlines = s.outlines;
     g_display.ambientOcclusion = s.ambientOcclusion;   // (v22, lighting: display.h)
     g_display.softShadows = s.softShadows;
+    g_display.shadowMaps = s.shadowMaps;   // (v23, shadows: display.h)
+    g_display.worldShadows = s.worldShadows;
+    for (int i = 0; i < st::kWorldShadowsEpisodes && i < 9; ++i) g_display.aWorldShadowsEpisode[i] = s.worldShadowsEpisode[i];
     PcInputFromSettings(s);   // (the controls and the prompts: pcinput.h)
     SetSoundUserVolumes(s.musicVolume, s.soundEffectsVolume, s.dialogueVolume);   // (the launcher's sliders: sound.h)
 }
@@ -120,6 +123,7 @@ bool FLoadDisplaySettings(const std::filesystem::path& userDir, std::string* pme
     g_display.anisotropy = 1;
     g_display.bloom = g_display.colorGrade = g_display.vignette = g_display.outlines = 0;
     g_display.ambientOcclusion = g_display.softShadows = 0;
+    g_display.shadowMaps = g_display.worldShadows = 0;
     g_display.smoothChars = 0;
 #endif
     const char* psz = "";

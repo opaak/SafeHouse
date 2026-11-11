@@ -560,7 +560,11 @@ int main(int argc, char** argv)
             int c = dispo.worldShadows;
             if (c < 0 && std::getenv("SLY2N_WORLDSHADOWS")) c = std::atoi(std::getenv("SLY2N_WORLDSHADOWS"));
 #if !defined(__SWITCH__) && !defined(__APPLE__)
-            if (c >= 0) g_display.worldShadows = std::clamp(c, 0, 100);
+            if (c >= 0)
+            {
+                g_display.worldShadows = std::clamp(c, 0, 100);
+                for (int& v : g_display.aWorldShadowsEpisode) v = -1;   // (the flag over the episodes' own settings too)
+            }
 #else
             (void)c;
 #endif
