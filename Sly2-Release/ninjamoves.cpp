@@ -70,11 +70,11 @@ float s_uRailLines = 0.0f, s_tRealLinesLast = -1e9f;
 // swelling in slow gusts), or the Mods folder's Sounds/rail_sprint.wav looped; faded in while Rail Sprint runs and out
 // after (UpdateRailWind, each frame)
 constexpr int kRateWind = 48000;
-constexpr float gWind = 0.8f;    // (at full: under the effects slider)
+constexpr float gWind = 0.3f;    // (at full: under the effects slider; a bed under the game's own sounds)
 struct WINDGEN
 {
     std::minstd_rand rng{4321};
-    float alow[2]{}, aband[2]{};
+    float alow[2]{}, aband[2]{}, asoft[2]{};
     float phGust = 0.0f, phWander = 0.0f;
 
     void Fill(int16_t* asample, int cframe)
@@ -87,12 +87,15 @@ struct WINDGEN
             const float gust = 0.65f + 0.35f * std::sin(6.2831853f * phGust) * std::sin(6.2831853f * phGust * 0.37f + 1.0f);
             for (int ch = 0; ch < 2; ++ch)
             {
-                const float frq = 420.0f + 260.0f * std::sin(6.2831853f * (phWander + 0.31f * float(ch)));
+                // (low and broad: an airy rush, no whistle; then a gentle low-pass for the hiss)
+                const float frq = 230.0f + 110.0f * std::sin(6.2831853f * (phWander + 0.31f * float(ch)));
                 const float f = 2.0f * std::sin(3.14159265f * frq / float(kRateWind));
-                const float high = dist(rng) - alow[ch] - 0.9f * aband[ch];
+                const float high = dist(rng) - alow[ch] - 1.4f * aband[ch];
                 aband[ch] += f * high;
                 alow[ch] += f * aband[ch];
-                const float x = (aband[ch] * 0.6f + alow[ch] * 0.15f) * gust;
+                const float raw = (aband[ch] * 0.7f + alow[ch] * 0.35f) * gust;
+                asoft[ch] += 0.18f * (raw - asoft[ch]);
+                const float x = asoft[ch] * 1.6f;
                 asample[i * 2 + ch] = int16_t(std::clamp(x, -1.0f, 1.0f) * 30000.0f);
             }
         }
