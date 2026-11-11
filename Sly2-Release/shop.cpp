@@ -503,6 +503,7 @@ struct GADGETMENU
     int ichar = -1;      // +0x40
     int key = -1;        // +0x48 the powerup selected
     std::vector<GADGETENT> aent;   // +0x4C / +0x50 (0x2C2DE8 / 0x2C3028 / 0x2C3148)
+    int page = 0;        // (PC: Sly's second page, the ancestor techniques: square switches; raccoonus.cpp draws it)
 };
 GADGETMENU s_gm;
 const char* const s_aszChar[3] = {"sly", "bentley", "murray"};
@@ -597,7 +598,8 @@ void SetGadgetMenu(int s)
     switch (s)
     {
     case -1:
-        if (p.plo) HideScreenObj(p.plo);
+        if (p.plo && p.page == 0) HideScreenObj(p.plo);   // (on the techniques page: hidden already)
+        p.page = 0;
         for (GADGETENT& e : p.aent) e.cur = -1;
         p.aent.clear();
         SetClockFactor(&g_clock, 0, 1.0f);
@@ -605,7 +607,7 @@ void SetGadgetMenu(int s)
         p.plo = nullptr;
         p.oid = -1;
         return;
-    case 0: p.oid = 0x375; break;
+    case 0: p.oid = 0x375; p.page = 0; break;
     case 1: p.oid = 0x376; break;
     case 2: p.oid = 0x377; break;
     default: return;
@@ -639,6 +641,8 @@ void SetGadgetMenu(int s)
 }
 
 bool FGadgetMenuShown() { return s_gm.ichar != -1; }
+int IGadgetMenuPage() { return s_gm.ichar == -1 ? -1 : s_gm.page; }
+int IGadgetMenuChar() { return s_gm.ichar; }
 
 // orig 0x001DB490 (the player's Select): the menu of the current character
 void OpenGadgetMenu(SW* psw, LO* ploPlayer)
@@ -663,6 +667,17 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
     if (!fAssign && p.msg != 0 && GrfbtnTakePressed(BtnMenuBack())) { SetGadgetMenu(-1); return; }
     if (!ploPlayer || !FCidDerivedFrom(ploPlayer->Cid(), 0x34)) { SetGadgetMenu(-1); return; }
     UpdateGadgetFlags();
+    // (PC) Sly's ancestor techniques: square switches to their page (the grid's screen object hidden, as on closing;
+    // raccoonus.cpp draws the page) and back; nothing else is done there but closing
+    if (p.ichar == 0 && !fAssign && GrfbtnTakePressed(0x80))
+    {
+        p.page = p.page == 0 ? 1 : 0;
+        if (p.page == 1) { HideScreenObj(p.plo); NoteTechniquesPageShown(); }
+        else ShowScreenObj(p.plo, 0x318);
+        SetGmMsg(-1, -1);
+        PsndStartSound(0x35);
+    }
+    if (p.page == 1) return;
     // orig 0x001DA858 with the d-pad as the stick
     if (!fAssign) {
         float x = g_joy.xLeft, y = g_joy.yLeft;

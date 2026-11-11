@@ -36,6 +36,8 @@ bool FRaccoonusPageLearned(int i);
 
 // vault.cpp: the vault of the current world was just opened (its page's message, if it holds one)
 void NoteVaultOpened();
+// (shop.cpp) the gadget menu's ancestor techniques page shown (its fade in)
+void NoteTechniquesPageShown();
 
 // ThiefNet's Thievius Raccoonus page (shop.cpp): its selection, a step up / down, the confirm (true: something
 // happened), the description line for the shop's text box
