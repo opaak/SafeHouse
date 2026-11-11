@@ -67,6 +67,7 @@ struct AURA
     LO* plo = nullptr;
     uint32_t serial = 0;
     float tOff = -1.0f;              // real time the fade out began (-1: shown)
+    bool fFailed = false;            // (none could be made: the ring marks the target instead)
     std::vector<GHOSTPART> apart;    // its entries' pose as last placed
 };
 AURA s_aura;
@@ -248,6 +249,7 @@ void UpdateLeapDragon()
         if (!s_aura.plo && s_aim.pa)
         {
             s_aura.plo = PloNewLeapAura(s_aim.pa, pos);
+            s_aura.fFailed = !s_aura.plo;
             s_aura.apart.clear();
             s_aura.tOff = -1.0f;
             if (FPrint()) std::printf("leap: red aura %d\n", s_aura.plo ? s_aura.plo->oid : -1);
@@ -334,14 +336,15 @@ void DrawLeapDragonHud(int width, int height)
         }
     }
 
-    // without the aura (none free, or its proxy missing): a red ring on the target instead
-    bool fAura = false;
+    // only when no aura could be made (none free, or its proxy missing): a red ring on the target instead (not while
+    // the aura is being made or placed: it flashed there)
+    bool fRing = false;
     {
         std::lock_guard<std::mutex> lock(s_mtxAura);
-        fAura = s_aura.plo && !s_aura.apart.empty() && s_aura.tOff < 0.0f;
+        fRing = !s_aura.plo && s_aura.fFailed;
     }
     glm::vec2 c;
-    if (fAim && !fAura && FCanvasOf(PosJtLo(s_aim.ploTarget), &c) && std::fabs(c.x - 320.0f) < 400.0f && std::fabs(c.y - 224.0f) < 280.0f)
+    if (fAim && fRing && FCanvasOf(PosJtLo(s_aim.ploTarget), &c) && std::fabs(c.x - 320.0f) < 400.0f && std::fabs(c.y - 224.0f) < 280.0f)
     {
         const float u = 0.5f + 0.5f * std::sin(g_clock.tReal * 6.0f);
         const float r = 15.0f + 3.0f * u, w = 3.0f;
