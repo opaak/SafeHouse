@@ -6,6 +6,7 @@
 // ccoin". Opened from the safe house's computer (class 0x46: 0x1D72A8, po.cpp).
 
 #include <string>
+#include <vector>
 
 struct SW;
 struct LO;
@@ -24,7 +25,12 @@ void OpenGadgetMenu(SW* psw, LO* ploPlayer);
 void SetGadgetMenu(int s);           // orig 0x001DB520: -1 closed, 0 Sly, 1 Bentley, 2 Murray
 void UpdateGadgetMenu(SW* psw, LO* ploPlayer);   // orig 0x001DAA90
 bool FGadgetMenuShown();
-int IGadgetMenuPage();               // (PC) -1 closed, 0 the gadgets, 1 Sly's ancestor techniques (raccoonus.cpp)
+int IGadgetMenuPage();               // (PC) -1 closed, 0 the grid, 1 the purchased listed, 2 Sly's ancestor techniques
+int IGadgetMenuChar();               // (PC) -1 closed, 0 Sly, 1 Bentley, 2 Murray
+// (PC) the gadget menu's purchased page (raccoonus.cpp draws it): the owned powerups' names, texts (description and
+// use, with their button if on one: the grid's own text) and slots (-1 none), and the row selected
+struct GADGETTEXT { std::string strName, strText; int islot = -1; };
+std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel);
 std::string StrGadgetScript(int id); // 0x37A / 0x37B
 struct FONTBRX;
 void DrawGadgetIcons(const FONTBRX* pfont, const FONTBRX* picons);   // orig 0x001DAC58 (with the screen objects)

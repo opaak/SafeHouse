@@ -77,7 +77,6 @@ float s_tMsgEnd = -1.0f;
 
 bool FPrint() { static const bool s_f = std::getenv("SLY2N_RACPRINT") != nullptr; return s_f; }
 
-bool FPcSlyMenu() { return IGadgetMenuChar() == 0; }
 
 bool FRefTrue(const CRef& r) { return (r.m_tagk == TAGK_Bool && r.m_bool) || (r.m_tagk == TAGK_S32 && r.m_n); }
 
@@ -310,9 +309,9 @@ void DrawRaccoonusHud(int width, int height)
     const bool fPage = FShopShown() && IShopPage() == 2;
     const bool fMsg = g_clock.tReal < s_tMsgEnd;
     const int iGadgetPage = IGadgetMenuPage();
-    const bool fTech = iGadgetPage == 1, fTechHint = iGadgetPage == 0 && FPcSlyMenu();
+    const bool fTech = iGadgetPage == 2, fOwned = iGadgetPage == 1, fTechHint = iGadgetPage == 0;
     const bool fTrain = s_train.ipage >= 0 && g_psw && s_train.serial == g_psw->serial && !FShopShown() && iGadgetPage == -1;
-    if (!fPage && !fMsg && !fTrain && !fTech && !fTechHint) return;
+    if (!fPage && !fMsg && !fTrain && !fTech && !fOwned && !fTechHint) return;
     const FONTBRX* pfont = PfontHud();
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
@@ -320,8 +319,8 @@ void DrawRaccoonusHud(int width, int height)
     const float z = DEPTH / 16777216.0f;
     if (fTechHint)
     {
-        // (the gadgets' page) where the techniques are
-        const std::string str = "&2S&. Ancestor Techniques";
+        // (the grid's page) the next page
+        const std::string str = "&2S&. Purchased";
         DrawLine(*pfont, picons, str, 600.0f - DxLine(*pfont, picons, str, 14.0f), 418.0f, 14.0f, glm::vec4(70, 70, 70, 0));
     }
     if (fTech)
@@ -360,6 +359,56 @@ void DrawRaccoonusHud(int width, int height)
                 DrawLine(*pfont, picons, astr[j], x, y + 30.0f + 16.0f * float(j), 14.0f, fLearned ? offBlue : offDim);
         }
         const std::string strBtn = std::string("&2S&. Gadgets    ") + SzMenuBackGlyph() + " Close";
+        DrawLine(*pfont, picons, strBtn, 590.0f - DxLine(*pfont, picons, strBtn, 13.0f), 412.0f, 13.0f, offTab);
+    }
+    if (fOwned)
+    {
+        // the gadget menu's purchased page: the character's owned powerups listed on the left, the selected one's name,
+        // description and use (the grid's own text, its button if on one) on the right
+        const float u = std::clamp((g_clock.tReal - s_tTechShown) / 0.25f, 0.0f, 1.0f);
+        const float a = 128.0f * u;
+        g_hud.FillScreenRect(-480.0f, -40.0f, 1120.0f, 488.0f, glm::vec4(2, 3, 12, 118.0f * u), z - 4e-4f);
+        const glm::vec4 offTab(22 * u, 38 * u, 58 * u, 0), offHead(34 * u, 62 * u, 84 * u, 0), offBlue(36 * u, 56 * u, 74 * u, 0),
+            offSel(70 * u, 96 * u, 118 * u, 0), offDim(16 * u, 24 * u, 34 * u, 0);
+        DrawLine(*pfont, picons, "Gadgets", 52.0f, 36.0f, 17.0f, offTab);
+        const std::string strTitle = "Purchased";
+        DrawLine(*pfont, picons, strTitle, 590.0f - DxLine(*pfont, picons, strTitle, 26.0f), 28.0f, 26.0f, offHead);
+        FillFrame(50.0f, 64.0f, 236.0f, 404.0f, a, z);
+        FillFrame(246.0f, 64.0f, 590.0f, 404.0f, a, z);
+        int isel = -1;
+        const std::vector<GADGETTEXT> agt = AgtGadgetsOwned(&isel);
+        if (agt.empty())
+            DrawLine(*pfont, picons, "Nothing bought yet", 62.0f, 74.0f, 15.0f, offDim);
+        else
+        {
+            // the list: 13 rows, scrolled to keep the selected one in view
+            constexpr int cRow = 13;
+            constexpr float dyRow = 25.0f, y0 = 70.0f;
+            const int first = std::clamp(isel - cRow / 2, 0, std::max(0, int(agt.size()) - cRow));
+            for (int r = 0; r < cRow && first + r < int(agt.size()); ++r)
+            {
+                const int i = first + r;
+                const float y = y0 + dyRow * float(r);
+                if (i == isel) g_hud.FillScreenRect(54.0f, y, 232.0f, y + dyRow - 2.0f, glm::vec4(16, 62, 84, a * 0.7f), z - 2e-4f);
+                static const char* const s_aszSlot[3] = {"&2L&.", "&2l&.", "&2r&."};
+                std::string str = agt[size_t(i)].strName;
+                // (shortened to the column)
+                while (str.size() > 3 && DxLine(*pfont, picons, str, 15.0f) > 150.0f) str = str.substr(0, str.size() - 4) + "...";
+                DrawLine(*pfont, picons, str, 62.0f, y + 3.0f, 15.0f, i == isel ? offSel : offBlue);
+                if (agt[size_t(i)].islot >= 0) DrawLine(*pfont, picons, s_aszSlot[agt[size_t(i)].islot], 212.0f, y + 2.0f, 15.0f, offBlue);
+            }
+            if (first > 0) DrawLine(*pfont, picons, "...", 140.0f, 64.0f, 12.0f, offDim);
+            if (first + cRow < int(agt.size())) DrawLine(*pfont, picons, "...", 140.0f, 392.0f, 12.0f, offDim);
+            // the selected one
+            const GADGETTEXT& gt = agt[size_t(std::max(isel, 0))];
+            DrawLine(*pfont, picons, gt.strName, 258.0f, 72.0f, 22.0f, offHead);
+            g_hud.FillScreenRect(256.0f, 100.0f, 580.0f, 101.0f, glm::vec4(16, 62, 84, a * 0.6f), z - 2e-4f);
+            const std::vector<std::string> astr = AstrWrapped(*pfont, picons, gt.strText, 16.0f, 314.0f);
+            for (size_t j = 0; j < astr.size() && j < 15; ++j)
+                DrawLine(*pfont, picons, astr[j], 258.0f, 110.0f + 19.0f * float(j), 16.0f, offBlue);
+        }
+        const std::string strNext = IGadgetMenuChar() == 0 ? "&2S&. Ancestor Techniques    " : "&2S&. Gadgets    ";
+        const std::string strBtn = strNext + SzMenuBackGlyph() + " Close";
         DrawLine(*pfont, picons, strBtn, 590.0f - DxLine(*pfont, picons, strBtn, 13.0f), 412.0f, 13.0f, offTab);
     }
     if (fPage)

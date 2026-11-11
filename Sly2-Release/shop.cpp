@@ -503,7 +503,10 @@ struct GADGETMENU
     int ichar = -1;      // +0x40
     int key = -1;        // +0x48 the powerup selected
     std::vector<GADGETENT> aent;   // +0x4C / +0x50 (0x2C2DE8 / 0x2C3028 / 0x2C3148)
-    int page = 0;        // (PC: Sly's second page, the ancestor techniques: square switches; raccoonus.cpp draws it)
+    int page = 0;        // (PC: square steps through the pages: 0 the grid, 1 the purchased ones listed, 2 Sly's ancestor
+                         // techniques; raccoonus.cpp draws 1 and 2)
+    int iown = 0;        // (PC: page 1's selected row)
+    int dirOwn = 0;      // (PC: page 1's stick, held)
 };
 GADGETMENU s_gm;
 const char* const s_aszChar[3] = {"sly", "bentley", "murray"};
@@ -655,6 +658,8 @@ void OpenGadgetMenu(SW* psw, LO* ploPlayer)
     else if (FCidDerivedFrom(cid, 0x36)) SetGadgetMenu(2);
 }
 
+std::vector<int> AkeyGadgetsOwned();   // (below)
+
 // orig 0x001DAA90
 void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
 {
@@ -669,15 +674,41 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
     UpdateGadgetFlags();
     // (PC) Sly's ancestor techniques: square switches to their page (the grid's screen object hidden, as on closing;
     // raccoonus.cpp draws the page) and back; nothing else is done there but closing
-    if (p.ichar == 0 && !fAssign && GrfbtnTakePressed(0x80))
+    // (PC) square steps to the next page: the purchased ones listed with their texts, then (Sly) his ancestor techniques,
+    // then the grid again (its screen object hidden on the others, as on closing; raccoonus.cpp draws them)
+    if (!fAssign && GrfbtnTakePressed(0x80))
     {
-        p.page = p.page == 0 ? 1 : 0;
-        if (p.page == 1) { HideScreenObj(p.plo); NoteTechniquesPageShown(); }
-        else ShowScreenObj(p.plo, 0x318);
+        const int cpage = p.ichar == 0 ? 3 : 2;
+        const int pageOld = p.page;
+        p.page = (p.page + 1) % cpage;
+        if (pageOld == 0) HideScreenObj(p.plo);
+        if (p.page == 0) ShowScreenObj(p.plo, 0x318);
+        if (p.page == 1) p.iown = 0;
+        if (p.page != 0) NoteTechniquesPageShown();
         SetGmMsg(-1, -1);
         PsndStartSound(0x35);
     }
-    if (p.page == 1) return;
+    if (p.page == 1)
+    {
+        // up / down (d-pad or stick) through the purchased ones
+        const uint32_t grf = GrfbtnHeld();
+        float y = g_joy.yLeft;
+        if (grf & 0x1000) y = 1;
+        if (grf & 0x4000) y = -1;
+        const int dir = y > 0.7f ? -1 : y < -0.7f ? 1 : 0;
+        if (dir != 0 && dir != p.dirOwn)
+        {
+            const int c = int(AkeyGadgetsOwned().size());
+            if (c > 0)
+            {
+                const int i = std::clamp(p.iown + dir, 0, c - 1);
+                if (i != p.iown) { p.iown = i; PsndStartSound(0x35); }
+            }
+        }
+        if (std::fabs(y) < 0.4f) p.dirOwn = 0;
+        else if (dir != 0) p.dirOwn = dir;
+    }
+    if (p.page != 0) return;
     // orig 0x001DA858 with the d-pad as the stick
     if (!fAssign) {
         float x = g_joy.xLeft, y = g_joy.yLeft;
@@ -742,22 +773,19 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
     }
 }
 
-std::string StrGadgetScript(int id)
+// (from 0x1DC598) a powerup's name, description and use (its button, if on one)
+std::string StrGadgetText(int key)
 {
-    // orig 0x001DC598 (0x37A / 0x37B): the message, else the selected gadget's name, description and its button
-    if ((id != 0x37A && id != 0x37B) || s_gm.ichar == -1) return "";
     const SW* psw = s_gm.psw;
-    if (s_gm.msg != -1) return StrLocalized(psw, IdText(s_gm.idMsg));   // (USA ids: 0x31..0x33, 0xE2)
-    if (s_gm.key == -1) return StrLocalized(psw, IdText(0xDD));
-    const GADGETENT* po = PgeFind(s_gm.key);
-    const int v = IslotAssigned(s_gm.key);
+    const GADGETENT* po = PgeFind(key);
+    const int v = IslotAssigned(key);
     static const char* const s_aszIcon[3] = {"&2L&.", "&2l&.", "&2r&."};
     std::string buf;
     std::string desc;
     if (po && (po->grf & 1) && v < 0) buf = StrLocalized(psw, IdText(0xE1));
     else
     {
-        const std::string fmt = StrLocalized(psw, NElf(0x2BCD00 + 0x20 * uint32_t(s_gm.key) + 0x1C));
+        const std::string fmt = StrLocalized(psw, NElf(0x2BCD00 + 0x20 * uint32_t(key) + 0x1C));
         const char* sz = v >= 0 ? s_aszIcon[v] : "";
         for (size_t i = 0; i < fmt.size(); ++i)
         {
@@ -765,8 +793,53 @@ std::string StrGadgetScript(int id)
             else buf += fmt[i];
         }
     }
-    desc = StrLocalized(psw, ItemDesc(s_gm.key));
-    return StrLocalized(psw, ItemName(s_gm.key)) + (desc.empty() ? "" : ": ") + desc + ". " + buf;
+    desc = StrLocalized(psw, ItemDesc(key));
+    return StrLocalized(psw, ItemName(key)) + (desc.empty() ? "" : ": ") + desc + ". " + buf;
+}
+
+std::string StrGadgetScript(int id)
+{
+    // orig 0x001DC598 (0x37A / 0x37B): the message, else the selected gadget's name, description and its button
+    if ((id != 0x37A && id != 0x37B) || s_gm.ichar == -1) return "";
+    const SW* psw = s_gm.psw;
+    if (s_gm.msg != -1) return StrLocalized(psw, IdText(s_gm.idMsg));   // (USA ids: 0x31..0x33, 0xE2)
+    if (s_gm.key == -1) return StrLocalized(psw, IdText(0xDD));
+    return StrGadgetText(s_gm.key);
+}
+
+// (PC) the gadget menu's purchased page: the character's owned powerups in the grid's order (top to bottom, left to
+// right), their names and texts, and the row selected
+std::vector<int> AkeyGadgetsOwned()
+{
+    std::vector<const GADGETENT*> ap;
+    for (const GADGETENT& e : s_gm.aent)
+        if ((e.grf & 4) && ItemName(e.key) != -1) ap.push_back(&e);
+    std::stable_sort(ap.begin(), ap.end(), [](const GADGETENT* a, const GADGETENT* b) {
+        if (std::fabs(a->y - b->y) > 20.0f) return a->y < b->y;
+        return a->x < b->x;
+    });
+    std::vector<int> akey;
+    for (const GADGETENT* pe : ap) akey.push_back(pe->key);
+    return akey;
+}
+
+std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel)
+{
+    std::vector<GADGETTEXT> agt;
+    if (s_gm.ichar == -1) return agt;
+    for (int key : AkeyGadgetsOwned())
+    {
+        GADGETTEXT gt;
+        gt.strName = StrLocalized(s_gm.psw, ItemName(key));
+        gt.strText = StrGadgetText(key);
+        // (the text without its name in front: the page shows the name apart)
+        if (gt.strText.rfind(gt.strName + ": ", 0) == 0) gt.strText.erase(0, gt.strName.size() + 2);
+        else if (gt.strText.rfind(gt.strName + ". ", 0) == 0) gt.strText.erase(0, gt.strName.size() + 2);
+        gt.islot = IslotAssigned(key);
+        agt.push_back(gt);
+    }
+    if (pisel) *pisel = agt.empty() ? -1 : std::clamp(s_gm.iown, 0, int(agt.size()) - 1);
+    return agt;
 }
 
 // orig 0x001DAC58: on each entry assigned to the player's slot j, that slot's button ("&2L&." L1, "&2l&." L2,
