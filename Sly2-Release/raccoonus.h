@@ -16,6 +16,9 @@
 //       Climbing Cobra: 1000 up or down poles and pipes with R1 held, in 45 s
 //       Leaping Dragon: three leaps landed, in 90 s
 //       Silent Sprint: 15 s of sprinting within 900 of a guard, in 120 s, without the guards alerted
+//       (the later pages, ancestors.h) Knight's Leap: three R1 double jumps, in 60 s; Treasure Sense: two clue bottles
+//       found, in 300 s; Shadow Cloak: 8 s cloaked within 900 of a guard, in 120 s, without the guards alerted; Coin
+//       Magnet: 15 coins or clue bottles drawn in, in 180 s
 //   - The techniques are no longer sold for coins.
 
 #include <string>
@@ -50,6 +53,10 @@ std::string StrRaccoonusDescription();
 // works as if learned (gadget.cpp FPowerupOwned).
 void UpdateRaccoonusTraining();
 bool FTrainingItem(int item);
+// (ancestors.h, pickup.cpp) progress toward item's training, if it is the one under way
+void NoteRaccoonusProgress(int item, float d);
+// (shop.cpp) the ThiefNet page's list in two columns: across to the other, false when there is none that way
+bool FStepRaccoonusColumn(int dcol);
 // leapdragon.cpp: a leap landed on its target spire
 void NoteLeapLanded();
 

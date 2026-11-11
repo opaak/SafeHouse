@@ -28,6 +28,7 @@
 #include "leapdragon.h"
 #include "homingdarts.h"
 #include "skillfx.h"
+#include "ancestors.h"
 #include "ninjamoves.h"
 #include "raccoonus.h"
 #include "pcprogress.h"
@@ -1607,6 +1608,7 @@ int RunGame(const GAMEOPTS& go)
         UpdateRaccoonusTraining();   // (PC: the Thievius Raccoonus' training, once a game step: raccoonus.h)
         UpdateLeapDragon();          // (PC: Leaping Dragon's red aura, leapdragon.h)
         UpdateSkillFx();             // (PC: the extra powerups' effects, skillfx.h)
+        UpdateAncestorTechniques();  // (PC: the Raccoonus' later pages, ancestors.h)
         // debug: SLY2N_F6AT=frame does F6 headless
         static const int s_iframeF6 = std::getenv("SLY2N_F6AT") ? std::atoi(std::getenv("SLY2N_F6AT")) : -1;
         if (frame == s_iframeF6) DebugUnlockAll(psw.get());
@@ -2003,6 +2005,7 @@ int RunGame(const GAMEOPTS& go)
                 PostProcessScene(cam, opts.rgbaCel);   // (image quality over the 3D picture, before the HUD: post.h)
                 DrawRailSprintLines(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Rail Sprint's speed lines, ninjamoves.h)
                 DrawSkillFx(g_gl.renderWidth, g_gl.renderHeight);           // (PC: the extra powerups' effects, skillfx.h)
+                DrawAncestorHud(g_gl.renderWidth, g_gl.renderHeight);       // (PC: Treasure Sense's markers, ancestors.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;

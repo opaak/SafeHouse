@@ -215,7 +215,8 @@ void SetShopDir(int n)
         // (PC: the Thievius Raccoonus page, raccoonus.h)
         switch (n)
         {
-        case 4: SetShopPage(1); break;
+        case 4: if (!FStepRaccoonusColumn(-1)) SetShopPage(1); break;   // (the list's left column: back to Sell)
+        case 0: FStepRaccoonusColumn(1); break;
         case 1: case 2: case 3: StepRaccoonusPage(-1); break;
         case 5: case 6: case 7: StepRaccoonusPage(1); break;
         default: break;

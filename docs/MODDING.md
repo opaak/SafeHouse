@@ -154,6 +154,10 @@ Ancestor Techniques page) and the extra gadgets (the gadget menu's Gadget Grid 2
 | `Mods/Icons/mega_charge_attack.png` | Mega Charge Attack |
 | `Mods/Icons/mega_stomp.png` | Mega Stomp |
 | `Mods/Icons/scorching_hover_pack.png` | Scorching Hover Pack |
+| `Mods/Icons/knights_leap.png` | Knight's Leap |
+| `Mods/Icons/treasure_sense.png` | Treasure Sense |
+| `Mods/Icons/shadow_cloak.png` | Shadow Cloak |
+| `Mods/Icons/coin_magnet.png` | Coin Magnet |
 
 Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
 restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.

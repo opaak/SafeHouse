@@ -23,6 +23,10 @@
 #include "techicon_mega_stomp.h"
 #include "techicon_mega_charge_attack.h"
 #include "techicon_scorching_hover_pack.h"
+#include "techicon_knights_leap.h"
+#include "techicon_treasure_sense.h"
+#include "techicon_shadow_cloak.h"
+#include "techicon_coin_magnet.h"
 
 // (stb_image's functions compiled into this file, static: as texmod.cpp and qolview.cpp, so no clash)
 #define STB_IMAGE_STATIC
@@ -58,6 +62,10 @@ const BUILTIN s_abuiltin[] = {
     {"mega_stomp", techicon_mega_stomp_png, sizeof(techicon_mega_stomp_png)},
     {"mega_charge_attack", techicon_mega_charge_attack_png, sizeof(techicon_mega_charge_attack_png)},
     {"scorching_hover_pack", techicon_scorching_hover_pack_png, sizeof(techicon_scorching_hover_pack_png)},
+    {"knights_leap", techicon_knights_leap_png, sizeof(techicon_knights_leap_png)},
+    {"treasure_sense", techicon_treasure_sense_png, sizeof(techicon_treasure_sense_png)},
+    {"shadow_cloak", techicon_shadow_cloak_png, sizeof(techicon_shadow_cloak_png)},
+    {"coin_magnet", techicon_coin_magnet_png, sizeof(techicon_coin_magnet_png)},
 };
 
 std::map<std::string, unsigned> s_mptex;   // (0: tried, none)

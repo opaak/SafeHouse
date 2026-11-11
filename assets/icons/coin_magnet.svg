@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<!-- the magnet -->
+<path d="M70 70 V 140 Q 70 196 128 196 Q 186 196 186 140 V 70 H 152 V 140 Q 152 162 128 162 Q 104 162 104 140 V 70 Z" fill="#d23a2a" stroke="#0b0f1f" stroke-width="8" stroke-linejoin="round"/>
+<rect x="70" y="58" width="34" height="28" fill="#e8eef5" stroke="#0b0f1f" stroke-width="7"/>
+<rect x="152" y="58" width="34" height="28" fill="#e8eef5" stroke="#0b0f1f" stroke-width="7"/>
+<path d="M84 122 Q 86 170 128 178" fill="none" stroke="#f08a6e" stroke-width="7" stroke-linecap="round"/>
+<!-- coins flying in -->
+<g stroke="#0b0f1f" stroke-width="5">
+<ellipse cx="128" cy="40" rx="15" ry="15" fill="url(#gold)"/>
+<ellipse cx="44" cy="118" rx="13" ry="13" fill="url(#gold)"/>
+<ellipse cx="212" cy="118" rx="13" ry="13" fill="url(#gold)"/>
+</g>
+<path d="M128 34 v12 M44 113 v10 M212 113 v10" stroke="#a86a10" stroke-width="4" stroke-linecap="round"/>
+<path d="M128 60 v 6 M58 118 h 6 M192 118 h 6" stroke="#ffe27a" stroke-width="6" stroke-linecap="round"/>
+</svg>

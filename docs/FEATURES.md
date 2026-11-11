@@ -83,7 +83,7 @@ can be turned off where it changes how the game looks or plays.
   play their parts in sequence, as in the story; each part can also be played alone.
 - **30 save slots:** ten pages of three.
 - **Skippable cutscenes** where the original paused the game for a scene.
-- **Ancestor techniques from the Thievius Raccoonus** (after *Sly Cooper: Thieves in Time*): four techniques for
+- **Ancestor techniques from the Thievius Raccoonus** (after *Sly Cooper: Thieves in Time*): eight techniques for
   Sly, each on a page of the Thievius Raccoonus hidden in an episode's vault (collect its 30 clue bottles and open
   it). Found pages appear in ThiefNet's new third page, **Thievius Raccoonus** (Square, or the stick right from
   Sell). Choosing a found page starts its **training**: ThiefNet closes and Sly has the technique for a challenge
@@ -95,6 +95,10 @@ can be turned off where it changes how the game looks or plays.
   | Silent Sprint | 15 s of sprinting near guards without alerting them, in 120 s |
   | Leaping Dragon | three leaps landed on spires, in 90 s |
   | Climbing Cobra | 1000 units up or down poles and pipes holding R1, in 45 s |
+  | Knight's Leap | three double jumps holding R1, in 60 s |
+  | Treasure Sense | two clue bottles found, in 300 s |
+  | Shadow Cloak | 8 s cloaked near guards without alerting them, in 120 s |
+  | Coin Magnet | 15 coins or clue bottles drawn in from afar, in 180 s |
 
   - **Rail Sprint** ("Tennessee Kid" Cooper, Episode 1's vault): hold R1 on ropes and rails to run 1.75 times as fast.
   - **Silent Sprint** (Rioichi Cooper, Episode 2): the sprint (R1) makes no noise for the guards, and Sly leaves dark
@@ -103,6 +107,14 @@ can be turned off where it changes how the game looks or plays.
     camera) at, up to about five times Sly's own spire jumps away, is marked; let go and Sly leaps across on a long
     arc and lands perched on it.
   - **Climbing Cobra** (Salim al-Kupar, Episode 4): hold R1 on poles and pipes to climb 1.8 times as fast.
+  - **Knight's Leap** (Sir Galleth Cooper, Episode 5): with R1 held (as from a sprint), the double jump leaps about
+    twice as high and a little further. Unlike the Mega Jump gadget it uses no power.
+  - **Treasure Sense** (Bob Cooper, Episode 6): the clue bottles still to find near Sly glow through walls, brighter
+    nearer.
+  - **Shadow Cloak** (Otto van Cooper, Episode 7): stand still holding R1 and Sly melts into the shadows: the guards do
+    not see him until he moves or lets go (a guard who walks into him still does).
+  - **Coin Magnet** (Slytunkhamen Cooper II, Episode 8): coins and clue bottles near Sly fly into his hands.
+  With eight pages, ThiefNet's Thievius Raccoonus lists them in two columns (the stick left and right between them).
   What Sly has learned is kept in a small `saveN.pc` file beside the save slot, so the save itself stays the PS2's
   format.
   In the safe house, right of ThiefNet, the **Thievius Raccoonus** is a stop of its own: cross opens the book, a page

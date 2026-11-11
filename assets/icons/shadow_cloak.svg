@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<!-- the moon -->
+<circle cx="168" cy="80" r="30" fill="url(#gold)" stroke="#0b0f1f" stroke-width="6"/>
+<circle cx="182" cy="70" r="26" fill="#1d2f66"/>
+<!-- the shadow figure: a cloaked raccoon fading out at its foot -->
+<defs><linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#140c24"/><stop offset="0.75" stop-color="#2a1a48" stop-opacity="0.95"/><stop offset="1" stop-color="#2a1a48" stop-opacity="0"/></linearGradient></defs>
+<path d="M128 70 Q 104 70 100 96 L 92 92 L 96 116 Q 70 150 76 214 H 180 Q 186 150 160 116 L 164 92 L 156 96 Q 152 70 128 70 Z" fill="url(#fade)" stroke="#0b0f1f" stroke-width="7" stroke-linejoin="round"/>
+<!-- the eyes, the only thing seen -->
+<path d="M110 108 q 8 -6 16 0 M130 108 q 8 -6 16 0" stroke="#ffe27a" stroke-width="5" stroke-linecap="round" fill="none"/>
+<!-- wisps -->
+<path d="M64 196 q 14 -10 26 0 M168 200 q 14 -10 26 0 M96 222 q 16 -8 30 0" stroke="#9c86d6" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.8"/>
+</svg>

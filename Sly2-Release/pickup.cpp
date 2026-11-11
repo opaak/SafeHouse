@@ -1,6 +1,9 @@
 // pickup.cpp: the pickups (pickup.h). Ported from the decomp's src/hand func_001C4E50 / 001C6508 / 001C60B8 /
 // 001C65F8 / 001C5E48 / 001C6588 / 001C5D18 / 001C6BD0 and the asm (0x1C5148, 0x1C55E0).
 #include "pickup.h"
+#include "ancestors.h"
+#include "pcprogress.h"
+#include "raccoonus.h"
 #include "worldglobals.h"
 
 #include "activate.h"
@@ -531,6 +534,7 @@ void SetClueState(LO* plo, PICKUP& p, int n)
             }
             RemoveLo(g_psw, pproxy);  // vt slot 9
             ShowClueCounter();        // 0x1618B0
+            NoteRaccoonusProgress(kItemTreasureSense, 1.0f);   // (PC: Treasure Sense's training, raccoonus.h)
             if (FPrint()) std::printf("pickup %d: the clue bottle %d collected\n", plo->oid, it != s_mpclue.end() ? it->second : -1);
         }
     }
@@ -543,6 +547,16 @@ void SetClueState(LO* plo, PICKUP& p, int n)
 // once, as SetClueState's collect does it but without its sound, noise or splice event (thirty at once would alert the
 // guards): the save's afClue bit set, the proxy removed and, where the bottle's instance is placed on it, the instance
 // taken out (state 2). Returns how many were collected; the counter shows the episode's total after.
+void AposCluesLeft(std::vector<glm::vec3>& apos)
+{
+    if (!g_psw) return;
+    for (const auto& [pproxy, n] : s_mpclue)
+    {
+        (void)n;
+        if (pproxy && !pproxy->fRemoved) apos.push_back(PosLoWorld(pproxy));   // (as CollectAllCluesInWorld: removed when collected)
+    }
+}
+
 int CollectAllCluesInWorld(SW* psw)
 {
     if (!psw) return 0;
@@ -638,6 +652,7 @@ void SetOtherPickupState(LO* plo, PICKUP& p, int n)
 bool FPickupTouched(LO* plo, PICKUP& p, LO* pplayer)
 {
     if (!pplayer || !FCidDerivedFrom(pplayer->Cid(), 0x30)) return false;
+    if (FCoinMagnetTakes(plo, pplayer)) return true;   // (PC: Coin Magnet, ancestors.h)
     ALO* pa = static_cast<ALO*>(pplayer);
     const glm::vec3 pos = PosAloCenter(static_cast<ALO*>(plo));
     const glm::vec3 d = pos - PosAloCenter(pa);

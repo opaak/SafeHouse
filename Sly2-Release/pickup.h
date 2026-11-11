@@ -27,6 +27,9 @@ void ShowCoinCounter();
 void ShowClueCounter();
 // PC debug (debugmenu.cpp): every clue bottle of the current world collected at once; the number collected
 int CollectAllCluesInWorld(SW* psw);
+// (PC, ancestors.h Treasure Sense) the clue bottles of the current world not collected yet: their places
+#include <vector>
+void AposCluesLeft(std::vector<glm::vec3>& apos);
 // orig: 0x001A58D0(p, 0, 0) (vt slot 10 with no parent: out of its parent, the root record unrotated / unscaled at its
 // world position, as the reference leaves it)
 void SetLoParentNoneRoot(LO* plo);

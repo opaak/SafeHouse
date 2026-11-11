@@ -2,6 +2,7 @@
 // m_153FF8_p3.cpp (0x154080, 0x154180, 0x1541D8), m_227BB8.cpp (0x227C90) and the original's code for 0x153E60.
 
 #include "detect.h"
+#include "ancestors.h"
 #include "worldglobals.h"
 #include "worldaccess.h"
 #include "guard.h"
@@ -315,6 +316,7 @@ int NDetectState(DETECTOR* pdet, LO* pso, int k)
                         if (ox->pxp) return 1;
                         break;
                     }
+        if (FShadowCloaked(pso)) return 0;   // (PC: Shadow Cloak, ancestors.h: not seen; a touch above still is)
         if (!FInsideShape(pdet->ploVolume, pos)) return 0;
         if (pdet->ploVolume2 && !FInsideShape(pdet->ploVolume2, pos)) return 0;
         if (!(pdet->grf & 1) && FTargetHidden(pdet, pso)) return 0;

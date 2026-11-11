@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<defs><linearGradient id="steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e8eef5"/><stop offset="1" stop-color="#8a98ad"/></linearGradient></defs>
+<!-- the leap's arc -->
+<path d="M58 206 Q 96 60 176 74" fill="none" stroke="#ffe27a" stroke-width="9" stroke-linecap="round" stroke-dasharray="2 16"/>
+<path d="M170 58 L 200 72 L 172 92 Z" fill="url(#gold)" stroke="#0b0f1f" stroke-width="6" stroke-linejoin="round"/>
+<!-- the knight's helm -->
+<path d="M88 214 Q 84 140 128 128 Q 172 140 168 214 Z" fill="url(#steel)" stroke="#0b0f1f" stroke-width="8" stroke-linejoin="round"/>
+<path d="M98 168 H 158" stroke="#0b0f1f" stroke-width="10" stroke-linecap="round"/>
+<path d="M128 132 V 212" stroke="#0b0f1f" stroke-width="5"/>
+<path d="M104 184 h 14 M138 184 h 14 M104 198 h 14 M138 198 h 14" stroke="#0b0f1f" stroke-width="5" stroke-linecap="round"/>
+<!-- the plume -->
+<path d="M128 128 Q 112 96 134 86 Q 150 104 128 128 Z" fill="#e2541c" stroke="#0b0f1f" stroke-width="6" stroke-linejoin="round"/>
+</svg>

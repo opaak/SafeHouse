@@ -25,6 +25,9 @@ void SkillFxShockwave(const glm::vec3& pos, float r, SKILLFXK k, ALO* paloOn = n
 void SkillFxFlash(const glm::vec3& pos);
 void SkillFxRecharge(ALO* palo);
 void SkillFxBurn(const glm::vec3& pos);
+// (ancestors.h) Knight's Leap's burst under him; Coin Magnet's streak from the pickup to him (gold; a clue bottle's teal)
+void SkillFxKnightsLeap(ALO* palo);
+void SkillFxMagnet(const glm::vec3& pos, ALO* paloTo, bool fClue);
 // each step the move goes on
 void NoteSkillFxHover(ALO* palo);
 void NoteSkillFxRocketSlide(ALO* palo);

@@ -1,6 +1,7 @@
 // See raccoonus.h.
 
 #include "raccoonus.h"
+#include "ancestors.h"
 #include "joy.h"
 #include "frontend.h"
 
@@ -39,7 +40,9 @@ int IGadgetMenuChar();   // shop.cpp
 namespace
 {
 // The ancestors after Sly 4's: Tennessee Kid Cooper made the rail walk his escape; Rioichi Cooper his silent sprint and
-// the Leaping Dragon from the spires he perfected; Salim al-Kupar the Climbing Cobra.
+// the Leaping Dragon from the spires he perfected; Salim al-Kupar the Climbing Cobra; and the later pages (ancestors.h):
+// Sir Galleth Cooper's Knight's Leap, Bob Cooper's Treasure Sense, Otto van Cooper's Shadow Cloak, Slytunkhamen Cooper
+// II's Coin Magnet.
 // The trainings (see raccoonus.h): per page its goal (units of progress), time and text.
 struct TRAINDEF { float goal; float tLimit; const char* szGoal; const char* szUnit; };
 const TRAINDEF s_atrain[] = {
@@ -47,12 +50,20 @@ const TRAINDEF s_atrain[] = {
     {15.0f, 120.0f, "Sprint near guards without being noticed", " s"},
     {3.0f, 90.0f, "Leap from spire to spire", ""},
     {1000.0f, 45.0f, "Climb poles and pipes holding &2R&.", ""},
+    {3.0f, 60.0f, "Double jump holding &2R&.", ""},
+    {2.0f, 300.0f, "Find clue bottles by their glow", ""},
+    {8.0f, 120.0f, "Stay cloaked near guards without being noticed", " s"},
+    {15.0f, 180.0f, "Draw in coins and clue bottles from afar", ""},
 };
 const RACPAGE s_apage[] = {
     {kItemRailSprint, 1, "\"Tennessee Kid\" Cooper", "Rail Sprint", "Hold &2R&. on ropes and rails to run along them", "rail_sprint"},
     {kItemSilentSprint, 2, "Rioichi Cooper", "Silent Sprint", "Sprint with &2R&. without a sound; Sly leaves only shadows behind", "silent_sprint"},
     {kItemLeapingDragon, 3, "Rioichi Cooper", "Leaping Dragon", "On a spire, hold &2O&. to mark a distant spire, let go to leap onto it", "leaping_dragon"},
     {kItemClimbingCobra, 4, "Salim al-Kupar", "Climbing Cobra", "Hold &2R&. on poles and pipes to climb them at speed", "climbing_cobra"},
+    {kItemKnightsLeap, 5, "Sir Galleth Cooper", "Knight's Leap", "Hold &2R&. as you double jump to leap far higher", "knights_leap"},
+    {kItemTreasureSense, 6, "Bob Cooper", "Treasure Sense", "The clue bottles near Sly glow through walls", "treasure_sense"},
+    {kItemShadowCloak, 7, "Otto van Cooper", "Shadow Cloak", "Stand still holding &2R&. to melt into the shadows: the guards do not see Sly", "shadow_cloak"},
+    {kItemCoinMagnet, 8, "Slytunkhamen Cooper II", "Coin Magnet", "Coins and clue bottles near Sly fly into his hands", "coin_magnet"},
 };
 constexpr int CPAGE = int(sizeof(s_apage) / sizeof(s_apage[0]));
 // The book's stories, a page each (s_apage's order)
@@ -64,6 +75,14 @@ const char* const s_aszLore[] = {
     "From the highest pagoda spires Rioichi struck like a dragon: one breath to choose his perch, one leap to reach it, "
     "however far.",
     "In the palaces of old Arabia, Salim al-Kupar wound up pillars and pipes as fast as a cobra rising from its basket.",
+    "Sir Galleth Cooper vaulted castle walls in full armour. Half a step from the ground and a second spring off the air "
+    "itself, and a knight was over the battlements before the archers looked up.",
+    "Long before maps, Bob Cooper could smell a hidden treasure through a mountain of rock. Every Cooper since has felt "
+    "that tug: the loot is near, and it is waiting.",
+    "Otto van Cooper slipped through the dark streets of old Amsterdam without ever running. He simply stood still, and "
+    "the night forgot he was there.",
+    "Slytunkhamen Cooper II, wealthiest of the line, never stooped for a coin. The gold of a dozen tombs came to his hand "
+    "as if it knew its master.",
 };
 static_assert(sizeof(s_aszLore) / sizeof(s_aszLore[0]) == sizeof(s_apage) / sizeof(s_apage[0]));
 
@@ -247,6 +266,21 @@ void StepRaccoonusPage(int d)
     PsndStartSound(0x35);   // (the shop's step)
 }
 
+// (the list in columns of kcRowsPage: across is kcRowsPage pages on)
+constexpr int kcRowsPage = 4;
+bool FStepRaccoonusColumn(int dcol)
+{
+    const int i = s_isel + dcol * kcRowsPage;
+    if (CPAGE <= kcRowsPage || i < 0 || i >= CPAGE)
+    {
+        if (dcol > 0) PsndStartSound(0x36);
+        return false;
+    }
+    s_isel = i;
+    PsndStartSound(0x35);
+    return true;
+}
+
 bool FConfirmRaccoonusPage()
 {
     const int i = s_isel;
@@ -265,6 +299,11 @@ bool FConfirmRaccoonusPage()
     ShowMsg(std::string("Training: ") + s_apage[i].szTechnique, s_apage[i].szHow, 5.0f, s_apage[i].szIcon);
     if (FPrint()) std::printf("raccoonus: training %s\n", s_apage[i].szTechnique);
     return true;
+}
+
+void NoteRaccoonusProgress(int item, float d)
+{
+    if (FTrainingItem(item)) s_train.progress += d;
 }
 
 bool FTrainingItem(int item) { return s_train.ipage >= 0 && s_apage[s_train.ipage].item == item && g_psw && s_train.serial == g_psw->serial; }
@@ -325,7 +364,30 @@ void UpdateRaccoonusTraining()
             if (fNear) s_train.progress += dt;
             break;
         }
-        default: break;   // (Leaping Dragon: NoteLeapLanded)
+        case kItemShadowCloak:
+        {
+            // as Silent Sprint's: a chase is a failure; the time cloaked within 900 of a guard counts
+            if (g_sound.fModeAlert > s_train.cAlertStart)
+            {
+                s_train = TRAINING{};
+                PsndStartSound(0x36);
+                ShowMsg("Training failed: the guards noticed Sly.", "Try it again from ThiefNet's Thievius Raccoonus.", 6.0f);
+                return;
+            }
+            s_train.cAlertStart = std::min(s_train.cAlertStart, g_sound.fModeAlert);
+            if (!FShadowCloaked(psly->palo)) break;
+            const glm::vec3 pos = PosAloCenter(psly->palo);
+            bool fNear = false;
+            for (CID cid = 0x38; cid <= 0x43 && !fNear; ++cid)
+                for (LO* pg : g_psw->mpcidaplo[cid])
+                {
+                    if (!pg->fInWorld || !FCidDerivedFrom(pg->Cid(), 0x30) || !PguardFromLo(pg)) continue;
+                    if (glm::length(PosAloCenter(static_cast<ALO*>(pg)) - pos) < 900.0f) { fNear = true; break; }
+                }
+            if (fNear) s_train.progress += dt;
+            break;
+        }
+        default: break;   // (Leaping Dragon: NoteLeapLanded; the later pages: NoteRaccoonusProgress)
         }
     }
     if (s_train.progress >= def.goal)
@@ -469,27 +531,43 @@ void DrawRaccoonusHud(int width, int height)
 
         // the list's frame and in it the book's page: parchment, the techniques in rows
         FillFrame(50.0f, 64.0f, 590.0f, 306.0f, a, z);
-        constexpr float x0 = 64.0f, x1 = 576.0f, y0 = 76.0f, dyRow = 54.0f, size = 20.0f;
-        const float y1 = y0 + 8.0f + dyRow * float(CPAGE) + 2.0f;
+        constexpr float x0 = 64.0f, x1 = 576.0f, y0 = 76.0f, dyRow = 54.0f;
+        // (more pages than a column holds: two columns, the names smaller)
+        const int ccol = CPAGE > kcRowsPage ? 2 : 1, crow = (CPAGE + ccol - 1) / ccol;
+        const float size = ccol > 1 ? 16.0f : 20.0f, sizeSub = ccol > 1 ? 12.0f : 14.0f, sizeState = ccol > 1 ? 13.0f : 17.0f;
+        const float dxCol = (x1 - x0) / float(ccol);
+        const float y1 = y0 + 8.0f + dyRow * float(crow) + 2.0f;
         g_hud.FillScreenRect(x0 - 3.0f, y0 - 3.0f, x1 + 3.0f, y1 + 3.0f, glm::vec4(30, 18, 8, a), z - 2e-4f);
         g_hud.FillScreenRect(x0, y0, x1, y1, glm::vec4(118, 100, 66, a), z - 1.5e-4f);
         const glm::vec4 offText(30 * u, 20 * u, 10 * u, 0), offDim(70 * u, 60 * u, 44 * u, 0), offLearned(18 * u, 60 * u, 18 * u, 0),
             offFound(90 * u, 50 * u, 8 * u, 0);
         for (int i = 0; i < CPAGE; ++i)
         {
-            const float y = y0 + 6.0f + dyRow * float(i);
+            const int icol = i / crow, irow = i % crow;
+            const float xa = x0 + dxCol * float(icol), xb = xa + dxCol;
+            const float y = y0 + 6.0f + dyRow * float(irow);
             const bool fFound = FRaccoonusPageFound(i), fLearned = FRaccoonusPageLearned(i);
-            if (i == s_isel) g_hud.FillScreenRect(x0 + 6.0f, y, x1 - 6.0f, y + dyRow - 4.0f, glm::vec4(150, 132, 92, a), z - 1e-4f);
+            if (i == s_isel) g_hud.FillScreenRect(xa + 6.0f, y, xb - 6.0f, y + dyRow - 4.0f, glm::vec4(150, 132, 92, a), z - 1e-4f);
             const RACPAGE& p = s_apage[i];
             const float yMid = y + (dyRow - 4.0f) * 0.5f;
             // its icon (a missing page's dark)
-            DrawTechniqueIcon(p.szIcon, x0 + 34.0f, yMid, 42.0f, fFound ? 128.0f : 24.0f, (fFound ? 128.0f : 90.0f) * u, z);
+            DrawTechniqueIcon(p.szIcon, xa + 34.0f, yMid, 42.0f, fFound ? 128.0f : 24.0f, (fFound ? 128.0f : 90.0f) * u, z);
             const std::string strName = fFound ? std::string(p.szTechnique) : std::string("? ? ?");
-            DrawLine(*pfont, picons, strName, x0 + 68.0f, yMid - 19.0f, size, fFound ? offText : offDim);
-            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), x0 + 68.0f,
-                     yMid + 2.0f, 14.0f, offDim);
-            const std::string strState = fLearned ? "Learned" : fFound ? "Found: train" : "Missing";
-            DrawLine(*pfont, picons, strState, x1 - 18.0f - DxLine(*pfont, picons, strState, 17.0f), yMid - 10.0f, 17.0f,
+            const std::string strState = fLearned ? "Learned" : fFound ? (ccol > 1 ? "Train" : "Found: train") : "Missing";
+            if (ccol > 1)
+            {
+                // (narrow: the state on the name's line at the right, the ancestor under it)
+                DrawLine(*pfont, picons, strName, xa + 64.0f, yMid - 18.0f, size, fFound ? offText : offDim);
+                DrawLine(*pfont, picons, strState, xb - 14.0f - DxLine(*pfont, picons, strState, sizeState), yMid - 17.0f, sizeState,
+                         fLearned ? offLearned : fFound ? offFound : offDim);
+                DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), xa + 64.0f,
+                         yMid + 2.0f, sizeSub, offDim);
+                continue;
+            }
+            DrawLine(*pfont, picons, strName, xa + 68.0f, yMid - 19.0f, size, fFound ? offText : offDim);
+            DrawLine(*pfont, picons, fFound ? std::string(p.szAncestor) : std::string("Episode ") + std::to_string(p.iep), xa + 68.0f,
+                     yMid + 2.0f, sizeSub, offDim);
+            DrawLine(*pfont, picons, strState, xb - 18.0f - DxLine(*pfont, picons, strState, sizeState), yMid - 10.0f, sizeState,
                      fLearned ? offLearned : fFound ? offFound : offDim);
         }
 

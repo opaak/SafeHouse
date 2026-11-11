@@ -3,6 +3,7 @@
 
 #include "activate.h"
 #include "alo.h"
+#include "ancestors.h"
 #include "bsp.h"
 #include "brx.h"
 #include "clock.h"
@@ -272,6 +273,28 @@ void SkillFxBurn(const glm::vec3& pos)
               glm::vec3(Rand(-0.15f, 0.15f), Rand(-0.15f, 0.15f), 1.0f), Rand(0.4f, 0.65f), Rand(55.f, 95.f), Rand(12.f, 17.f));
 }
 
+void SkillFxKnightsLeap(ALO* palo)
+{
+    if (!FStep() || !palo) return;
+    const glm::vec3 pos = PosAloCenter(palo);
+    const glm::vec4 kGold(128, 104, 40, 120);
+    Ring(pos - glm::vec3(0, 0, 40), 20.0f, 150.0f, 0.3f, 10.0f, kGold);
+    Ring(pos - glm::vec3(0, 0, 40), 10.0f, 100.0f, 0.38f, 5.0f, kWhite, 0.0f, 0.05f);
+    Sparks(pos - glm::vec3(0, 0, 30), 14, 500.0f, kSpark, -0.6f);
+}
+
+// the streak: a few gold motes from the pickup to him, each following him as it flies (drawn at the pickup's place
+// moving to his: their velocity set toward him each step in UpdateSkillFx)
+struct SKILLMOTE { glm::vec3 pos; ALO* paloTo; float t0; glm::vec4 rgba; };
+static std::vector<SKILLMOTE> s_amote;
+void SkillFxMagnet(const glm::vec3& pos, ALO* paloTo, bool fClue)
+{
+    if (!FStep() || !paloTo) return;
+    const glm::vec4 c = fClue ? glm::vec4(70, 128, 118, 128) : glm::vec4(128, 110, 40, 128);
+    for (int i = 0; i < 5; ++i)
+        s_amote.push_back({pos + glm::vec3(Rand(-12.f, 12.f), Rand(-12.f, 12.f), Rand(-12.f, 12.f)), paloTo, g_clock.t + 0.03f * float(i), c});
+}
+
 void NoteSkillFxHover(ALO* palo) { s_paloHoverNoted = palo; }
 
 void NoteSkillFxPlaced(ALO* palo, SCENEGLOBSET& sgs)
@@ -368,6 +391,17 @@ void UpdateSkillFx()
         Add(p);
     }
     s_paloRocket = s_paloFeather = nullptr;
+    // Coin Magnet's motes: each flies to him faster as it goes, a trail behind it; gone on reaching him
+    for (SKILLMOTE& m : s_amote)
+    {
+        if (t < m.t0 || !m.paloTo) continue;
+        const glm::vec3 to = PosAloCenter(m.paloTo) + glm::vec3(0, 0, 40) - m.pos;
+        const float l = glm::length(to), v = 900.0f + 2600.0f * std::min(1.0f, (t - m.t0) / 0.3f);
+        if (l < v * dt + 10.0f) { m.paloTo = nullptr; continue; }
+        m.pos += to / l * (v * dt);
+        Add(Dot(m.pos, glm::vec3(0.0f), 0.16f, 5.0f, 1.0f, m.rgba, glm::vec4(glm::vec3(m.rgba), 0)));
+    }
+    s_amote.erase(std::remove_if(s_amote.begin(), s_amote.end(), [&](const SKILLMOTE& m) { return !m.paloTo || t - m.t0 > 1.5f; }), s_amote.end());
     // the homing darts' trails
     for (ALO* pdart : HomingDartsInFlight())
         Add(Dot(PosAloCenter(pdart), glm::vec3(0.0f), 0.22f, 6.0f, 1.5f, kOrange, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
@@ -382,10 +416,34 @@ void UpdateSkillFx()
     s_aring.erase(std::remove_if(s_aring.begin(), s_aring.end(), [&](const FXRING& r) { return t - r.t0 > r.life || t < r.t0 - 1.0f; }), s_aring.end());
 }
 
+static std::vector<GHOSTPART> s_apartCloak;   // (Shadow Cloak: his pose as placed this frame)
+static float s_uCloak = 0.0f;
+
 void UpdateSkillFxGhosts(const SCENE& scene)
 {
     if (!g_psw) return;
     const float t = g_clock.t;
+    {
+        ALO* paloCloak = nullptr;
+        s_uCloak = UShadowCloak(&paloCloak);
+        s_apartCloak.clear();
+        if (s_uCloak > 0.0f && paloCloak && paloCloak == PloPoCurrent(g_psw))
+        {
+            std::vector<const SCENEGLOBSET*> apsgs;
+            CollectSgs(scene, paloCloak, 0, apsgs);
+            for (const SCENEGLOBSET* psgs : apsgs)
+            {
+                if (!psgs->pglobset) continue;
+                GHOSTPART part;
+                part.psgs = psgs;
+                part.pglobset = psgs->pglobset;
+                part.amatGlob = psgs->amatGlob;
+                part.afVisible = psgs->afVisible;
+                part.aamatBone = psgs->aamatBone;
+                s_apartCloak.push_back(std::move(part));
+            }
+        }
+    }
     if (s_serial != g_psw->serial) s_aghost.clear();
     while (!s_aghost.empty() && (t - s_aghost.front().t > kTGhostLife || s_aghost.front().t > t)) s_aghost.pop_front();
     if (!s_paloGhost || s_paloGhost != PloPoCurrent(g_psw) || t - s_tGhostNote > 0.1f || t - s_tGhostLast < kDtGhost) return;
@@ -425,6 +483,14 @@ void DrawSkillFxGhosts(const SCENE& scene, const CAMERA& cam)
             adraw.push_back({&apart, glm::vec4(kRgbHover * u, 1.0f), 1, true});
             RenderGhostPoses(scene, cam, adraw);
         }
+    }
+    if (!s_apartCloak.empty() && s_uCloak > 0.0f)
+    {
+        // Shadow Cloak: he is drawn over as a dark, faintly violet shadow, breathing a little
+        const float u = s_uCloak * (0.82f + 0.08f * std::sin(g_clock.tReal * 2.5f));
+        std::vector<GHOSTDRAW> adrawCloak;
+        adrawCloak.push_back({&s_apartCloak, glm::vec4(0.04f, 0.02f, 0.08f, u)});
+        RenderGhostPoses(scene, cam, adrawCloak);
     }
     if (s_aghost.empty() || !g_psw || s_serial != g_psw->serial) return;
     const float t = g_clock.t;

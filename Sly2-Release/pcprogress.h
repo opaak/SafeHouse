@@ -37,6 +37,11 @@ constexpr int kItemBombBlast2 = 0x39;           // Bentley: his bombs' blast 1.5
 constexpr int kItemMegaStomp = 0x3A;            // Murray: the Thunder Flop's landing a shockwave round him (gang.cpp)
 constexpr int kItemMegaChargeAttack = 0x3B;     // Sly: the charged strike hits every guard round him (extrapowerups.cpp)
 constexpr int kItemScorchingHoverPack = 0x3C;   // Bentley: the Hover Pack's jet burns the guards below (extrapowerups.cpp)
+// The Thievius Raccoonus' later pages (ancestors.h; learned by their training, not sold), episodes 5 to 8
+constexpr int kItemKnightsLeap = 0x3D;          // Sly: a double jump with R1 held leaps far higher (jump.cpp)
+constexpr int kItemTreasureSense = 0x3E;        // Sly: the clue bottles near him show through walls
+constexpr int kItemShadowCloak = 0x3F;          // Sly: still with R1 held, the guards do not see him (detect.cpp)
+constexpr int kItemCoinMagnet = 0x40;           // Sly: coins and clue bottles near him fly to him (pickup.cpp)
 
 bool FPcItem(int id);
 // the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)

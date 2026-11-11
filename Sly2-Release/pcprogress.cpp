@@ -33,6 +33,14 @@ const PCITEM s_aitem[] = {
      "Rioichi Cooper's technique. On a spire, hold &2O&. to target a distant spire, then let go to leap onto it"},
     {kItemClimbingCobra, "climbingCobra", 7, 800, 3, "Climbing Cobra",
      "Salim al-Kupar's technique. Hold &2R&. on poles and pipes to climb them at speed"},
+    {kItemKnightsLeap, "knightsLeap", 7, 1300, 5, "Knight's Leap",
+     "Sir Galleth Cooper's technique. Holding &2R&., the double jump leaps far higher"},
+    {kItemTreasureSense, "treasureSense", 7, 1300, 6, "Treasure Sense",
+     "Bob Cooper's technique. The clue bottles near Sly glow through walls"},
+    {kItemShadowCloak, "shadowCloak", 7, 1500, 7, "Shadow Cloak",
+     "Otto van Cooper's technique. Stand still holding &2R&. and Sly melts into the shadows: the guards do not see him"},
+    {kItemCoinMagnet, "coinMagnet", 7, 1500, 8, "Coin Magnet",
+     "Slytunkhamen Cooper II's technique. Coins and clue bottles near Sly fly into his hands"},
     // the extra powerups (extrapowerups.h); their use and power here, what they do there
     {kItemMeterRechargerSly, "meterRechargerSly", 7, 1500, 3, "Meter Recharger",
      "From Sly 4. When the gadget meter runs empty, it fills up again at once; then it needs 60 s to recharge", -1, 0, true},
@@ -114,6 +122,10 @@ const char* SzPcItemIcon(int id)
     case kItemSilentSprint: return "silent_sprint";
     case kItemRailSprint: return "rail_sprint";
     case kItemClimbingCobra: return "climbing_cobra";
+    case kItemKnightsLeap: return "knights_leap";
+    case kItemTreasureSense: return "treasure_sense";
+    case kItemShadowCloak: return "shadow_cloak";
+    case kItemCoinMagnet: return "coin_magnet";
     case kItemMeterRechargerSly:
     case kItemMeterRechargerBentley:
     case kItemMeterRechargerMurray: return "meter_recharger";

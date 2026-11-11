@@ -7,6 +7,7 @@
 // jumptgt.cpp / jumpledge.cpp implement the targeted-jump and ledge sub-objects. Remaining incomplete paths
 // retain focused warnings at their call sites (including the long-fall recovery test 0x19A098).
 #include "jump.h"
+#include "ancestors.h"
 #include "pccharacter.h"   // (PC addition, debug menu only: Carmelita's moveset)
 #include "activate.h"
 #include "gang.h"
@@ -779,6 +780,7 @@ void UpdateJumpTransitions(JUMP* pj)
             {
                 sly2actions::Take(PpadctlOf(pa), sly2actions::Action::DoubleJump, BTN_CROSS, 0.0f);
                 SetJumpKind(pj, 6, pj->n8, 0);  // the double jump
+                ApplyKnightsLeap(pa);           // (PC: Knight's Leap with R1 held, ancestors.h)
             }
             if (FBtnWithin(pa, BTN_CIRCLE, 0.0f))
             {
