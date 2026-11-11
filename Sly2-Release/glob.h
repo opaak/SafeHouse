@@ -77,6 +77,7 @@ struct SUBCEL
     uint8_t aiboneSlot[4] = {};
     std::vector<uint8_t> aw;        // cv * cw
     std::vector<uint8_t> aedge;     // cn * 4
+    std::vector<glm::vec3> anrmSmooth;  // (PC character smoothing, display.h) per position its averaged normal (0: none)
 };
 
 // A screen-effect strip (types 2 and 3).
@@ -166,6 +167,9 @@ struct GLOB
     std::vector<VTXGLOB> avtx;
     std::vector<uint32_t> aindex;
     std::vector<SUBGLOB> asubglob;
+    // (PC character smoothing, display.h smoothChars) per strip vertex the averaged normal of the triangles at its
+    // position (the globset's skinned meshes; BuildSmoothNormals): empty, or 0 for a vertex not smoothed
+    std::vector<glm::vec3> anrmSmooth;
     std::shared_ptr<WRBG> pwrbg;        // the warp block (mesh flag 4)
     std::shared_ptr<IDXTAB> pidxtab;    // the colour sets this GLOB was coloured from
     // Type 1

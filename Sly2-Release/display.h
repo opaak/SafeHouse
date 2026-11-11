@@ -76,6 +76,14 @@ struct DISPLAY
     int colorGrade = 0;
     int vignette = 0;
     int outlines = 0;
+    // PC character smoothing (TEST; not in system_settings.dat: --smooth-chars / SLY2N_SMOOTH, --smooth-strength /
+    // SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
+    // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel
+    // borders bent the same way (celborder.vert SMOOTH), so the silhouettes round off. 0 / 1: off (exactly as before);
+    // 2..4 the split. smoothStrength (0..100): how far toward the curved surface. OpenGL on Windows and Linux only,
+    // with the near-plane clip stage (gl.cpp: not with SLY2N_NEARCLIP=0).
+    int smoothChars = 0;
+    int smoothStrength = 100;
 
     // The swap (ApplyDisplaySettings): VSync gates the frames at the cap (the pacer then runs 1 % fast, so only the
     // swap gates: platform/frame_pacer.h), and a generation that changes with the swap's configuration

@@ -25,6 +25,13 @@ layout (location = 4) in vec3 aNormal;
 layout (location = 5) in uvec4 aBone;   // skinning: the group's bone indices
 layout (location = 6) in uint aDraw;    // the draw index (instanced, from the command's baseInstance)
 layout (location = 7) in vec4 aWeight;  // and their weights (raw / 255, P_G 726)
+#if defined(GEOM) && defined(SMOOTH)
+// (TEST, character smoothing: display.h smoothChars) the averaged normal of the vertex's position (render.cpp attribute 8;
+// 0: not smoothed), and what glob.geom bends the triangle with: the world position and that normal skinned
+layout (location = 8) in vec3 aNrmSmooth;
+out vec3 gsPosW;
+out vec3 gsNrmW;
+#endif
 
 // Per-frame draw data (render.cpp RECGPU / DRAWGPU).
 struct REC
@@ -75,6 +82,9 @@ void main()
     const uvec4 recBone = arec[irec].bone;
     const uvec4 recWarp = arec[irec].warp;
     vec4 posWorld;
+#if defined(GEOM) && defined(SMOOTH)
+    gsNrmW = vec3(0.0);
+#endif
     if (recBone.y != 0u)
     {
         vec4 p = vec4(aPos, 1.0);
@@ -83,6 +93,18 @@ void main()
                  + aWeight.z * (abone[recBone.x + min(aBone.z, recBone.y - 1u)] * p)
                  + aWeight.w * (abone[recBone.x + min(aBone.w, recBone.y - 1u)] * p);
         posWorld.w = 1.0;
+#if defined(GEOM) && defined(SMOOTH)
+        if (dot(aNrmSmooth, aNrmSmooth) > 0.25)
+        {
+            mat3 m = aWeight.x * mat3(abone[recBone.x + min(aBone.x, recBone.y - 1u)])
+                   + aWeight.y * mat3(abone[recBone.x + min(aBone.y, recBone.y - 1u)])
+                   + aWeight.z * mat3(abone[recBone.x + min(aBone.z, recBone.y - 1u)])
+                   + aWeight.w * mat3(abone[recBone.x + min(aBone.w, recBone.y - 1u)]);
+            vec3 n = m * aNrmSmooth;
+            float l = length(n);
+            gsNrmW = l > 1e-6 ? n / l : vec3(0.0);
+        }
+#endif
     }
     else
         posWorld = arec[irec].model * vec4(aPos, 1.0);
@@ -102,6 +124,9 @@ void main()
         if ((recWarp.w & 0x200u) == 0u) duv = vec2(0.0);
     }
     gl_Position = matWorldToClip * posWorld;
+#if defined(GEOM) && defined(SMOOTH)
+    gsPosW = posWorld.xyz;
+#endif
     vec4 c = icolor == 0 ? aRgbaA : (icolor == 1 ? aRgbaB : rgbaConst);
     float aA = aRgbaA.a;
     if ((icolor == 0 || icolor == 3) && arec[irec].spec1.z != 0.0)

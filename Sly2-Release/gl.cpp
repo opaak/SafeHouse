@@ -29,6 +29,8 @@ GLSHADER glGlobShaderNoKill;
 bool g_fGlobBindless = false;
 bool g_fDirectRuns = false;
 GLSHADER glCelBorderShader;
+int g_cSmoothGlob = 0;
+bool g_fSmoothCel = false;
 GLSHADER glHudShader;
 GLSHADER glOverlayShader;
 
@@ -288,8 +290,22 @@ bool GL::FInit(int w, int h, bool fVisible, const char* title, std::string& erro
 #else
     const std::string strCoverage = g_display.fAlphaCoverage ? "#define ALPHA_COVERAGE 1\n" : "";
 #endif
+    // (TEST, character smoothing: display.h smoothChars) the PN split in glob.geom: its size, the stage's most vertices
+    // (n x n triangles as n strips) and the strength, built in; only with the stage (glob.vert passes it the world
+    // positions and normals under GEOM)
+    std::string strSmooth;
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    const int cSmooth = s_fNearClip && g_display.smoothChars >= 2 ? std::min(g_display.smoothChars, 4) : 0;
+    if (cSmooth)
+    {
+        char sz[160];
+        std::snprintf(sz, sizeof sz, "#define SMOOTH %d\n#define SMOOTH_MAXV %d\n#define SMOOTH_STRENGTH %.3f\n", cSmooth,
+                      cSmooth * cSmooth + 2 * cSmooth, double(std::clamp(g_display.smoothStrength, 0, 100)) / 100.0);
+        strSmooth = sz;
+    }
+#endif
     auto initGlob = [&](const char* szPrefix) {
-        globPrefix = std::string(szPrefix) + strCoverage;
+        globPrefix = std::string(szPrefix) + strCoverage + strSmooth;
         fGlobGeom = s_fNearClip && glGlobShader.FInit("glob.vert", "glob.geom", "glob.frag", (globPrefix + "#define GEOM 1\n").c_str());
         return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", globPrefix.c_str());
     };
@@ -298,9 +314,9 @@ bool GL::FInit(int w, int h, bool fVisible, const char* title, std::string& erro
     auto initGlobPlain = [&]() {
         if (strCoverage.empty()) return false;
         std::printf("OpenGL: the alpha-coverage glob program did not build: without it\n");
-        globPrefix.clear();
-        fGlobGeom = s_fNearClip && glGlobShader.FInit("glob.vert", "glob.geom", "glob.frag", "#define GEOM 1\n");
-        return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", "");
+        globPrefix = strSmooth;
+        fGlobGeom = s_fNearClip && glGlobShader.FInit("glob.vert", "glob.geom", "glob.frag", (globPrefix + "#define GEOM 1\n").c_str());
+        return fGlobGeom || glGlobShader.FInit("glob.vert", "glob.frag", globPrefix.c_str());
     };
     if (!g_fGlobBindless && !initGlob("") && !initGlobPlain())
     {
@@ -315,7 +331,13 @@ bool GL::FInit(int w, int h, bool fVisible, const char* title, std::string& erro
     if (!(fGlobGeom ? glGlobShaderNoKill.FInit("glob.vert", "glob.geom", "glob.frag", prefixNoKill.c_str())
                     : glGlobShaderNoKill.FInit("glob.vert", "glob.frag", prefixNoKill.c_str())))
         glGlobShaderNoKill.ID = 0;
-    glCelBorderShader.Init("celborder.vert", "celborder.frag");
+    // (character smoothing) only with the stage that bends the surfaces; the borders bent as their edges are
+    g_cSmoothGlob = fGlobGeom && !strSmooth.empty() ? g_display.smoothChars : 0;
+    g_fSmoothCel = g_cSmoothGlob > 0 && glCelBorderShader.FInit("celborder.vert", "celborder.frag", strSmooth.c_str());
+    if (!g_fSmoothCel) glCelBorderShader.Init("celborder.vert", "celborder.frag");
+    if (!strSmooth.empty())
+        std::printf("OpenGL: character smoothing %s (split %d, strength %d %%, borders %s)\n", g_cSmoothGlob ? "on" : "did not build: off",
+                    g_cSmoothGlob, g_display.smoothStrength, g_fSmoothCel ? "bent" : "straight");
     glHudShader.Init("hud.vert", "hud.frag");
     glOverlayShader.Init("overlay.vert", "overlay.frag");
     return true;

@@ -75,5 +75,9 @@ extern bool g_fGlobBindless;
 // (Windows on ARM) each indirect draw costs a compute pass (glob.vert reads gl_VertexID)
 extern bool g_fDirectRuns;
 extern GLSHADER glCelBorderShader;
+// (TEST, character smoothing: display.h smoothChars) the split the glob programs were built with (glob.geom SMOOTH;
+// 0: none), and whether the cel border program bends its edges to match (celborder.vert SMOOTH)
+extern int g_cSmoothGlob;
+extern bool g_fSmoothCel;
 extern GLSHADER glHudShader;
 extern GLSHADER glOverlayShader;

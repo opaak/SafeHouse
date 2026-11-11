@@ -5,6 +5,7 @@
 // m_16E1A8.cpp.
 
 #include "glob.h"
+#include "display.h"
 #include "worldglobals.h"
 
 #include "loadtrace.h"
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <unordered_map>
 
 GLOBSTATS g_globstats;
 WORLD_VALUE(g_globstats);   // (PC: kept across a kept world's load, worldglobals.h)
@@ -362,6 +364,80 @@ void LoadGlobMesh1FromBrx(GLOBSET* pglobset, int iglob, int csub, bool fDraw, CB
     LoadGlobSubmeshesFromBrx(pglobset, iglob, csub, fDraw, pbis);
 }
 
+// (PC character smoothing, display.h smoothChars) The normals the smoothing bends the characters along: per position
+// of the globset's skinned type-0 meshes the angle-weighted average of the triangles there, so the vertices a position
+// is split into (texture seams, the shaders' runs, the groups) all bend alike and the surface does not crack. Each
+// triangle's normal is turned to the side of its corners' own normals (a mesh drawn from both sides would otherwise
+// cancel out). The cel borders' positions take the normal of the same position (their edges then bend as the
+// surfaces' edges do: celborder.vert); a position not found in the meshes stays straight (0).
+static void BuildSmoothNormals(GLOBSET* pglobset)
+{
+    auto key = [](const glm::vec3& p) {
+        auto q = [](float x) { return uint64_t(int64_t(std::lround(double(x) * 64.0)) & 0x1FFFFF); };
+        return (q(p.x) << 42) | (q(p.y) << 21) | q(p.z);
+    };
+    std::unordered_map<uint64_t, glm::vec3> mpnrm;
+    int cvtx = 0;
+    for (const GLOB& glob : pglobset->aglob)
+    {
+        if (glob.meshk != MESHK_Strips || glob.cbone == 0 || glob.iglobTemplate >= 0 || glob.avtx.empty()) continue;
+        cvtx += int(glob.avtx.size());
+        for (size_t i = 0; i + 2 < glob.aindex.size(); i += 3)
+        {
+            const uint32_t ai[3] = {glob.aindex[i], glob.aindex[i + 1], glob.aindex[i + 2]};
+            if (ai[0] >= glob.avtx.size() || ai[1] >= glob.avtx.size() || ai[2] >= glob.avtx.size()) continue;
+            const glm::vec3 ap[3] = {glob.avtx[ai[0]].pos, glob.avtx[ai[1]].pos, glob.avtx[ai[2]].pos};
+            glm::vec3 n = glm::cross(ap[1] - ap[0], ap[2] - ap[0]);
+            const float len = glm::length(n);
+            if (!(len > 1e-8f)) continue;
+            n /= len;
+            const glm::vec3 nData = glob.avtx[ai[0]].normal + glob.avtx[ai[1]].normal + glob.avtx[ai[2]].normal;
+            if (glm::dot(n, nData) < 0.0f) n = -n;
+            for (int k = 0; k < 3; ++k)
+            {
+                const glm::vec3 e1 = ap[(k + 1) % 3] - ap[k], e2 = ap[(k + 2) % 3] - ap[k];
+                const float l1 = glm::length(e1), l2 = glm::length(e2);
+                if (!(l1 > 1e-8f && l2 > 1e-8f)) continue;
+                const float angle = std::acos(std::clamp(glm::dot(e1, e2) / (l1 * l2), -1.0f, 1.0f));
+                mpnrm[key(ap[k])] += n * angle;
+            }
+        }
+    }
+    if (mpnrm.empty()) return;
+    auto lookup = [&](const glm::vec3& p) {
+        const auto it = mpnrm.find(key(p));
+        if (it == mpnrm.end()) return glm::vec3(0.0f);
+        const float len = glm::length(it->second);
+        return len > 1e-8f ? it->second / len : glm::vec3(0.0f);
+    };
+    int ccel = 0, ccelFound = 0;
+    for (GLOB& glob : pglobset->aglob)
+    {
+        if (glob.cbone == 0) continue;
+        if (glob.meshk == MESHK_Strips && !glob.avtx.empty())
+        {
+            glob.anrmSmooth.resize(glob.avtx.size());
+            for (size_t i = 0; i < glob.avtx.size(); ++i) glob.anrmSmooth[i] = lookup(glob.avtx[i].pos);
+        }
+        else if (glob.meshk == MESHK_CelBorder)
+            for (SUBCEL& cel : glob.asubcel)
+            {
+                cel.anrmSmooth.resize(cel.apos.size());
+                for (size_t i = 0; i < cel.apos.size(); ++i)
+                {
+                    cel.anrmSmooth[i] = lookup(cel.apos[i]);
+                    ++ccel;
+                    if (cel.anrmSmooth[i] != glm::vec3(0.0f)) ++ccelFound;
+                }
+            }
+    }
+    // SLY2N_SMOOTHDBG=1: per globset how many positions were smoothed and how many of the borders' found a normal
+    static const bool s_fDbg = std::getenv("SLY2N_SMOOTHDBG") && std::atoi(std::getenv("SLY2N_SMOOTHDBG")) != 0;
+    if (s_fDbg)
+        std::printf("smooth: globset %p: %d skinned vertices, %zu positions; cel border positions %d of %d matched\n",
+                    static_cast<void*>(pglobset), cvtx, mpnrm.size(), ccelFound, ccel);
+}
+
 // orig: 0x0016CAA0 (type 2: per strip a shader, positions, weights and 4-byte records)
 void LoadGlobMesh2FromBrx(GLOBSET* pglobset, int iglob, int csub, bool fDraw, CBinaryInputStream* pbis)
 {
@@ -543,6 +619,7 @@ void LoadGlobsetFromBrx(GLOBSET* pglobset, ALO* palo, CBinaryInputStream* pbis)
         i += csub;
     }
     LoadGlobSpheresFromBrx(pglobset, pbis);
+    if (g_display.smoothChars >= 2) BuildSmoothNormals(pglobset);
 #ifdef __SWITCH__
     pglobset->afCelBorder.resize(pglobset->aglob.size());
     for (size_t k = 0; k < pglobset->aglob.size(); ++k) pglobset->afCelBorder[k] = pglobset->aglob[k].meshk == MESHK_CelBorder ? 1 : 0;

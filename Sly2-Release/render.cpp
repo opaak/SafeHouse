@@ -48,6 +48,7 @@ struct GLGLOB
     uint32_t firstIndex = 0;
     GLuint ssboEdges = 0;
     GLuint ssboEdgeSkin = 0;   // per edge vertex: bone weights and indices (skinned cel borders)
+    GLuint ssboEdgeNrm = 0;    // (character smoothing) per edge vertex its averaged normal (celborder.vert SMOOTH)
     glm::vec3 posCenter{0.0f};  // the geometry's bounding sphere (for globs without a draw record)
     float sRadius = -1.0f;
     GLsizei cedge = 0;
@@ -134,6 +135,9 @@ GLuint s_vaoEmpty = 0;
 std::vector<struct GPUVTX> s_avtxArena;
 std::vector<uint32_t> s_aindexArena;
 std::vector<GLGLOB*> s_apglArena;
+// (TEST, character smoothing: gl.h g_cSmoothGlob) per arena vertex the averaged normal glob.geom bends along (attribute
+// 8, a buffer of its own; 0: the vertex is not smoothed). Only kept while the smoothing is on.
+std::vector<glm::vec3> s_anrmArena;
 GLuint s_vboDrawIndex = 0;
 constexpr uint32_t CDRAW_MAX = 1u << 18;
 
@@ -283,8 +287,14 @@ template <class F> void SetBounds(GLGLOB* pgl, size_t c, F posOf)
     pgl->sRadius = std::sqrt(r2);
 }
 
-void AppendArena(GLGLOB* pgl, const std::vector<GPUVTX>& av, const std::vector<uint32_t>& ai)
+void AppendArena(GLGLOB* pgl, const std::vector<GPUVTX>& av, const std::vector<uint32_t>& ai,
+                 const std::vector<glm::vec3>* panrmSmooth = nullptr)
 {
+    if (g_cSmoothGlob > 0)
+    {
+        if (panrmSmooth && panrmSmooth->size() == av.size()) s_anrmArena.insert(s_anrmArena.end(), panrmSmooth->begin(), panrmSmooth->end());
+        else s_anrmArena.resize(s_anrmArena.size() + av.size(), glm::vec3(0.0f));
+    }
     SetBounds(pgl, av.size(), [&](size_t i) { return glm::vec3(av[i].pos[0], av[i].pos[1], av[i].pos[2]); });
     pgl->baseVertex = int32_t(s_avtxArena.size());
     pgl->firstIndex = uint32_t(s_aindexArena.size());
@@ -338,6 +348,17 @@ void FlushArena()
     glEnableVertexAttribArray(6);
     glVertexAttribIPointer(6, 1, GL_UNSIGNED_INT, 4, nullptr);
     glVertexAttribDivisor(6, 1);
+    if (g_cSmoothGlob > 0 && s_anrmArena.size() == s_avtxArena.size())
+    {
+        // (character smoothing) attribute 8: the averaged normals (a buffer of their own, never updated)
+        GLuint vboNrm = 0;
+        glGenBuffers(1, &vboNrm);
+        glBindBuffer(GL_ARRAY_BUFFER, vboNrm);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(s_anrmArena.size() * sizeof(glm::vec3)), s_anrmArena.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(8);
+        glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
+    }
+    std::vector<glm::vec3>().swap(s_anrmArena);
     glBindVertexArray(0);
     for (GLGLOB* pgl : s_apglArena) { pgl->vao = vao; pgl->vbo = vbo; pgl->vboColor = vboColor; }
     s_apglArena.clear();
@@ -369,7 +390,7 @@ void BuildGlobGpu(GLOB& glob)
         auto pgl = std::make_unique<GLGLOB>();
         std::vector<GPUVTX> av;
         GpuVerticesOfGlob(glob, av);
-        AppendArena(pgl.get(), av, glob.aindex);
+        AppendArena(pgl.get(), av, glob.aindex, &glob.anrmSmooth);
         glob.pgl = pgl.get();
         s_aglglob.push_back(std::move(pgl));
     }
@@ -409,6 +430,8 @@ void BuildGlobGpu(GLOB& glob)
         std::vector<glm::vec4> aedge;
         struct EDGESKIN { glm::vec4 w; glm::uvec4 ab; };   // per edge vertex: weights and the group's bone indices
         std::vector<EDGESKIN> askin;
+        std::vector<glm::vec4> anrm;   // (character smoothing) per edge vertex its averaged normal (w 0: none)
+        bool fNrm = false;
         for (const SUBCEL& cel : glob.asubcel)
             for (size_t i = 0; i + 3 < cel.aedge.size(); i += 4)
                 for (int j = 0; j < 4; ++j)
@@ -424,6 +447,10 @@ void BuildGlobGpu(GLOB& glob)
                         if (size_t(ipos) * size_t(cel.cw) + size_t(k) < cel.aw.size())
                             sk.w[k] = float(cel.aw[size_t(ipos) * size_t(cel.cw) + size_t(k)]) / 255.0f;
                     askin.push_back(sk);
+                    glm::vec3 n(0.0f);
+                    if (ipos < cel.anrmSmooth.size()) n = cel.anrmSmooth[ipos];
+                    fNrm = fNrm || n != glm::vec3(0.0f);
+                    anrm.emplace_back(n, n != glm::vec3(0.0f) ? 1.0f : 0.0f);
                 }
         if (aedge.empty()) return;
         auto pgl = std::make_unique<GLGLOB>();
@@ -433,6 +460,12 @@ void BuildGlobGpu(GLOB& glob)
         glGenBuffers(1, &pgl->ssboEdgeSkin);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, pgl->ssboEdgeSkin);
         glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(askin.size() * sizeof(EDGESKIN)), askin.data(), GL_STATIC_DRAW);
+        if (g_fSmoothCel && fNrm)
+        {
+            glGenBuffers(1, &pgl->ssboEdgeNrm);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, pgl->ssboEdgeNrm);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(anrm.size() * sizeof(glm::vec4)), anrm.data(), GL_STATIC_DRAW);
+        }
         pgl->cedge = GLsizei(aedge.size() / 4);
         SetBounds(pgl.get(), aedge.size(), [&](size_t i) { return glm::vec3(aedge[i]); });
         glob.pgl = pgl.get();
@@ -565,7 +598,7 @@ void SetGlobRgbaConst(float r, float g, float b, float a)
     glUniform4f(s_pu->rgbaConst, r, g, b, a);
     s_aglobinh[s_iprogGlob].rgbaConst = s_globinhLast.rgbaConst = glm::vec4(r, g, b, a);
 }
-struct CELUNIFORMS { GLint matWorldToClip, matModel, halfWidthNdc, edgeBase, celRgba, cbone, iboneFirst; } s_uc;
+struct CELUNIFORMS { GLint matWorldToClip, matModel, halfWidthNdc, edgeBase, celRgba, cbone, iboneFirst, csegSmooth; } s_uc;
 
 glm::vec4 Vec4FromRgba(uint32_t rgba, float scale)
 {
@@ -1884,7 +1917,7 @@ GLGLOB* PglInstanceCopyGpu(const GLOB& glob)
     auto pgl = std::make_unique<GLGLOB>();
     std::vector<GPUVTX> av;
     GpuVerticesOfGlob(glob, av);
-    AppendArena(pgl.get(), av, glob.aindex);
+    AppendArena(pgl.get(), av, glob.aindex, &glob.anrmSmooth);
     GLGLOB* p = pgl.get();
     s_aglglob.push_back(std::move(pgl));
     return p;
@@ -1980,6 +2013,7 @@ void BuildSceneGpu(SCENE& scene)
     s_uc.celRgba = glCelBorderShader.Loc("celRgba");
     s_uc.cbone = glCelBorderShader.Loc("cbone");
     s_uc.iboneFirst = glCelBorderShader.Loc("iboneFirst");
+    s_uc.csegSmooth = glCelBorderShader.Loc("csegSmooth");
     if (!s_ssboRec)
     {
         glGenBuffers(1, &s_ssboBone);
@@ -3423,8 +3457,16 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
             glDepthFunc(s_fCelAlways ? GL_ALWAYS : GL_GEQUAL);
             glDepthMask(GL_FALSE);
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            // (character smoothing) a border with normals drawn as the surfaces' split of each edge, bent as they are
+            GLsizei cseg = 1;
+            if (g_fSmoothCel)
+            {
+                cseg = geom.pgl->ssboEdgeNrm ? GLsizei(g_cSmoothGlob) : 1;
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, geom.pgl->ssboEdgeNrm ? geom.pgl->ssboEdgeNrm : geom.pgl->ssboEdges);
+                glUniform1i(s_uc.csegSmooth, GLint(cseg));
+            }
             glBindVertexArray(s_vaoEmpty);
-            glDrawArrays(GL_TRIANGLES, 0, geom.pgl->cedge * 6);
+            glDrawArrays(GL_TRIANGLES, 0, geom.pgl->cedge * 6 * cseg);
             ++g_renderstats.ccel;
             ++g_renderstats.cbatch;
             break;

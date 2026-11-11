@@ -117,6 +117,7 @@ bool FLoadDisplaySettings(const std::filesystem::path& userDir, std::string* pme
     g_display.upscaler = 0;
     g_display.anisotropy = 1;
     g_display.bloom = g_display.colorGrade = g_display.vignette = g_display.outlines = 0;
+    g_display.smoothChars = 0;
 #endif
     const char* psz = "";
     switch (result)
