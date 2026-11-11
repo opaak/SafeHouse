@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<path d="M96 60 h 46 v 92 q 40 2 58 26 v 22 h -104 z" fill="#3a6fd8" stroke="#0b0f1f" stroke-width="9" stroke-linejoin="round"/>
+<path d="M96 200 h 104" stroke="#0b0f1f" stroke-width="9"/>
+<path d="M70 176 q -28 10 -38 34 q 24 -4 44 -12 z" fill="#ff8a2a" stroke="#0b0f1f" stroke-width="6" stroke-linejoin="round"/>
+<path d="M74 158 q -34 4 -46 22 q 26 2 50 -6 z" fill="#ffe27a" stroke="#0b0f1f" stroke-width="6" stroke-linejoin="round"/>
+<path d="M104 90 h 30 M104 118 h 30" fill="none" stroke="#0b0f1f" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><path d="M104 90 h 30 M104 118 h 30" fill="none" stroke="url(#gold)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

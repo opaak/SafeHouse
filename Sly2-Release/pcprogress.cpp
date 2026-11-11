@@ -53,6 +53,10 @@ const PCITEM s_aitem[] = {
      "From Sly 4. The Smoke Bomb also flashes: the guards near it are stunned, and the alarm stays down twice as long", -1, 0, true},
     {kItemAdrenalineBurstPlus, "adrenalineBurstPlus", 9, 1400, 5, "Adrenaline Burst Plus",
      "From Sly 4. Adrenaline Burst runs 1.4 times as fast", -1, 0, true},
+    {kItemRocketBoots, "rocketBoots", 7, 1300, 4, "Rocket Boots",
+     "From Sly 3. The Stealth Slide no longer slows down, uses half the gadget power, and still makes no sound", -1, 0, true},
+    {kItemBombBlast2, "bombBlast2", 9, 1100, 4, "Bomb Blast v2.0",
+     "From Sly 4. Bentley's bombs blast 1.5 times as wide", -1, 0, true},
 };
 
 const PCITEM* PitemOf(int id)
@@ -113,6 +117,8 @@ const char* SzPcItemIcon(int id)
     case kItemHomingDarts: return "homing_darts";
     case kItemAdrenalineBurstPlus: return "adrenaline_burst_plus";
     case kItemLightAsAFeather: return "light_as_a_feather";
+    case kItemRocketBoots: return "rocket_boots";
+    case kItemBombBlast2: return "bomb_blast_2";
     default: return nullptr;
     }
 }

@@ -32,6 +32,8 @@ constexpr int kItemMovingPickpocket = 0x34;     // Sly: walk while picking a poc
 constexpr int kItemHomingDarts = 0x35;          // Bentley: the darts aim at the guard nearest the crosshair (gang.cpp)
 constexpr int kItemAdrenalineBurstPlus = 0x36;  // Bentley: Adrenaline Burst 1.4 times as fast (gang.cpp)
 constexpr int kItemLightAsAFeather = 0x37;      // Murray: run with R1 while carrying, faster (murraycarry.cpp)
+constexpr int kItemRocketBoots = 0x38;          // Sly (Sly 3's): the Stealth Slide keeps its speed, half the power (sly.cpp)
+constexpr int kItemBombBlast2 = 0x39;           // Bentley: his bombs' blast 1.5 times as wide (carry.cpp BlastCarry)
 
 bool FPcItem(int id);
 // the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)

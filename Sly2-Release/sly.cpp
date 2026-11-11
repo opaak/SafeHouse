@@ -534,7 +534,7 @@ void UpdateSlySlideTransitions(SLY* p)
 // orig: 0x0018B7E8 (state 24's drain, alignment and three-way lean blend)
 void UpdateSlySlideInput(SLY* p)
 {
-    DrainActorPower(p, 1.0f);
+    DrainActorPower(p, FPowerupOwned(kItemRocketBoots) ? 0.5f : 1.0f);   // (PC: Sly 3's Rocket Boots, half the drain)
     if (p->substate == 12)
     {
         if (std::fabs(cmm::RadNormalize(RadStepHeading(p) - p->radHeading)) < 0.4f)
@@ -560,8 +560,10 @@ void UpdateSlySlideMotion(SLY* p)
     const glm::vec3 forward(PxfObj(p->palo)->matWorld[0]);
     const float along = glm::dot(velocity, forward);
     const glm::vec3 perpendicular = velocity - forward * along;
+    // (PC: Sly 3's Rocket Boots, pcprogress.h: the slide keeps its speed, none of the 100 a second it loses)
+    const float decel = FPowerupOwned(kItemRocketBoots) ? 0.0f : 100.0f;
     const glm::vec3 next = MatRotateAxis(omega.z * g_clock.dt, glm::vec3(0.0f, 0.0f, 1.0f)) *
-        (forward * (along - 100.0f * g_clock.dt) + perpendicular * (1.0f - 1.0f * g_clock.dt));
+        (forward * (along - decel * g_clock.dt) + perpendicular * (1.0f - 1.0f * g_clock.dt));
     glm::vec3 acceleration = (next - velocity) * (1.0f / g_clock.dt);
     acceleration.z = 0.0f;
     AccelAloPos(p->palo, cmm::LimitVectorLength(acceleration, 4500.0f));

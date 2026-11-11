@@ -114,6 +114,8 @@ can be turned off where it changes how the game looks or plays.
     - **Flash Bomb** (Sly, Episode 4, 1400): the Smoke Bomb stuns the guards within reach and keeps the alarm down
       twice as long.
     - **Adrenaline Burst Plus** (Bentley, Episode 5, 1400): Adrenaline Burst runs 1.4 times as fast.
+    - **Rocket Boots** (Sly, from Sly 3, Episode 4, 1300): the Stealth Slide keeps its speed and uses half the power.
+    - **Bomb Blast v2.0** (Bentley, Episode 4, 1100): Bentley's bombs blast 1.5 times as wide.
 
 ## Mods
 

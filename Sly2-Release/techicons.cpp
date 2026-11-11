@@ -18,6 +18,8 @@
 #include "techicon_homing_darts.h"
 #include "techicon_adrenaline_burst_plus.h"
 #include "techicon_light_as_a_feather.h"
+#include "techicon_rocket_boots.h"
+#include "techicon_bomb_blast_2.h"
 
 // (stb_image's functions compiled into this file, static: as texmod.cpp and qolview.cpp, so no clash)
 #define STB_IMAGE_STATIC
@@ -48,6 +50,8 @@ const BUILTIN s_abuiltin[] = {
     {"homing_darts", techicon_homing_darts_png, sizeof(techicon_homing_darts_png)},
     {"adrenaline_burst_plus", techicon_adrenaline_burst_plus_png, sizeof(techicon_adrenaline_burst_plus_png)},
     {"light_as_a_feather", techicon_light_as_a_feather_png, sizeof(techicon_light_as_a_feather_png)},
+    {"rocket_boots", techicon_rocket_boots_png, sizeof(techicon_rocket_boots_png)},
+    {"bomb_blast_2", techicon_bomb_blast_2_png, sizeof(techicon_bomb_blast_2_png)},
 };
 
 std::map<std::string, unsigned> s_mptex;   // (0: tried, none)

@@ -3,6 +3,8 @@
 #include "jt.h"
 #include "worldglobals.h"
 #include "carry.h"
+#include "pcprogress.h"
+#include "gadget.h"
 
 #include "ainoise.h"
 #include "activate.h"
@@ -544,6 +546,10 @@ void BlastRay(LO* plo, uint32_t grf, const glm::vec3& a, const glm::vec3& b, con
 void BlastCarry(LO* plo, float r)
 {
     ALO* palo = static_cast<ALO*>(plo);
+    // (PC: Sly 4's Bomb Blast v2.0, pcprogress.h: Bentley's bombs (the carried kinds 4 / 5 / 7 / 9 / 13; not the Health
+    // Extractor 11) blast 1.5 times as wide)
+    if (const CARRYRT* pc = Pcarry(plo); pc && FPowerupOwned(kItemBombBlast2))
+        switch (pc->kind) { case 4: case 5: case 7: case 9: case 13: r *= 1.5f; break; default: break; }
     const glm::vec3 pos = PosAloCenter(palo);  // (0x224E70: 0x1A62E8, the object record's position, not the root's)
     const uint32_t grf = static_cast<uint32_t>(NCarryField(plo, 1107, 0x174, 0));
     const int nState = NCarryField(plo, 1108, 0x178, -10);
