@@ -3,7 +3,7 @@
 // the description below, whose text is the page's: StrGadgetPageText), its gadget entries let go (shop.cpp
 // SetGadgetPage). Drawn here over it: the page's title in place of "Gadget Grid", the entries' icons in rows (an owned
 // or learned one bright, the selected one larger in a ring, its button as the grid shows it), and on the grid's page
-// the hint that square leads on.
+// the hint that square leads on; on every page, faint arrows at the middle of its left and right edges.
 
 #include "shop.h"
 #include "clock.h"
@@ -53,9 +53,22 @@ void DrawGadgetPagesHud(int width, int height)
     {
         const int c = CGadgetPages();
         const int next = (page + 1) % c;
-        const char* szNext = next == 0 ? "Gadget Grid" : next == 1 ? "Extra Gadgets" : "Ancestor Techniques";
+        const char* szNext = next == 0 ? "Gadget Grid" : next == 1 ? "Gadget Grid 2" : "Ancestor Techniques";
         const std::string str = std::string("&2S&. ") + szNext;
         DrawLine(*pfont, picons, str, 606.0f - DxLine(*pfont, picons, str, 13.0f), 421.0f, 13.0f, glm::vec4(64, 64, 64, 0));
+    }
+    // faint arrows at the middle of the panel's left and right edges: left / right lead to the pages before and after
+    {
+        const float u = 0.5f + 0.5f * std::sin(g_clock.tReal * 3.0f);
+        const glm::vec4 rgba(110, 120, 128, 34.0f + 22.0f * u);
+        constexpr float yMid = 180.0f, dy = 14.0f, dx = 9.0f, w = 3.0f;
+        for (int side = 0; side < 2; ++side)
+        {
+            const float xTip = side == 0 ? 10.0f : 630.0f, s = side == 0 ? 1.0f : -1.0f;   // (the tip, toward the edge)
+            const glm::vec2 tip(xTip, yMid), a(xTip + s * dx, yMid - dy), b(xTip + s * dx, yMid + dy);
+            g_hud.FillScreenLine(a, tip, w, rgba, z);
+            g_hud.FillScreenLine(tip, b, w, rgba, z);
+        }
     }
     if (page != 0)
     {

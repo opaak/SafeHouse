@@ -931,7 +931,7 @@ int IselGadgetPage()
 
 std::string StrGadgetPageTitle()
 {
-    return s_gm.page == 1 ? "Extra Gadgets" : s_gm.page == 2 ? "Ancestor Techniques" : "";
+    return s_gm.page == 1 ? "Gadget Grid 2" : s_gm.page == 2 ? "Ancestor Techniques" : "";
 }
 
 // the selected entry's text, as the grid's (name: description. use.)
