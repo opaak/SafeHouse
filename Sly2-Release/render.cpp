@@ -628,7 +628,7 @@ struct DSTATE
 static_assert(sizeof(DSTATE) == 32);
 bool operator==(const DSTATE& a, const DSTATE& b) { return std::memcmp(&a, &b, sizeof(DSTATE)) == 0; }
 
-enum CMDK : uint8_t { CMDK_Pass, CMDK_Volume, CMDK_Shadow, CMDK_Cel, CMDK_Particles, CMDK_Shadow2, CMDK_ShadowBegin, CMDK_ShadowKind8, CMDK_ShadowCombine, CMDK_FbaClear };
+enum CMDK : uint8_t { CMDK_Pass, CMDK_Volume, CMDK_Shadow, CMDK_Cel, CMDK_Particles, CMDK_Shadow2, CMDK_ShadowBegin, CMDK_ShadowKind8, CMDK_ShadowCombine, CMDK_FbaClear, CMDK_ShadowMap };
 // Interned states: a command refers to its state by index.
 struct DSTATEHASH
 {
@@ -1072,6 +1072,33 @@ std::vector<uint32_t> s_acvtxShadow2Caster;   // (the Switch: the vertex count o
 #endif
 GLSHADER s_shShadowVol, s_shShadowVolNoKill;
 GLuint s_vaoShadowVol = 0, s_vboShadowVol = 0;
+
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+// (PC character shadow maps) a type-2 caster's shadow hull vertices in world space, as FBuildShadow2 skins them,
+// appended to av
+void SkinShadowHulls(const SCENEGLOBSET& sgs, size_t iglob, const GLOB& glob, std::vector<glm::vec3>& av)
+{
+    if (iglob >= sgs.amatGlob.size()) return;
+    const glm::mat4& mat = sgs.amatGlob[iglob];
+    const std::vector<glm::mat4>* pamatBone = iglob < sgs.aamatBone.size() && !sgs.aamatBone[iglob].empty() ? &sgs.aamatBone[iglob] : nullptr;
+    for (const SUBFX& fx : glob.asubfx)
+        for (size_t v = 0; v < fx.apos.size(); ++v)
+        {
+            const glm::vec4 p(fx.apos[v], 1.0f);
+            glm::vec3 w(0.0f);
+            if (pamatBone && fx.cw > 0)
+            {
+                for (int j = 0; j < fx.cw && j < 4; ++j)
+                {
+                    const size_t ib = std::min<size_t>(fx.aiboneSlot[j], pamatBone->size() - 1);
+                    w += float(fx.aw[v * size_t(fx.cw) + size_t(j)]) / 255.0f * glm::vec3(MulMat4Vec4((*pamatBone)[ib], p));
+                }
+            }
+            else w = glm::vec3(MulMat4Vec4(mat, p));
+            av.push_back(w);
+        }
+}
+#endif
 
 // (the volume's vertices appended to avtxOut, cmd's range in it; any thread: the scratch is the thread's own)
 bool FBuildShadow2(const SCENEGLOBSET& sgs, size_t iglob, const GLOB& glob, const glm::vec3& posCamera, float sNear,
@@ -1774,11 +1801,11 @@ int s_dxShDS = 0, s_dyShDS = 0;
 GLSHADER s_shShadowSoft;
 int s_stateShadowSoft = 0;   // 0 not yet, 1 built, -1 failed (the original's hard edges)
 
-bool FEnsureShadowSoft(int dx, int dy)
+// (also the character shadow maps' copy of the depth, ApplyShadowMaps)
+int s_stateShDS = 0;   // 0 not yet, 1 usable, -1 not (the framebuffer was incomplete)
+bool FEnsureDsCopy(int dx, int dy)
 {
-    if (s_stateShadowSoft == 0)
-        s_stateShadowSoft = s_shShadowSoft.FInit("shadowcombine.vert", "shadowsoft.frag", "") ? 1 : -1;
-    if (s_stateShadowSoft < 0) return false;
+    if (s_stateShDS < 0) return false;
     if (s_fboShDS && dx == s_dxShDS && dy == s_dyShDS) return true;
     if (s_fboShDS) glDeleteFramebuffers(1, &s_fboShDS), s_fboShDS = 0;
     if (s_texShStencil) glDeleteTextures(1, &s_texShStencil), s_texShStencil = 0;
@@ -1810,13 +1837,21 @@ bool FEnsureShadowSoft(int dx, int dy)
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
     if (!fOk)
     {
-        std::printf("soft shadows: the depth-stencil copy is not usable here: the original's hard edges\n");
-        s_stateShadowSoft = -1;
+        std::printf("soft shadows / shadow maps: the depth-stencil copy is not usable here: the original's shadows\n");
+        s_stateShDS = -1;
         return false;
     }
+    s_stateShDS = 1;
     s_dxShDS = dx;
     s_dyShDS = dy;
     return true;
+}
+
+bool FEnsureShadowSoft(int dx, int dy)
+{
+    if (s_stateShadowSoft == 0)
+        s_stateShadowSoft = s_shShadowSoft.FInit("shadowcombine.vert", "shadowsoft.frag", "") ? 1 : -1;
+    return s_stateShadowSoft > 0 && FEnsureDsCopy(dx, dy);
 }
 #endif
 
@@ -1964,6 +1999,294 @@ void ShadowCombine(bool f7, bool f8)
     glDisable(GL_STENCIL_TEST);
     glEnable(GL_DEPTH_TEST);
 }
+
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+// ------------------------------------------------------------ PC: character shadow maps (TEST, display.h shadowMaps)
+// The type-2 casters of a pass (render kind 7: the characters' cast shadows), each with its shadow's light: the
+// original's ShadowOfLightContext centre (its strongest shadow lights' weighted place; a directional light 1000 back)
+// looking at the caster. Up to four, nearest the camera first, in 2 x 2 tiles of one depth atlas.
+constexpr int kcSmTile = 1024, kcSmCasterMax = 4;
+struct SMCASTER
+{
+    const SCENEGLOBSET* psgs = nullptr;
+    glm::mat4 matLight{1.0f};   // world to the tile's clip (standard depth, [0, 1])
+    glm::vec4 c{0.0f};          // shadowmap.frag acaster
+    float distCamera = 0;
+};
+std::vector<SMCASTER> s_asmcaster;
+GLSHADER s_shSmDepth, s_shSmApply;
+int s_stateSm = 0;   // 0 not yet, 1 built, -1 failed (the volumes)
+GLuint s_fboSm = 0, s_texSm = 0, s_ssboSm = 0;
+
+bool FShadowMapsReady()
+{
+    if (s_stateSm == 0)
+    {
+        const bool f = s_shSmDepth.FInit("smdepth.vert", "smdepth.frag", "") && s_shSmApply.FInit("shadowcombine.vert", "shadowmap.frag", "");
+        if (f)
+        {
+            GLint texPrev = 0, fboPrev = 0, activePrev = 0;
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+            glActiveTexture(GL_TEXTURE4);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+            glGenTextures(1, &s_texSm);
+            glBindTexture(GL_TEXTURE_2D, s_texSm);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT32F, 2 * kcSmTile, 2 * kcSmTile);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);   // (2 x 2 compared taps per lookup)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+            glActiveTexture(GLenum(activePrev));
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+            glGenFramebuffers(1, &s_fboSm);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboSm);
+            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_texSm, 0);
+            glDrawBuffer(GL_NONE);
+            const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+            glGenBuffers(1, &s_ssboSm);
+            s_stateSm = fOk ? 1 : -1;
+        }
+        else s_stateSm = -1;
+        std::printf("shadow maps (TEST): %s\n", s_stateSm > 0 ? "on" : "did not build: the original's volumes");
+    }
+    return s_stateSm > 0;
+}
+
+// A caster's light, from the world positions of its shadow hulls (as FBuildShadow2 skins them): false when its shadow
+// has no light (FBuildShadow2 would draw nothing either).
+bool FSmCasterOf(const SCENEGLOBSET& sgs, const std::vector<glm::vec3>& av, const glm::vec3& posCamera, SMCASTER* pc)
+{
+    if (av.empty()) return false;
+    glm::vec3 lo(1e30f), hi(-1e30f);
+    for (const glm::vec3& v : av) lo = glm::min(lo, v), hi = glm::max(hi, v);
+    const glm::vec3 posCtx = sgs.fPosLight ? sgs.posLight : (lo + hi) * 0.5f;
+    float sRadius = 0;
+    for (const glm::vec3& v : av) sRadius = std::max(sRadius, glm::length(v - posCtx));
+    const SHADOWCTX sh = ShadowOfLightContext(WorldLights(), posCtx, sRadius, 400.0f, posCamera, 52.0f);
+    if (!sh.fValid || sRadius <= 0.0f) return false;
+    const glm::vec3 d = posCtx - sh.center;
+    const float dist = glm::length(d);
+    if (dist < 1.0f) return false;
+    const glm::vec3 dir = d / dist;
+    const glm::vec3 up = std::fabs(dir.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+    // the caster just fills its tile; the shadow reaches about as far as the original's long shadows
+    const float r = sRadius * 1.15f;
+    const float sNearL = std::max(dist - r, 1.0f), sFarL = dist + r + 2500.0f;
+    const float fovy = 2.0f * std::atan(r / dist);
+    pc->psgs = &sgs;
+    pc->matLight = glm::perspectiveRH_ZO(fovy, 1.0f, sNearL, sFarL) * glm::lookAt(sh.center, posCtx, up);
+    // (the depth 600 short of the far plane, where the shadow starts fading out)
+    const float dFade = sFarL - 600.0f;
+    const float zFade = sFarL * (dFade - sNearL) / (dFade * (sFarL - sNearL));
+    pc->c = glm::vec4(lo.z - 120.0f, 80.0f, zFade, 0.0f);
+    pc->distCamera = glm::length(posCtx - posCamera);
+    return true;
+}
+
+// The GL state the two passes change, saved and put back (the renderer's cache is invalidated after them too).
+struct SMSAVE
+{
+    GLint prog = 0, vao = 0, fboDraw = 0, fboRead = 0, activeTex = 0, viewport[4] = {}, depthFunc = 0, stencilMask = 0;
+    GLint tex3 = 0, tex4 = 0, sampler3 = 0, sampler4 = 0;
+    GLint blendSrcRgb = 0, blendDstRgb = 0, blendSrcA = 0, blendDstA = 0, blendEqRgb = 0, blendEqA = 0;
+    GLfloat clearDepth = 0;
+    GLboolean fBlend = 0, fDepth = 0, fStencil = 0, fCull = 0, fScissor = 0, fOffset = 0, fDepthMask = 0, colorMask[4] = {};
+    SMSAVE()
+    {
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboDraw);
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &fboRead);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
+        glActiveTexture(GL_TEXTURE3);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex3);
+        glGetIntegerv(GL_SAMPLER_BINDING, &sampler3);
+        glActiveTexture(GL_TEXTURE4);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex4);
+        glGetIntegerv(GL_SAMPLER_BINDING, &sampler4);
+        glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+        glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilMask);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+        glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcA);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstA);
+        glGetIntegerv(GL_BLEND_EQUATION_RGB, &blendEqRgb);
+        glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &blendEqA);
+        glGetFloatv(GL_DEPTH_CLEAR_VALUE, &clearDepth);
+        fBlend = glIsEnabled(GL_BLEND), fDepth = glIsEnabled(GL_DEPTH_TEST), fStencil = glIsEnabled(GL_STENCIL_TEST);
+        fCull = glIsEnabled(GL_CULL_FACE), fScissor = glIsEnabled(GL_SCISSOR_TEST), fOffset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &fDepthMask);
+        glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+    }
+    ~SMSAVE()
+    {
+        auto set = [](GLenum cap, GLboolean f) { if (f) glEnable(cap); else glDisable(cap); };
+        glUseProgram(GLuint(prog));
+        glBindVertexArray(GLuint(vao));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboDraw));
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(fboRead));
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, GLuint(tex4));
+        glBindSampler(4, GLuint(sampler4));
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, GLuint(tex3));
+        glBindSampler(3, GLuint(sampler3));
+        glActiveTexture(GLenum(activeTex));
+        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        glDepthFunc(GLenum(depthFunc));
+        glStencilMask(GLuint(stencilMask));
+        glBlendFuncSeparate(GLenum(blendSrcRgb), GLenum(blendDstRgb), GLenum(blendSrcA), GLenum(blendDstA));
+        glBlendEquationSeparate(GLenum(blendEqRgb), GLenum(blendEqA));
+        glClearDepth(clearDepth);
+        set(GL_BLEND, fBlend), set(GL_DEPTH_TEST, fDepth), set(GL_STENCIL_TEST, fStencil), set(GL_CULL_FACE, fCull);
+        set(GL_SCISSOR_TEST, fScissor), set(GL_POLYGON_OFFSET_FILL, fOffset);
+        glDepthMask(fDepthMask);
+        glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+    }
+};
+
+// The casters' meshes (their visible strip groups, as RenderGhostPoses draws a pose) into their tiles of the atlas.
+void RenderShadowMaps()
+{
+    static std::vector<glm::mat4> s_amatBone;
+    struct SMDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; glm::mat4 mat; uint32_t iboneFirst, cbone; size_t icaster; };
+    static std::vector<SMDRAW> s_ad;
+    s_amatBone.clear();
+    s_ad.clear();
+    for (size_t ic = 0; ic < s_asmcaster.size(); ++ic)
+    {
+        const SCENEGLOBSET& sgs = *s_asmcaster[ic].psgs;
+        if (!sgs.pglobset) continue;
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            const GLOB& glob = gs.aglob[i];
+            const GLOB* pgeom = &glob;
+            if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
+            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBone.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+            }
+            for (const SUBGLOB& sub : pgeom->asubglob)
+            {
+                if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3 || sub.pshd->apass.empty()) continue;
+                // (no glows: the parts drawn added cast nothing)
+                const SHDPASS& ps = sub.pshd->apass[0];
+                if (ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1) continue;
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, sgs.amatGlob[i], iboneFirst, cbone, ic});
+            }
+        }
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboSm);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepth(1.0);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    if (s_ad.empty()) return;
+    glDisable(GL_BLEND);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);   // (the meshes' winding is not to be relied on: both sides)
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.5f, 2.0f);
+    s_shSmDepth.Use();
+    const GLint locLight = s_shSmDepth.Loc("matWorldToLight"), locModel = s_shSmDepth.Loc("matModel");
+    const GLint locBoneFirst = s_shSmDepth.Loc("iboneFirst"), locCBone = s_shSmDepth.Loc("cbone");
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboSm);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                 s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboSm);
+    size_t icCur = size_t(-1);
+    GLuint vaoCur = 0;
+    for (const SMDRAW& d : s_ad)
+    {
+        if (d.icaster != icCur)
+        {
+            icCur = d.icaster;
+            glViewport(GLint(icCur & 1) * kcSmTile, GLint(icCur >> 1) * kcSmTile, kcSmTile, kcSmTile);
+            glUniformMatrix4fv(locLight, 1, GL_FALSE, glm::value_ptr(s_asmcaster[icCur].matLight));
+        }
+        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        glUniform1i(locCBone, GLint(d.cbone));
+        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+        if (!d.cbone) glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(d.mat));
+        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
+// The shadows on the frame (fbo, in a shadow phase: its alpha copy on unit 1), from the atlas and the depth.
+void ApplyShadowMaps(GLuint fbo, const glm::mat4& matWorldToClip)
+{
+    const int dx = s_dxShAlpha, dy = s_dyShAlpha;
+    if (!FEnsureDsCopy(dx, dy)) return;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, dx, dy);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, s_texShDS);
+    glBindSampler(3, 0);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, s_texSm);
+    glBindSampler(4, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, s_texShAlpha);
+    glActiveTexture(GL_TEXTURE0);
+    s_shSmApply.Use();
+    glUniform1i(s_shSmApply.Loc("texAlpha"), 1);
+    glUniform1i(s_shSmApply.Loc("texDepth"), 3);
+    glUniform1i(s_shSmApply.Loc("texSm"), 4);
+    const glm::mat4 matClipToWorld = glm::inverse(matWorldToClip);
+    glUniformMatrix4fv(s_shSmApply.Loc("matClipToWorld"), 1, GL_FALSE, glm::value_ptr(matClipToWorld));
+    glm::mat4 amat[kcSmCasterMax];
+    glm::vec4 ac[kcSmCasterMax];
+    const int c = int(std::min<size_t>(s_asmcaster.size(), kcSmCasterMax));
+    for (int i = 0; i < c; ++i) amat[i] = s_asmcaster[size_t(i)].matLight, ac[i] = s_asmcaster[size_t(i)].c;
+    glUniformMatrix4fv(s_shSmApply.Loc("amatLight"), c, GL_FALSE, glm::value_ptr(amat[0]));
+    glUniform4fv(s_shSmApply.Loc("acaster"), c, glm::value_ptr(ac[0]));
+    glUniform1i(s_shSmApply.Loc("ccaster"), c);
+    glUniform2f(s_shSmApply.Loc("viewSize"), float(dx), float(dy));
+    glUniform1f(s_shSmApply.Loc("rcpAtlas"), 1.0f / float(2 * kcSmTile));
+    glUniform1f(s_shSmApply.Loc("gain"), 128.0f / 255.0f);
+    glBindVertexArray(s_vaoEmpty);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+void DrawShadowMaps(const glm::mat4& matWorldToClip)
+{
+    if (s_asmcaster.empty() || !FShadowMapsReady()) return;
+    SMSAVE save;
+    GLuint fbo = GLuint(save.fboDraw);
+    RenderShadowMaps();
+    ApplyShadowMaps(fbo, matWorldToClip);
+}
+#endif
 }  // namespace
 
 void UpdateGlobColorsGpu(const GLOB& glob) { UpdateGlobColorsGpu(glob, glob.pgl); }
@@ -2995,6 +3318,37 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
     auto addShadow2 = [&]() {
         if (fShadow2 || !opts.fShadows || pv.fForeground) return;
         fShadow2 = true;
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+        // (PC TEST, character shadow maps: the frame's pass only; the casters' lights, nearest the camera first, and one
+        // command that draws their maps and the shadows in place of the volumes)
+        if (g_display.shadowMaps && pv.irtgt < 0 && FShadowMapsReady())
+        {
+            s_asmcaster.clear();
+            std::vector<std::pair<const SCENEGLOBSET*, std::vector<glm::vec3>>> agroup;
+            for (const DRAWREC& rec : arec)
+            {
+                const GLOB& geom = *rec.pglobGeom;
+                if (!(geom.meshk == MESHK_Effect && rec.psgs && !geom.asubfx.empty() && geom.asubfx[0].pshd)) continue;
+                auto it = std::find_if(agroup.begin(), agroup.end(), [&](const auto& g) { return g.first == rec.psgs; });
+                if (it == agroup.end()) { agroup.push_back({rec.psgs, {}}); it = agroup.end() - 1; }
+                SkinShadowHulls(*rec.psgs, rec.iglob, geom, it->second);
+            }
+            for (const auto& g : agroup)
+            {
+                SMCASTER c;
+                if (FSmCasterOf(*g.first, g.second, cam.pos, &c)) s_asmcaster.push_back(c);
+            }
+            std::sort(s_asmcaster.begin(), s_asmcaster.end(), [](const SMCASTER& a, const SMCASTER& b) { return a.distCamera < b.distCamera; });
+            if (s_asmcaster.size() > size_t(kcSmCasterMax)) s_asmcaster.resize(size_t(kcSmCasterMax));
+            if (s_asmcaster.empty()) return;
+            endSegment(!s_fNoRegroup && kindSeg >= 0 && !fSortedKind(kindSeg));
+            CMD cmd;
+            cmd.cmdk = CMDK_ShadowMap;
+            s_acmd.push_back(cmd);
+            endSegment(false);
+            return;
+        }
+#endif
         // all the volumes in one count, marked once (their union: a character's overlapping pieces, as the PS2's
         // green count, darken the floor once)
         CMD cmdAll;
@@ -3523,6 +3877,14 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
             sc.Invalidate();
             ++g_renderstats.cbatch;
             break;
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+        case CMDK_ShadowMap:
+            DrawShadowMaps(matWorldToClip);
+            otherProgram();
+            sc.Invalidate();
+            ++g_renderstats.cbatch;
+            break;
+#endif
         case CMDK_Shadow2:
         {
             const bool fMarked = !(cmd.order & 8) && markDate();
