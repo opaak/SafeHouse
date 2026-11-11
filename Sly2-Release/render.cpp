@@ -2299,7 +2299,7 @@ constexpr int kcWsMap = 4096;
 constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000.0f;
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
-GLuint s_fboWs = 0, s_texWs = 0;
+GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
 
 bool FWorldShadowsReady()
 {
@@ -2328,6 +2328,7 @@ bool FWorldShadowsReady()
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_texWs, 0);
         glDrawBuffer(GL_NONE);
         if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) s_stateWs = 1;
+        glGenBuffers(1, &s_ssboWs);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
     }
     std::printf("world shadows (TEST): %s\n", s_stateWs > 0 ? "on" : "did not build: off");
@@ -2407,41 +2408,57 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     const glm::mat4 matLight = glm::orthoRH_ZO(-kcWsRadius, kcWsRadius, -kcWsRadius, kcWsRadius, 1.0f, kcWsDepth) * matView;
     const glm::vec3 cWorld = glm::vec3(glm::inverse(matRot) * glm::vec4(c, 1.0f));
 
-    struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; };
+    struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; };
     static std::vector<WSDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBoneWs;
     s_ad.clear();
+    s_amatBoneWs.clear();
+    // (SLY2N_WSPRINT: what was left out, and why)
+    int cActor = 0, cSky = 0, cFaded = 0, cOut = 0, cNotStrips = 0;
     for (const SCENEGLOBSET& sgs : scene.aglobset)
     {
-        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.gAlpha < 0.5f) continue;
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
+        if (sgs.fActorTree) { ++cActor; continue; }   // (the characters: their own shadows)
+        if (sgs.gAlpha < 0.5f) { ++cFaded; continue; }
         if (sgs.fBounds)
         {
-            if (sgs.sBoundsRadius > kcWsSkyRadius) continue;
+            if (sgs.sBoundsRadius > kcWsSkyRadius) { ++cSky; continue; }
             // (out of the box across the light: no shadow in it)
             const glm::vec3 d = sgs.posBounds - cWorld;
             const glm::vec3 dAcross = d - L * glm::dot(d, L);
-            if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) continue;
+            if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) { ++cOut; continue; }
         }
         const GLOBSET& gs = *sgs.pglobset;
         for (size_t i = 0; i < gs.aglob.size(); ++i)
         {
             if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
-            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty()) continue;   // (the characters: their own shadows)
             const GLOB& glob = gs.aglob[i];
             const GLOB* pgeom = &glob;
             if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
-            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
+            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) { ++cNotStrips; continue; }
             const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            // (skinned props, an awning's or a sign's, with their bones; the characters were left out above)
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBoneWs.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBoneWs.insert(s_amatBoneWs.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+            }
             for (const SUBGLOB& sub : pgeom->asubglob)
             {
-                if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3 || sub.pshd->apass.empty()) continue;
+                // (not the volumes of light, kind 3, nor the PS2's own shadow shapes, kind 2)
+                if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3 || sub.pshd->shdk == 2 || sub.pshd->apass.empty()) continue;
                 const SHDPASS& ps = sub.pshd->apass[0];
                 if (ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1) continue;   // (glows)
-                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i]});
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone});
             }
         }
     }
     static size_t s_cPrinted = size_t(-1);
-    if (std::getenv("SLY2N_WSPRINT") && s_ad.size() != s_cPrinted) std::printf("world shadows: %zu draws\n", s_cPrinted = s_ad.size());
+    if (std::getenv("SLY2N_WSPRINT") && s_ad.size() != s_cPrinted)
+        std::printf("world shadows: %zu draws (%zu bones); left out: %d characters, %d sky-wide, %d faded, %d out of the box, %d not meshes\n",
+                    s_cPrinted = s_ad.size(), s_amatBoneWs.size(), cActor, cSky, cFaded, cOut, cNotStrips);
 
     SMSAVE save;
     // the map
@@ -2461,18 +2478,25 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glPolygonOffset(2.0f, 4.0f);
     s_shWsDepth.Use();
     glUniformMatrix4fv(s_shWsDepth.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matLight));
-    glUniform1i(s_shWsDepth.Loc("cbone"), 0);
-    glUniform1i(s_shWsDepth.Loc("iboneFirst"), 0);
-    const GLint locModel = s_shWsDepth.Loc("matModel");
+    const GLint locModel = s_shWsDepth.Loc("matModel"), locCBone = s_shWsDepth.Loc("cbone"), locBoneFirst = s_shWsDepth.Loc("iboneFirst");
+    GLint ssboPrev = 0;
+    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboWs);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBoneWs.size()) * sizeof(glm::mat4)),
+                 s_amatBoneWs.empty() ? nullptr : s_amatBoneWs.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboWs);
     GLuint vaoCur = 0;
     for (const WSDRAW& d : s_ad)
     {
         if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        glUniform1i(locCBone, GLint(d.cbone));
+        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
         glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
         glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
     }
     glDisable(GL_POLYGON_OFFSET_FILL);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
 
     // the frame: its depth copied, every pixel looked up
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);

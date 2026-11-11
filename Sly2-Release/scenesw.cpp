@@ -166,6 +166,7 @@ void PlaceGlobsetFinish(ALO* palo, SCENEGLOBSET& sgs)
     PlaceTrailScene(palo, sgs);
     PlaceRopeMeshScene(palo, sgs);
     NoteLeapAuraPlaced(palo, sgs);   // (PC: Leaping Dragon's aura, drawn red by leapdragon.cpp instead)
+    sgs.fActorTree = PactorFromLo(PloRoot(palo)) != nullptr;   // (PC: the world shadows leave the characters to their own)
     NoteSkillFxPlaced(palo, sgs);    // (PC: the Scorching Hover Pack's jet, drawn red by skillfx.cpp instead)
     // debug: SLY2N_SCENELIST=t: every object placed in the scene in the frame at clock t: its bounds' screen point
     if (static const char* s_szList = std::getenv("SLY2N_SCENELIST"); s_szList)

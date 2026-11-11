@@ -36,6 +36,7 @@ struct SCENEGLOBSET
     bool fVisibleCleared = false;
 #endif
     std::vector<std::vector<glm::mat4>> aamatBone;  // per GLOB: skinned groups' bone matrices (bone.h; empty: none)
+    bool fActorTree = false;                // (PC) placed under an actor (a character: Sly, the gang, a guard), scenesw.cpp
     int8_t irtgt = -1;                      // drawn into this render target instead of the frame (rtgt.h)
     int8_t irtgtLit = -1;                   // the target whose lights it was last forward-lit with (-1: the frame's)
     std::vector<glm::mat4> amatLit;         // per GLOB: the matrix it was last forward-lit at (RelightForward)
