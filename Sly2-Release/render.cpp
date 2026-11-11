@@ -2286,6 +2286,213 @@ void DrawShadowMaps(const glm::mat4& matWorldToClip)
     RenderShadowMaps();
     ApplyShadowMaps(fbo, matWorldToClip);
 }
+
+// ------------------------------------------------------------ PC: world shadows (TEST, display.h worldShadows)
+// The level's static meshes into one orthographic depth map from its main directional light (the strongest
+// directional shadow light of the world's light context, else of the bake's lights; SLY2N_WORLDSHADOWDIR "x y z" over
+// both; none: a light from high above), a box of kcWsRadius round the point ahead of the camera, its centre snapped to
+// the map's texels (no shimmer as the camera moves); then every pixel of the frame looked up in it (wsapply.frag).
+// Not cast by: skinned groups (the characters: their own shadows), additive glows, shaders of kind 3, objects drawn
+// into render targets or over the HUD, faded-out objects and the sky (anything wider than kcWsSkyRadius).
+constexpr int kcWsMap = 4096;
+constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000.0f;
+GLSHADER s_shWsDepth, s_shWsApply;
+int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
+GLuint s_fboWs = 0, s_texWs = 0;
+
+bool FWorldShadowsReady()
+{
+    if (s_stateWs != 0) return s_stateWs > 0;
+    s_stateWs = -1;
+    if (s_shWsDepth.FInit("smdepth.vert", "smdepth.frag", "") && s_shWsApply.FInit("shadowcombine.vert", "wsapply.frag", ""))
+    {
+        GLint texPrev = 0, fboPrev = 0, activePrev = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+        glActiveTexture(GL_TEXTURE4);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+        glGenTextures(1, &s_texWs);
+        glBindTexture(GL_TEXTURE_2D, s_texWs);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT32F, kcWsMap, kcWsMap);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+        glActiveTexture(GLenum(activePrev));
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+        glGenFramebuffers(1, &s_fboWs);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_texWs, 0);
+        glDrawBuffer(GL_NONE);
+        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) s_stateWs = 1;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    }
+    std::printf("world shadows (TEST): %s\n", s_stateWs > 0 ? "on" : "did not build: off");
+    return s_stateWs > 0;
+}
+
+// The light the world's shadows fall from (its direction, from the light), printed whenever it changes.
+glm::vec3 DirWorldShadowLight()
+{
+    static uint32_t s_version = ~0u;
+    static glm::vec3 s_dir(0.0f, 0.0f, -1.0f);
+    const LIGHTSET& lights = WorldLights();
+    if (lights.alight.empty() && lights.actx.empty() && s_version != ~0u) return s_dir;
+    if (WorldLightsVersion() == s_version) return s_dir;
+    s_version = WorldLightsVersion();
+    const char* pszFrom = "the default (high above)";
+    glm::vec3 dir(0.25f, 0.18f, -1.0f);
+    if (const char* psz = std::getenv("SLY2N_WORLDSHADOWDIR"))
+    {
+        glm::vec3 v(0.0f);
+        if (std::sscanf(psz, "%f%*[ ,]%f%*[ ,]%f", &v.x, &v.y, &v.z) == 3 && glm::length(v) > 1e-3f) dir = v, pszFrom = "SLY2N_WORLDSHADOWDIR";
+    }
+    else
+    {
+        float gBest = 0.0f;
+        auto consider = [&](const LIGHTREC& r, bool fShadow, const char* psz) {
+            if (r.kind != 0 || !fShadow || glm::length(r.dirOrPos) < 1e-3f) return;
+            const float g = r.rgba.r + r.rgba.g + r.rgba.b;
+            if (g > gBest) gBest = g, dir = r.dirOrPos, pszFrom = psz;
+        };
+        for (const auto& pr : lights.actx) consider(pr.first, pr.second.fShadow != 0, "the level's directional shadow light");
+        if (gBest <= 0.0f)
+            for (const LIGHTREC& r : lights.alight) consider(r, true, "the level's strongest directional light");
+    }
+    dir = glm::normalize(dir);
+    if (dir.z > -0.2f) dir = glm::normalize(glm::vec3(0.25f, 0.18f, -1.0f)), pszFrom = "the default (the level's light was too low)";
+    // (no lower than about 25 degrees over the horizon: the shadows at most about twice as long as the caster is high)
+    if (dir.z > -0.42f)
+    {
+        const glm::vec2 h = glm::normalize(glm::vec2(dir.x, dir.y)) * std::sqrt(1.0f - 0.42f * 0.42f);
+        dir = glm::vec3(h, -0.42f);
+    }
+    s_dir = dir;
+    std::printf("world shadows (TEST): the light from %s, direction %.2f %.2f %.2f\n", pszFrom, dir.x, dir.y, dir.z);
+    return s_dir;
+}
+
+void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
+                      GLuint fbo, int dx, int dy)
+{
+    if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy)) return;
+    const glm::vec3 L = DirWorldShadowLight();
+    // the box: round the point ahead of the camera, its centre snapped to the map's texels in the light's frame
+    const glm::vec3 up = std::fabs(L.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+    const glm::mat4 matRot = glm::lookAt(glm::vec3(0.0f), L, up);
+    const glm::vec3 posFocus = posCamera + glm::normalize(glm::vec3(dirCamera.x, dirCamera.y, 0.0f) + glm::vec3(1e-4f, 0.0f, 0.0f)) * (kcWsRadius * 0.45f);
+    glm::vec3 c = glm::vec3(matRot * glm::vec4(posFocus, 1.0f));
+    const float texel = 2.0f * kcWsRadius / float(kcWsMap);
+    c.x = std::floor(c.x / texel) * texel;
+    c.y = std::floor(c.y / texel) * texel;
+    const glm::mat4 matView = glm::translate(glm::mat4(1.0f), glm::vec3(-c.x, -c.y, -c.z - kcWsDepth * 0.5f)) * matRot;
+    const glm::mat4 matLight = glm::orthoRH_ZO(-kcWsRadius, kcWsRadius, -kcWsRadius, kcWsRadius, 1.0f, kcWsDepth) * matView;
+    const glm::vec3 cWorld = glm::vec3(glm::inverse(matRot) * glm::vec4(c, 1.0f));
+
+    struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; };
+    static std::vector<WSDRAW> s_ad;
+    s_ad.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.gAlpha < 0.5f) continue;
+        if (sgs.fBounds)
+        {
+            if (sgs.sBoundsRadius > kcWsSkyRadius) continue;
+            // (out of the box across the light: no shadow in it)
+            const glm::vec3 d = sgs.posBounds - cWorld;
+            const glm::vec3 dAcross = d - L * glm::dot(d, L);
+            if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) continue;
+        }
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty()) continue;   // (the characters: their own shadows)
+            const GLOB& glob = gs.aglob[i];
+            const GLOB* pgeom = &glob;
+            if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
+            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            for (const SUBGLOB& sub : pgeom->asubglob)
+            {
+                if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3 || sub.pshd->apass.empty()) continue;
+                const SHDPASS& ps = sub.pshd->apass[0];
+                if (ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1) continue;   // (glows)
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i]});
+            }
+        }
+    }
+    static size_t s_cPrinted = size_t(-1);
+    if (std::getenv("SLY2N_WSPRINT") && s_ad.size() != s_cPrinted) std::printf("world shadows: %zu draws\n", s_cPrinted = s_ad.size());
+
+    SMSAVE save;
+    // the map
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
+    glViewport(0, 0, kcWsMap, kcWsMap);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepth(1.0);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_BLEND);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);   // (both sides: the level's winding is not to be relied on)
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(2.0f, 4.0f);
+    s_shWsDepth.Use();
+    glUniformMatrix4fv(s_shWsDepth.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matLight));
+    glUniform1i(s_shWsDepth.Loc("cbone"), 0);
+    glUniform1i(s_shWsDepth.Loc("iboneFirst"), 0);
+    const GLint locModel = s_shWsDepth.Loc("matModel");
+    GLuint vaoCur = 0;
+    for (const WSDRAW& d : s_ad)
+    {
+        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+    // the frame: its depth copied, every pixel looked up
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, dx, dy);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, s_texShDS);
+    glBindSampler(3, 0);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, s_texWs);
+    glBindSampler(4, 0);
+    glActiveTexture(GL_TEXTURE0);
+    s_shWsApply.Use();
+    glUniform1i(s_shWsApply.Loc("texDepth"), 3);
+    glUniform1i(s_shWsApply.Loc("texWs"), 4);
+    const glm::mat4 matClipToWorld = glm::inverse(matWorldToClip);
+    glUniformMatrix4fv(s_shWsApply.Loc("matClipToWorld"), 1, GL_FALSE, glm::value_ptr(matClipToWorld));
+    glUniformMatrix4fv(s_shWsApply.Loc("matLight"), 1, GL_FALSE, glm::value_ptr(matLight));
+    glUniform3f(s_shWsApply.Loc("dirLight"), L.x, L.y, L.z);
+    glUniform2f(s_shWsApply.Loc("viewSize"), float(dx), float(dy));
+    glUniform1f(s_shWsApply.Loc("rcpMap"), 1.0f / float(kcWsMap));
+    glUniform1f(s_shWsApply.Loc("texelWorld"), texel);
+    glUniform1f(s_shWsApply.Loc("strength"), float(std::clamp(g_display.worldShadows, 0, 100)) / 100.0f);
+    glBindVertexArray(s_vaoEmpty);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
 #endif
 }  // namespace
 
@@ -4034,6 +4241,10 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     pv.dy = g_gl.renderHeight;
     pv.rgbaClear = opts.rgbaClear;
     RenderPass(scene, pv, opts);
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
+    if (g_display.worldShadows > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
+#endif
 }
 
 void RenderSceneForeground(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)

@@ -86,6 +86,10 @@ struct DISPLAY
     // light (render.cpp, shadowmap.frag) in place of the original's volumes of their shadow hulls, filtered (soft
     // edges); the darkness each surface takes is the original's (its frame-alpha level, the kind-7 ramp). 0: the volumes.
     int shadowMaps = 0;
+    // PC world shadows (TEST; not in system_settings.dat: --world-shadows / SLY2N_WORLDSHADOWS, 0..100). The level's static
+    // meshes cast shadows from its main directional light (render.cpp DrawWorldShadows, wsapply.frag; the light's
+    // direction SLY2N_WORLDSHADOWDIR "x y z" for testing), one cel tone over the picture, darker with the value. 0: off.
+    int worldShadows = 0;
     // PC character smoothing (TEST; not in system_settings.dat: --smooth-chars / SLY2N_SMOOTH, --smooth-strength /
     // SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel

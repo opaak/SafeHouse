@@ -300,7 +300,7 @@ int main(int argc, char** argv)
     VIEWOPTS vo;
     std::string cmRanges = "2DDED0+6A0,2DFBC0+2240,FB1580+1100,FB37E0+80,140C9F0+600,1486000+3400";
     bool fCmFree = false;
-    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1, bloom = -1, grade = -1, vignette = -1, outlines = -1, ao = -1, softShadows = -1, shadowMaps = -1, smoothChars = -1, smoothStrength = -1; float drawDistance = -1; } dispo;
+    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1, bloom = -1, grade = -1, vignette = -1, outlines = -1, ao = -1, softShadows = -1, shadowMaps = -1, worldShadows = -1, smoothChars = -1, smoothStrength = -1; float drawDistance = -1; } dispo;
     std::vector<std::string> rest, physArgs;
     for (int i = 1; i < argc; ++i)
     {
@@ -343,6 +343,7 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--soft-shadows") && i + 1 < argc) dispo.softShadows = std::atoi(argv[++i]);
         // (TEST, character shadow maps: display.h; --shadow-maps 0 the volumes / 1 the maps)
         else if (!std::strcmp(argv[i], "--shadow-maps") && i + 1 < argc) dispo.shadowMaps = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--world-shadows") && i + 1 < argc) dispo.worldShadows = std::atoi(argv[++i]);   // (TEST: display.h)
         // (TEST, character smoothing: display.h; --smooth-chars 0 off / 2..4, --smooth-strength 0..100)
         else if (!std::strcmp(argv[i], "--smooth-chars") && i + 1 < argc) dispo.smoothChars = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--smooth-strength") && i + 1 < argc) dispo.smoothStrength = std::atoi(argv[++i]);
@@ -550,6 +551,16 @@ int main(int argc, char** argv)
             if (c < 0 && std::getenv("SLY2N_SHADOWMAPS")) c = std::atoi(std::getenv("SLY2N_SHADOWMAPS"));
 #if !defined(__SWITCH__) && !defined(__APPLE__)
             if (c >= 0) g_display.shadowMaps = c > 0 ? 1 : 0;
+#else
+            (void)c;
+#endif
+        }
+        // (world shadows: the flag, else the environment's SLY2N_WORLDSHADOWS)
+        {
+            int c = dispo.worldShadows;
+            if (c < 0 && std::getenv("SLY2N_WORLDSHADOWS")) c = std::atoi(std::getenv("SLY2N_WORLDSHADOWS"));
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+            if (c >= 0) g_display.worldShadows = std::clamp(c, 0, 100);
 #else
             (void)c;
 #endif
