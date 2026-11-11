@@ -9,7 +9,7 @@
 //   Flash Bomb           a white flash over the picture (weaker when it is out of sight), a fast white ring
 //   Meter Recharger      blue rings rising round the character, sparkles
 //   Homing Darts         an orange trail behind each steered dart
-//   Scorching Hover Pack flames out of the pack while hovering, a burst on each guard it burns
+//   Scorching Hover Pack the pack's own jet drawn red while hovering, a burst on each guard it burns
 //   Rocket Boots         sparks and a glow from Sly's feet while he slides
 //   Adrenaline Burst Plus green afterimages behind Bentley
 //   Light as a Feather   soft puffs of dust under Murray's run
@@ -20,7 +20,8 @@ struct SCENE;
 struct CAMERA;
 
 enum SKILLFXK { SKILLFXK_MegaCharge, SKILLFXK_MegaStomp, SKILLFXK_BombBlast };
-void SkillFxShockwave(const glm::vec3& pos, float r, SKILLFXK k);   // pos: the ground's point (the feet / the blast)
+// pos: the blast, or the mover's place (paloOn: the ground under it is found)
+void SkillFxShockwave(const glm::vec3& pos, float r, SKILLFXK k, ALO* paloOn = nullptr);
 void SkillFxFlash(const glm::vec3& pos);
 void SkillFxRecharge(ALO* palo);
 void SkillFxBurn(const glm::vec3& pos);
@@ -29,6 +30,11 @@ void NoteSkillFxHover(ALO* palo);
 void NoteSkillFxRocketSlide(ALO* palo);
 void NoteSkillFxAdrenaline(ALO* palo);
 void NoteSkillFxFeather(ALO* palo);
+
+// scenesw.cpp, as each entry is placed (the pass helpers' threads too): the hovering pack's glow kept to be drawn red,
+// hidden from the scene
+struct SCENEGLOBSET;
+void NoteSkillFxPlaced(ALO* palo, SCENEGLOBSET& sgs);
 
 // game.cpp: once a game step (the particles); the afterimages taken before RenderScene and drawn after it; the rest
 // over the 3D picture before the HUD

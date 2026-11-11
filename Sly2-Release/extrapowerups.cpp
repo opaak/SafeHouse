@@ -147,7 +147,7 @@ void UpdateMegaCharge(SLY* p)
     if (g_clock.t - p->tSubstate < 0.12f) return;   // (as the swing comes round)
     s_tMegaCharge = p->tSubstate;
     HitGuardsAround(p->palo, PosAloCenter(p->palo), 280.0f, 220.0f, 0x800u, -3, 900.0f, 350.0f);
-    if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 280.0f, SKILLFXK_MegaCharge);
+    if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 280.0f, SKILLFXK_MegaCharge, p->palo);
 }
 
 // Sly 4's Scorching Hover Pack: while hovering (the jump's kind 17), the guards below (within 220 across, 700 down)

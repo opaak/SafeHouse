@@ -1995,7 +1995,7 @@ void SetMurrayFlopPhase(MURRAY* p, int n)
         if (FPowerupOwned(kItemMegaStomp))
         {
             HitGuardsAround(p->palo, PosAloCenter(p->palo), 520.0f, 260.0f, 4u, -20, 700.0f, 500.0f);
-            if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 520.0f, SKILLFXK_MegaStomp);   // (skillfx.h)
+            if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 520.0f, SKILLFXK_MegaStomp, p->palo);   // (skillfx.h)
         }
         const ASEGEV* landing = nullptr;
         if (p->pasega && p->pasega->paseg)

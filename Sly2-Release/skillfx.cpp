@@ -1,7 +1,9 @@
 // See skillfx.h.
 #include "skillfx.h"
 
+#include "activate.h"
 #include "alo.h"
+#include "bsp.h"
 #include "brx.h"
 #include "clock.h"
 #include "cm.h"
@@ -20,7 +22,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <deque>
+#include <mutex>
 #include <random>
 #include <vector>
 
@@ -144,6 +149,42 @@ float PixelsOf(const glm::vec3& pos, float s, const glm::vec2& c)
     return glm::length(c2 - c);
 }
 
+// ---- the ground under a mover (its object record is at its middle, not its feet): straight down from there, past
+// its own collision, up to 400 below; none: 70 below
+glm::vec3 PosGround(const glm::vec3& pos, ALO* palo)
+{
+    const glm::vec3 a = pos + glm::vec3(0, 0, 10), b = pos - glm::vec3(0, 0, 400);
+    std::vector<SOE*> apsoe;
+    LO* proot = palo ? PloRoot(palo) : nullptr;
+    for (SOE* pe : AsolidWithTree(a, b))
+        if (!proot || PloRoot(pe->palo) != proot) apsoe.push_back(pe);
+    LSG lsg;
+    if (PsoeHitTestLineObjects(1, a, b, apsoe, &lsg)) return lsg.pos0;
+    return pos - glm::vec3(0, 0, 70);
+}
+glm::vec3 PosFeet(ALO* palo) { return PosGround(PosAloCenter(palo), palo); }
+
+// ---- the Scorching Hover Pack's jet: Bentley's glow parts (drawn added) kept as placed and hidden from the scene
+// while he hovers, drawn red instead (as Leaping Dragon's aura)
+std::mutex s_mtxHover;
+ALO* s_paloHoverRed = nullptr;      // the hovering Bentley (null: none)
+ALO* s_paloHoverNoted = nullptr;    // noted this step
+std::vector<GHOSTPART> s_aparthover;
+const glm::vec3 kRgbHover(1.0f, 0.2f, 0.07f);
+
+bool FUnderAlo(const ALO* palo, const ALO* proot)
+{
+    for (const ALO* p = palo; p; p = p->paloParent)
+        if (p == proot) return true;
+    return false;
+}
+bool FAddedPass(const SUBGLOB& sub)
+{
+    if (!sub.pshd || sub.pshd->apass.empty()) return false;
+    const SHDPASS& ps = sub.pshd->apass[0];
+    return ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1;
+}
+
 // ---- afterimages (Adrenaline Burst Plus), as Silent Sprint's (ninjamoves.cpp)
 struct GHOST { float t = 0; std::vector<GHOSTPART> apart; };
 std::deque<GHOST> s_aghost;
@@ -165,16 +206,16 @@ void CollectSgs(const SCENE& scene, const ALO* palo, int depth, std::vector<cons
 }
 
 // the moves noted this step (the hooks), for UpdateSkillFx
-ALO* s_paloHover = nullptr;
 ALO* s_paloRocket = nullptr;
 ALO* s_paloFeather = nullptr;
 float s_tFeatherPuff = -10.0f, s_tAdrenStreak = -10.0f;
 glm::vec3 s_posFeatherLast(0.0f), s_posRocketLast(0.0f);
 }  // namespace
 
-void SkillFxShockwave(const glm::vec3& pos, float r, SKILLFXK k)
+void SkillFxShockwave(const glm::vec3& posIn, float r, SKILLFXK k, ALO* paloOn)
 {
     if (!FStep()) return;
+    const glm::vec3 pos = paloOn ? PosGround(posIn, paloOn) : posIn;
     switch (k)
     {
     case SKILLFXK_MegaCharge:
@@ -212,7 +253,7 @@ void SkillFxFlash(const glm::vec3& pos)
 void SkillFxRecharge(ALO* palo)
 {
     if (!FStep() || !palo) return;
-    const glm::vec3 pos = PosAloCenter(palo);
+    const glm::vec3 pos = PosFeet(palo);
     for (int i = 0; i < 3; ++i) Ring(pos + glm::vec3(0, 0, 5), 70.0f, 55.0f, 0.7f, 6.0f, kBlue, 170.0f, 0.12f * float(i));
     for (int i = 0; i < 16; ++i)
     {
@@ -231,7 +272,40 @@ void SkillFxBurn(const glm::vec3& pos)
               glm::vec3(Rand(-0.15f, 0.15f), Rand(-0.15f, 0.15f), 1.0f), Rand(0.4f, 0.65f), Rand(55.f, 95.f), Rand(12.f, 17.f));
 }
 
-void NoteSkillFxHover(ALO* palo) { s_paloHover = palo; }
+void NoteSkillFxHover(ALO* palo) { s_paloHoverNoted = palo; }
+
+void NoteSkillFxPlaced(ALO* palo, SCENEGLOBSET& sgs)
+{
+    if (!s_paloHoverRed || !palo) return;   // (the common case, without the lock)
+    std::lock_guard<std::mutex> lock(s_mtxHover);
+    if (!s_paloHoverRed || !FUnderAlo(palo, s_paloHoverRed) || !sgs.pglobset) return;
+    const GLOBSET& gs = *sgs.pglobset;
+    // its groups drawn only added (the jet's glow): kept, and hidden from the scene
+    std::vector<uint8_t> afGlow(gs.aglob.size(), 0);
+    bool fAny = false;
+    for (size_t i = 0; i < gs.aglob.size() && i < sgs.afVisible.size(); ++i)
+    {
+        if (!sgs.afVisible[i]) continue;
+        const GLOB& glob = gs.aglob[i];
+        const GLOB* pgeom = !glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size() ? &gs.aglob[size_t(glob.iglobTemplate)] : &glob;
+        bool fAll = !pgeom->asubglob.empty();
+        for (const SUBGLOB& sub : pgeom->asubglob)
+            if (sub.indexCount && !FAddedPass(sub)) { fAll = false; break; }
+        if (fAll) afGlow[i] = 1, fAny = true;
+    }
+    if (!fAny) return;
+    GHOSTPART* ppart = nullptr;
+    for (GHOSTPART& part : s_aparthover)
+        if (part.psgs == &sgs) ppart = &part;
+    if (!ppart) { s_aparthover.emplace_back(); ppart = &s_aparthover.back(); }
+    ppart->psgs = &sgs;
+    ppart->pglobset = sgs.pglobset;
+    ppart->amatGlob = sgs.amatGlob;
+    ppart->afVisible = afGlow;
+    ppart->aamatBone = sgs.aamatBone;
+    for (size_t i = 0; i < afGlow.size(); ++i)
+        if (afGlow[i]) sgs.afVisible[i] = 0;   // (not the scene's: its own colour)
+}
 void NoteSkillFxRocketSlide(ALO* palo) { s_paloRocket = palo; }
 void NoteSkillFxAdrenaline(ALO* palo) { s_paloGhost = palo; s_tGhostNote = g_clock.t; }
 void NoteSkillFxFeather(ALO* palo) { s_paloFeather = palo; }
@@ -242,16 +316,21 @@ void UpdateSkillFx()
     const float t = g_clock.t, dt = std::clamp(g_clock.dt, 0.0f, 0.1f);
     LO* pcur = PloPoCurrent(g_psw);
     // the continuous moves (the current player's only)
-    if (s_paloHover && s_paloHover == pcur)
     {
-        const glm::vec3 pos = PosAloCenter(s_paloHover) + glm::vec3(0, 0, 45);
-        for (int i = 0; i < 3; ++i)
-            Flame(pos + glm::vec3(Rand(-8.f, 8.f), Rand(-8.f, 8.f), 0), glm::vec3(Rand(-40.f, 40.f), Rand(-40.f, 40.f), Rand(-380.f, -240.f)),
-                  glm::vec3(Rand(-0.12f, 0.12f), Rand(-0.12f, 0.12f), -1.0f), Rand(0.14f, 0.24f), Rand(45.f, 75.f), Rand(9.f, 13.f));
+        // (the jet drawn red while he hovers: NoteSkillFxPlaced keeps it as placed)
+        std::lock_guard<std::mutex> lock(s_mtxHover);
+        s_paloHoverRed = s_paloHoverNoted && s_paloHoverNoted == pcur ? s_paloHoverNoted : nullptr;
+        if (!s_paloHoverRed) s_aparthover.clear();
+        s_paloHoverNoted = nullptr;
+        // (SLY2N_SKILLFXPRINT: how many of Bentley's groups were taken for the jet, when that changes)
+        static size_t s_cPrinted = size_t(-1);
+        size_t c = 0;
+        for (const GHOSTPART& part : s_aparthover) c += size_t(std::count(part.afVisible.begin(), part.afVisible.end(), uint8_t(1)));
+        if (std::getenv("SLY2N_SKILLFXPRINT") && c != s_cPrinted) std::printf("skillfx: hover jet groups drawn red: %zu\n", s_cPrinted = c);
     }
     if (s_paloRocket && s_paloRocket == pcur)
     {
-        const glm::vec3 pos = PosAloCenter(s_paloRocket) + glm::vec3(0, 0, 8);
+        const glm::vec3 pos = PosFeet(s_paloRocket) + glm::vec3(0, 0, 10);
         const glm::vec3 v = dt > 0.0f && glm::length(s_posRocketLast) > 0.0f ? (pos - s_posRocketLast) / dt : glm::vec3(0.0f);
         s_posRocketLast = pos;
         for (int i = 0; i < 2; ++i)
@@ -270,7 +349,7 @@ void UpdateSkillFx()
     else s_posRocketLast = glm::vec3(0.0f);
     if (s_paloFeather && s_paloFeather == pcur)
     {
-        const glm::vec3 pos = PosAloCenter(s_paloFeather);
+        const glm::vec3 pos = PosFeet(s_paloFeather);
         if (t - s_tFeatherPuff > 0.22f && glm::length(glm::vec2(pos - s_posFeatherLast)) > 25.0f)
         {
             s_tFeatherPuff = t;
@@ -288,7 +367,7 @@ void UpdateSkillFx()
         FXP p = Dot(pos, glm::vec3(0, 0, Rand(-40.f, 40.f)), 0.2f, 2.0f, 1.0f, glm::vec4(60, 128, 70, 70), glm::vec4(60, 128, 70, 0));
         Add(p);
     }
-    s_paloHover = s_paloRocket = s_paloFeather = nullptr;
+    s_paloRocket = s_paloFeather = nullptr;
     // the homing darts' trails
     for (ALO* pdart : HomingDartsInFlight())
         Add(Dot(PosAloCenter(pdart), glm::vec3(0.0f), 0.22f, 6.0f, 1.5f, kOrange, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
@@ -333,6 +412,20 @@ void UpdateSkillFxGhosts(const SCENE& scene)
 
 void DrawSkillFxGhosts(const SCENE& scene, const CAMERA& cam)
 {
+    {
+        std::vector<GHOSTPART> apart;
+        {
+            std::lock_guard<std::mutex> lock(s_mtxHover);
+            if (s_paloHoverRed) apart = s_aparthover;
+        }
+        if (!apart.empty())
+        {
+            const float u = 0.9f + 0.1f * std::sin(g_clock.tReal * 21.0f);   // (a flicker)
+            std::vector<GHOSTDRAW> adraw;
+            adraw.push_back({&apart, glm::vec4(kRgbHover * u, 1.0f), 1, true});
+            RenderGhostPoses(scene, cam, adraw);
+        }
+    }
     if (s_aghost.empty() || !g_psw || s_serial != g_psw->serial) return;
     const float t = g_clock.t;
     std::vector<GHOSTDRAW> adraw;

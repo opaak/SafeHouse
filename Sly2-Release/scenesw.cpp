@@ -3,6 +3,7 @@
 #include "passhelpers.h"
 #include "drawdist.h"
 #include "leapdragon.h"
+#include "skillfx.h"
 #include "display.h"
 #include "pccharacter.h"
 #include "rope.h"
@@ -165,6 +166,7 @@ void PlaceGlobsetFinish(ALO* palo, SCENEGLOBSET& sgs)
     PlaceTrailScene(palo, sgs);
     PlaceRopeMeshScene(palo, sgs);
     NoteLeapAuraPlaced(palo, sgs);   // (PC: Leaping Dragon's aura, drawn red by leapdragon.cpp instead)
+    NoteSkillFxPlaced(palo, sgs);    // (PC: the Scorching Hover Pack's jet, drawn red by skillfx.cpp instead)
     // debug: SLY2N_SCENELIST=t: every object placed in the scene in the frame at clock t: its bounds' screen point
     if (static const char* s_szList = std::getenv("SLY2N_SCENELIST"); s_szList)
         if (const float t = float(std::atof(s_szList)); g_clock.t >= t && g_clock.t < t + 0.0166f)
