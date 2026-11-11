@@ -86,7 +86,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/sly2n_logo.h"
   DEPENDS ${CANE_ROOT}/launcher/assets/games/sly2-logo.png ${CANE_ROOT}/cmake/embed-image.cmake VERBATIM)
 target_sources(Sly2-Release PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/sly2n_logo.h")
 # PC addition (techicons.cpp): the Thievius Raccoonus techniques' built-in icons (assets/icons), embedded
-foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra meter_recharger flash_bomb run_while_charging moving_pickpocket homing_darts adrenaline_burst_plus light_as_a_feather rocket_boots bomb_blast_2)
+foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra meter_recharger flash_bomb run_while_charging moving_pickpocket homing_darts adrenaline_burst_plus light_as_a_feather rocket_boots bomb_blast_2 mega_stomp mega_charge_attack scorching_hover_pack)
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/techicon_${icon}.h"
     COMMAND ${CMAKE_COMMAND} -DSOURCE=${CANE_ROOT}/assets/icons/${icon}.png -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/generated/techicon_${icon}.h -DSYMBOL=techicon_${icon}_png -P ${CANE_ROOT}/cmake/embed-image.cmake
     DEPENDS ${CANE_ROOT}/assets/icons/${icon}.png ${CANE_ROOT}/cmake/embed-image.cmake VERBATIM)

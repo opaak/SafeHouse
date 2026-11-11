@@ -116,6 +116,9 @@ can be turned off where it changes how the game looks or plays.
     - **Adrenaline Burst Plus** (Bentley, Episode 5, 1400): Adrenaline Burst runs 1.4 times as fast.
     - **Rocket Boots** (Sly, from Sly 3, Episode 4, 1300): the Stealth Slide keeps its speed and uses half the power.
     - **Bomb Blast v2.0** (Bentley, Episode 4, 1100): Bentley's bombs blast 1.5 times as wide.
+    - **Mega Charge Attack** (Sly, Episode 5, 1600): the charged cane strike hits every guard around Sly, harder.
+    - **Mega Stomp** (Murray, Episode 5, 1500): the Thunder Flop's landing knocks down the guards around him.
+    - **Scorching Hover Pack** (Bentley, Episode 6, 1800): the Hover Pack's jet burns the guards below.
 
 ## Mods
 

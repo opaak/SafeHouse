@@ -8,10 +8,15 @@
 #include "gadget.h"
 #include "pcprogress.h"
 #include "sound.h"
+#include "sw.h"
+#include "so.h"
+#include "lo.h"
+#include "guard.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -87,6 +92,75 @@ void UpdatePcPowerupHeld(ACTOR* pa, int id)
     if (p && p->pfnHeld) p->pfnHeld(pa, id);
 }
 
+int HitGuardsAround(ALO* paloPlayer, const glm::vec3& pos, float r, float zRange, unsigned grfFilter, int nState, float vPush, float vUp)
+{
+    if (!g_psw || !paloPlayer) return 0;
+    int c = 0;
+    for (CID cid = 0x38; cid <= 0x43; ++cid)
+        for (LO* plo : std::vector<LO*>(g_psw->mpcidaplo[cid]))
+        {
+            if (!plo->fInWorld || !FCidDerivedFrom(plo->Cid(), 0x30) || !PguardFromLo(plo) || FLoInParentChain(plo, paloPlayer)) continue;
+            ALO* pguard = static_cast<ALO*>(plo);
+            const glm::vec3 posG = PosAloCenter(pguard);
+            const glm::vec2 d(posG - pos);
+            if (glm::length(d) > r || std::fabs(posG.z - pos.z) > zRange) continue;
+            const glm::vec2 dir = glm::length(d) > 1.0f ? glm::normalize(d) : glm::vec2(1.0f, 0.0f);
+            CTMSG ctm;
+            ctm.ploSender = paloPlayer;
+            ctm.ploReceiver = pguard;
+            ctm.grfFilter = grfFilter;
+            ctm.nState = nState;
+            ctm.pos = posG;
+            ctm.vec = glm::vec3(dir * vPush, vUp);
+            if (PaloAcceptContact(&ctm)) ++c;
+            if (FPrint()) std::printf("gadget: PC hit on guard %d (filter 0x%X, %d)\n", plo->oid, grfFilter, nState);
+        }
+    return c;
+}
+
+namespace
+{
+// Sly 4's Mega Charge Attack: the charged strike (Sly's state 5, substates 8 / 9) hits every guard within 280 once,
+// as a strike 3 deep, knocked back
+float s_tMegaCharge = -1.0f;   // (the strike it was for: its substate's start)
+void UpdateMegaCharge(SLY* p)
+{
+    if (p->state != 5 || (p->substate != 8 && p->substate != 9) || !FPowerupOwned(kItemMegaChargeAttack)) return;
+    if (s_tMegaCharge == p->tSubstate) return;
+    if (g_clock.t - p->tSubstate < 0.12f) return;   // (as the swing comes round)
+    s_tMegaCharge = p->tSubstate;
+    HitGuardsAround(p->palo, PosAloCenter(p->palo), 280.0f, 220.0f, 0x800u, -3, 900.0f, 350.0f);
+}
+
+// Sly 4's Scorching Hover Pack: while hovering (the jump's kind 17), the guards below (within 220 across, 700 down)
+// are burnt, each once every 1.2 s, as a strike 1 deep
+std::unordered_map<const LO*, float> s_mpguardTScorch;
+void UpdateScorchingHover(ACTOR* pa)
+{
+    if (pa->jump.kind != 17 || !FPowerupOwned(kItemScorchingHoverPack) || !g_psw) return;
+    const glm::vec3 pos = PosAloCenter(pa->palo);
+    for (CID cid = 0x38; cid <= 0x43; ++cid)
+        for (LO* plo : std::vector<LO*>(g_psw->mpcidaplo[cid]))
+        {
+            if (!plo->fInWorld || !FCidDerivedFrom(plo->Cid(), 0x30) || !PguardFromLo(plo)) continue;
+            const glm::vec3 posG = PosAloCenter(static_cast<ALO*>(plo));
+            if (glm::length(glm::vec2(posG - pos)) > 220.0f || posG.z > pos.z || pos.z - posG.z > 700.0f) continue;
+            float& t = s_mpguardTScorch[plo];
+            if (t != 0.0f && g_clock.t >= t && g_clock.t - t < 1.2f) continue;
+            t = g_clock.t;
+            CTMSG ctm;
+            ctm.ploSender = pa->palo;
+            ctm.ploReceiver = plo;
+            ctm.grfFilter = 0x800u;
+            ctm.nState = -1;
+            ctm.pos = posG;
+            ctm.vec = glm::vec3(0.0f, 0.0f, 200.0f);
+            PaloAcceptContact(&ctm);
+            if (FPrint()) std::printf("gadget: Scorching Hover Pack burns guard %d\n", plo->oid);
+        }
+}
+}  // namespace
+
 void UpdatePcPowerupsPassive(ACTOR* pa)
 {
     if (!pa || !pa->palo) return;
@@ -94,4 +168,6 @@ void UpdatePcPowerupsPassive(ACTOR* pa)
     const int id = FIsLoDerivedFrom(pa->palo, 0x35) ? kItemMeterRechargerSly : FIsLoDerivedFrom(pa->palo, 0x37) ? kItemMeterRechargerBentley
                  : FIsLoDerivedFrom(pa->palo, 0x36) ? kItemMeterRechargerMurray : -1;
     if (id != -1) UpdateMeterRecharger(pa, id);
+    if (SLY* psly = dynamic_cast<SLY*>(pa)) UpdateMegaCharge(psly);
+    if (FIsLoDerivedFrom(pa->palo, 0x37)) UpdateScorchingHover(pa);
 }

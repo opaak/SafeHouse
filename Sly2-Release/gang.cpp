@@ -4,6 +4,7 @@
 // 0x1B4728, 0x1B50B0, 0x1B6078, checked against the disassembly) and the reference's m_134648_p3.cpp /
 // m_1B4438_p3.cpp.
 #include "pcprogress.h"
+#include "extrapowerups.h"
 #include "gang.h"
 #include "actioninput.h"
 #include "climb.h"
@@ -1988,6 +1989,9 @@ void SetMurrayFlopPhase(MURRAY* p, int n)
         }
         FreeSwXpList(p->pxp13E4);
         p->pxp13E4 = nullptr;
+        // (PC: Sly 4's Mega Stomp, pcprogress.h: the landing's shockwave, every guard within 520 knocked down as by the
+        // flop's own contact, pushed away)
+        if (FPowerupOwned(kItemMegaStomp)) HitGuardsAround(p->palo, PosAloCenter(p->palo), 520.0f, 260.0f, 4u, -20, 700.0f, 500.0f);
         const ASEGEV* landing = nullptr;
         if (p->pasega && p->pasega->paseg)
             for (const ASEGEV& ev : PasegdOf(p->pasega->paseg)->aaev[1])

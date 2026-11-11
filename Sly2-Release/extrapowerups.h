@@ -14,6 +14,7 @@
 // checked before the start as the original's are; the handler spends it (SpendActorPower) as the original's do.
 
 struct ACTOR;
+#include <glm/glm.hpp>
 
 bool FPcPowerup(int id);                    // handled here
 bool FPcPowerupCanDo(ACTOR* pa, int id);    // vt slot 99
@@ -23,3 +24,9 @@ void UpdatePcPowerupHeld(ACTOR* pa, int id);   // vt slot 101 (held ones, each f
 // The passive ones that act on their own (each frame for each player, gadget.cpp UpdateActorAbilities): Meter
 // Recharger (the meter run empty fills again at once, then 60 s before it can again)
 void UpdatePcPowerupsPassive(ACTOR* pa);
+
+// A hit from the player on every guard within r of pos (not z apart more than zRange), as a guard's own contact would
+// give it (so.cpp PaloAcceptContact: the guard's hit reaction, damage and knockout): the contact kind grfFilter, the
+// amount nState (negative), pushed outward from pos by vPush (and up by vUp). Returns the guards taken.
+struct ALO;
+int HitGuardsAround(ALO* paloPlayer, const glm::vec3& pos, float r, float zRange, unsigned grfFilter, int nState, float vPush, float vUp);

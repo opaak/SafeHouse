@@ -34,6 +34,9 @@ constexpr int kItemAdrenalineBurstPlus = 0x36;  // Bentley: Adrenaline Burst 1.4
 constexpr int kItemLightAsAFeather = 0x37;      // Murray: run with R1 while carrying, faster (murraycarry.cpp)
 constexpr int kItemRocketBoots = 0x38;          // Sly (Sly 3's): the Stealth Slide keeps its speed, half the power (sly.cpp)
 constexpr int kItemBombBlast2 = 0x39;           // Bentley: his bombs' blast 1.5 times as wide (carry.cpp BlastCarry)
+constexpr int kItemMegaStomp = 0x3A;            // Murray: the Thunder Flop's landing a shockwave round him (gang.cpp)
+constexpr int kItemMegaChargeAttack = 0x3B;     // Sly: the charged strike hits every guard round him (extrapowerups.cpp)
+constexpr int kItemScorchingHoverPack = 0x3C;   // Bentley: the Hover Pack's jet burns the guards below (extrapowerups.cpp)
 
 bool FPcItem(int id);
 // the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)

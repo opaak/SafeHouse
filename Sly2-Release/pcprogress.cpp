@@ -57,6 +57,12 @@ const PCITEM s_aitem[] = {
      "From Sly 3. The Stealth Slide no longer slows down, uses half the gadget power, and still makes no sound", -1, 0, true},
     {kItemBombBlast2, "bombBlast2", 9, 1100, 4, "Bomb Blast v2.0",
      "From Sly 4. Bentley's bombs blast 1.5 times as wide", -1, 0, true},
+    {kItemMegaChargeAttack, "megaChargeAttack", 7, 1600, 5, "Mega Charge Attack",
+     "From Sly 4. The charged cane strike hits every guard around Sly, harder, and knocks them back", -1, 0, true},
+    {kItemMegaStomp, "megaStomp", 8, 1500, 5, "Mega Stomp",
+     "From Sly 4. The Thunder Flop's landing sends out a shockwave that knocks down the guards around Murray", -1, 0, true},
+    {kItemScorchingHoverPack, "scorchingHoverPack", 9, 1800, 6, "Scorching Hover Pack",
+     "From Sly 4. The Hover Pack's jet burns the guards below Bentley as he hovers", -1, 0, true},
 };
 
 const PCITEM* PitemOf(int id)
@@ -119,6 +125,9 @@ const char* SzPcItemIcon(int id)
     case kItemLightAsAFeather: return "light_as_a_feather";
     case kItemRocketBoots: return "rocket_boots";
     case kItemBombBlast2: return "bomb_blast_2";
+    case kItemMegaStomp: return "mega_stomp";
+    case kItemMegaChargeAttack: return "mega_charge_attack";
+    case kItemScorchingHoverPack: return "scorching_hover_pack";
     default: return nullptr;
     }
 }

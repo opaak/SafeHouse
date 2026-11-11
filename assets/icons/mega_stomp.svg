@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<path d="M30 168 h 196 v 34 q -98 22 -196 0 z" fill="#7a5a2a" stroke="#0b0f1f" stroke-width="8" stroke-linejoin="round"/>
+<path d="M128 168 l -10 18 l 14 10 l -8 16 M128 168 l 22 14 l -6 16" fill="none" stroke="#0b0f1f" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M128 168 l -10 18 l 14 10 l -8 16 M128 168 l 22 14 l -6 16" fill="none" stroke="#0b0f1f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M58 150 q -20 -20 -14 -48 M198 150 q 20 -20 14 -48 M84 148 q -10 -14 -6 -30 M172 148 q 10 -14 6 -30" fill="none" stroke="#0b0f1f" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="M58 150 q -20 -20 -14 -48 M198 150 q 20 -20 14 -48 M84 148 q -10 -14 -6 -30 M172 148 q 10 -14 6 -30" fill="none" stroke="#ff8a2a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 48 v 70" stroke="#0b0f1f" stroke-width="30" stroke-linecap="round"/><path d="M128 48 v 70" stroke="#e88ac8" stroke-width="18" stroke-linecap="round"/>
+<path d="M96 108 l 32 46 l 32 -46 z" fill="#e88ac8" stroke="#0b0f1f" stroke-width="8" stroke-linejoin="round"/>
+</svg>

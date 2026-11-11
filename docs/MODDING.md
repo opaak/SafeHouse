@@ -151,6 +151,9 @@ Ancestor Techniques page) and the extra gadgets (the gadget menu's Gadget Grid 2
 | `Mods/Icons/light_as_a_feather.png` | Light as a Feather |
 | `Mods/Icons/rocket_boots.png` | Rocket Boots |
 | `Mods/Icons/bomb_blast_2.png` | Bomb Blast v2.0 |
+| `Mods/Icons/mega_charge_attack.png` | Mega Charge Attack |
+| `Mods/Icons/mega_stomp.png` | Mega Stomp |
+| `Mods/Icons/scorching_hover_pack.png` | Scorching Hover Pack |
 
 Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
 restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.

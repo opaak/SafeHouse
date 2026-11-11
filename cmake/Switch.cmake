@@ -193,7 +193,7 @@ add_custom_target(sly2_version
 add_dependencies(sly2_game sly2_version)
 # (the Thievius Raccoonus techniques' icons: techicons.cpp)
 set(sly2_techicon_headers "")
-foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra meter_recharger flash_bomb run_while_charging moving_pickpocket homing_darts adrenaline_burst_plus light_as_a_feather rocket_boots bomb_blast_2)
+foreach(icon leaping_dragon silent_sprint rail_sprint climbing_cobra meter_recharger flash_bomb run_while_charging moving_pickpocket homing_darts adrenaline_burst_plus light_as_a_feather rocket_boots bomb_blast_2 mega_stomp mega_charge_attack scorching_hover_pack)
   add_custom_command(OUTPUT "${gen}/sly2/techicon_${icon}.h"
     COMMAND "${Python3_EXECUTABLE}" "${root}/cmake/switch_embed.py" "${gen}/sly2/techicon_${icon}.h" techicon_${icon}_png "${root}/assets/icons/${icon}.png"
     DEPENDS "${root}/assets/icons/${icon}.png" "${root}/cmake/switch_embed.py" VERBATIM)
