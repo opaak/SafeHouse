@@ -2370,7 +2370,14 @@ glm::vec3 DirWorldShadowLight()
         dir = glm::vec3(h, -0.42f);
     }
     s_dir = dir;
-    std::printf("world shadows (TEST): the light from %s, direction %.2f %.2f %.2f\n", pszFrom, dir.x, dir.y, dir.z);
+    // (the lights' version changes whenever any light moves or flickers, often every step: printed only when the
+    // direction itself changes)
+    static glm::vec3 s_dirPrinted(0.0f);
+    if (glm::length(dir - s_dirPrinted) > 0.02f)
+    {
+        s_dirPrinted = dir;
+        std::printf("world shadows (TEST): the light from %s, direction %.2f %.2f %.2f\n", pszFrom, dir.x, dir.y, dir.z);
+    }
     return s_dir;
 }
 
