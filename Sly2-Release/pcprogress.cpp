@@ -46,7 +46,7 @@ const PCITEM s_aitem[] = {
     {kItemRunWhileCharging, "runWhileCharging", 7, 700, 2, "Run While Charging",
      "From Sly 4. Sly can walk while he winds up a charged cane swing, holding &2S&.", -1, 0, true},
     {kItemHomingDarts, "homingDarts", 9, 900, 3, "Homing Darts",
-     "From Sly 4. Bentley's darts lock onto the guard nearest the crosshair", -1, 0, true},
+     "From Sly 4. Bentley locks onto the guard nearest the crosshair, and his darts curve to hit it", -1, 0, true},
     {kItemLightAsAFeather, "lightAsAFeather", 8, 900, 3, "Light as a Feather",
      "From Sly 4. Murray can run with &2R&. while he carries something, and runs faster with it", -1, 0, true},
     {kItemFlashBomb, "flashBomb", 7, 1400, 4, "Flash Bomb",

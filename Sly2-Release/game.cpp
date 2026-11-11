@@ -26,6 +26,7 @@
 #include "screenrt.h"
 #include "post.h"
 #include "leapdragon.h"
+#include "homingdarts.h"
 #include "ninjamoves.h"
 #include "raccoonus.h"
 #include "pcprogress.h"
@@ -2001,6 +2002,7 @@ int RunGame(const GAMEOPTS& go)
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;
                 DrawLeapDragonHud(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Leaping Dragon's target, leapdragon.h)
+                DrawHomingLockHud(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Homing Darts' lock-on, homingdarts.h)
                 DrawRaccoonusHud(g_gl.renderWidth, g_gl.renderHeight);    // (PC: the Thievius Raccoonus, raccoonus.h)
                 DrawGadgetPagesHud(g_gl.renderWidth, g_gl.renderHeight);  // (PC: the gadget menu's pages, shop.h)
                 RenderSceneForeground(scene, cam, opts);   // kinds 22..25 over the HUD (group 10, 0x157CF0)

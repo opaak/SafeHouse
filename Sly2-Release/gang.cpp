@@ -5,6 +5,7 @@
 // m_1B4438_p3.cpp.
 #include "pcprogress.h"
 #include "extrapowerups.h"
+#include "homingdarts.h"
 #include "gang.h"
 #include "actioninput.h"
 #include "climb.h"
@@ -557,23 +558,10 @@ void FireBentleyDart(BENTLEY* p, uint32_t grf)
             }
         }
     }
-    // (PC: Sly 4's Homing Darts, pcprogress.h) the guard nearest the crosshair, within a third of the picture's half
-    // and 6000 away, takes the dart: its centre the aim
+    // (PC: Sly 4's Homing Darts, homingdarts.h) the locked guard takes the dart: its centre the aim, and the dart steers
+    LO* ptargetHoming = nullptr;
     if (FPowerupOwned(kItemHomingDarts) && g_psw && !std::getenv("SLY2N_DARTAT"))
-    {
-        float best = 0.35f * 0.35f;
-        for (const auto& up : g_psw->aploAll)
-        {
-            LO* plo = up.get();
-            if (!plo->fInWorld || !FCidDerivedFrom(plo->Cid(), 0x38) || !FIsLoDerivedFrom(plo, 0x30) || !PguardFromLo(plo)) continue;
-            const glm::vec3 pos = PosAloCenter(static_cast<ALO*>(plo));
-            if (glm::distance(pos, a) > 6000.0f) continue;
-            const glm::vec3 sc = ConvertCmWorldToScreen(&g_cm, pos);
-            if (sc.z <= 1.0f) continue;
-            const float d2 = sc.x * sc.x + sc.y * sc.y;
-            if (d2 < best) { best = d2; posAim = pos; }
-        }
-    }
+        if ((ptargetHoming = PloHomingLock())) posAim = PosAloCenter(static_cast<ALO*>(ptargetHoming));
     // +0x16D8 the dart kind: EOPID 774 (a field, grf 0x92) that the jobs' scripts set, e.g. 1 for Ep3's red noise darts
     const int nDart = static_cast<int>(palo->U32Field(0, 0x16D8, static_cast<uint32_t>(p->n16D8)));
     LO* pproxy = nDart == 0 ? PPart<LO>(palo, 0x16DC) : nDart == 1 ? PPart<LO>(palo, 0x16E0) : nullptr;
@@ -587,6 +575,7 @@ void FireBentleyDart(BENTLEY* p, uint32_t grf)
     LaunchFrom(plaunch, po);  // 0x1D6B00
     SetAloAngVelocityTo(static_cast<ALO*>(po), glm::vec3(0.0f));  // vt slot 36 (D_002A2DD0)
     ExpireProjectileIn(static_cast<ALO*>(po), 4.0f);              // 0x13B5C8
+    if (ptargetHoming) NoteHomingDart(static_cast<ALO*>(po), ptargetHoming);   // (PC: Homing Darts: steered in flight)
     SetBentleyState2(p, 1);                                       // 0x1362F8
     p->t1700 = g_clock.t;
     if (std::getenv("SLY2N_GANGDEBUG"))
@@ -619,13 +608,17 @@ void UpdateBentleyState2(BENTLEY* p)
         }
         else if (s >= 0 && s < 2)
         {
+            if (static_cast<unsigned>(p->nF04) < 3 && !FPcCarm(p->palo)) UpdateHomingLock(p);   // (PC: Homing Darts' lock-on, homingdarts.h; kept through the reload)
             if (!(static_cast<unsigned>(p->nF04) < 3)) SetBentleyState2(p, -1);
             else if (p->n16BC == 1)
             {
                 if (2.0f < g_clock.t - p->t1700) SetBentleyState2(p, 0);
             }
-            else if (!FPcCarm(p->palo) && sly2actions::Take(PpadctlOf(p), sly2actions::Action::BentleyDart, BTN_R1, 0.25f))   // (PC: R1 is Carmelita's run)
-                FireBentleyDart(p, 0x80000);  // 0x1357C0
+            else
+            {
+                if (!FPcCarm(p->palo) && sly2actions::Take(PpadctlOf(p), sly2actions::Action::BentleyDart, BTN_R1, 0.25f))   // (PC: R1 is Carmelita's run)
+                    FireBentleyDart(p, 0x80000);  // 0x1357C0
+            }
         }
         const int s2 = p->n16BC;
         if (s == s2) break;

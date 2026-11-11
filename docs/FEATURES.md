@@ -113,7 +113,7 @@ can be turned off where it changes how the game looks or plays.
   - Sly 4's passive upgrades, always on once bought:
     - **Moving Pickpocket** (Sly, Episode 2, 500): hold circle through a pickpocket and Sly keeps reaching (up to 4 s) while he follows the guard with the stick; letting go takes the loot (still only in reach).
     - **Run While Charging** (Sly, Episode 2, 700): Sly walks while winding up a charged cane swing.
-    - **Homing Darts** (Bentley, Episode 3, 900): the darts aim at the guard nearest the crosshair.
+    - **Homing Darts** (Bentley, Episode 3, 900): the guard nearest the crosshair (in sight, up to 6000 away) is locked, shown by orange brackets, and the darts curve toward it in flight.
     - **Light as a Feather** (Murray, Episode 3, 900): Murray runs with R1 while carrying, 1.3 times as fast.
     - **Flash Bomb** (Sly, Episode 4, 1400): the Smoke Bomb stuns the guards within reach and keeps the alarm down
       twice as long.

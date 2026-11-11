@@ -5,6 +5,7 @@
 // build/hand_wip/func_0013B860.cpp).
 
 #include "projectile.h"
+#include "homingdarts.h"
 #include "worldglobals.h"
 #include "pccharacter.h"   // (PC addition, debug menu only: Carmelita's shot)
 
@@ -612,7 +613,8 @@ void UpdateAccmissAccel(ALO* palo)
     if (!ps) return;
     const glm::vec3 vel = VelAloPos(palo);  // vt slot 33
     const float sv = std::sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-    const glm::vec3 dir = vel * (1.0f / sv);
+    glm::vec3 dir = vel * (1.0f / sv);
+    SteerHomingDart(palo, &dir);   // (PC: Sly 4's Homing Darts: toward the locked guard, homingdarts.h)
     const cmm::SMP smp{GField(palo, 0x274, 5000.0f), 0.0f, 1.0f};
     const float svNew = cmm::GSmooth(sv, GField(palo, 0x270, 2000.0f), g_clock.dt, &smp, nullptr);
     const glm::vec3 dv = (dir * svNew - vel) * (1.0f / g_clock.dt);
