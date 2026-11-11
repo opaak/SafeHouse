@@ -1674,7 +1674,8 @@ void UpdateSlyInput(SLY* p)
         // (PC: Sly 4's Moving Pickpocket, pcprogress.h: a slow walk by the stick, still facing the guard)
         if (FPowerupOwned(kItemMovingPickpocket))
         {
-            const float rad = RadJoy(p), u = UJoy(p);
+            // (vecVel is in the heading's frame: the stick's world direction less the heading)
+            const float rad = RadJoy(p) - p->radHeading, u = UJoy(p);
             p->vecVel = glm::vec3(std::cos(rad) * u * 260.0f, std::sin(rad) * u * 260.0f, 0.0f);
         }
         break;
@@ -1717,9 +1718,11 @@ void UpdateSlyInput(SLY* p)
         else if ((p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging))
         {
             // (PC: Sly 4's Run While Charging, pcprogress.h: the wind-up walks by the stick, turned toward it)
+            // (vecVel is in the heading's frame: turned toward the stick, it walks straight ahead)
             const float rad = RadJoy(p), u = UJoy(p);
-            p->vecVel = glm::vec3(std::cos(rad) * u * 330.0f, std::sin(rad) * u * 330.0f, 0.0f);
             if (0.0f < u) SetStepPhysHeading(p->palo, rad);
+            const float radV = rad - p->radHeading;
+            p->vecVel = glm::vec3(std::cos(radV) * u * 330.0f, std::sin(radV) * u * 330.0f, 0.0f);
         }
         else if (p->substate == 8 || p->substate == 9)
         {
