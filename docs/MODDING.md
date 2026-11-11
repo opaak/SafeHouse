@@ -148,9 +148,10 @@ restart the game to see a changed one. The built-in ones and their SVG sources a
 
 ### Rail Sprint's sound
 
-Rail Sprint whooshes as it starts. `Mods/Sounds/rail_sprint.wav` (mono or stereo, 16 / 24 / 32-bit or float, any
-rate; short: it plays once per start, cut by the next) replaces the built-in one, which is made by the game (filtered
-noise). It follows the Sound effects volume. Read once: restart the game to hear a changed one.
+Rail Sprint sounds a soft wind while it runs, faded in and out. `Mods/Sounds/rail_sprint.wav` (mono or stereo, 16 / 24 /
+32-bit or float, any rate) replaces the built-in one, which the game makes as it plays (filtered noise in slow gusts):
+it is looped, so make it loop seamlessly. It follows the Sound effects volume. Read once: restart the game to hear a
+changed one.
 
 ### The PS3 HD textures (The Sly Collection)
 

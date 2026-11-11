@@ -6,6 +6,7 @@
 #include "audio.h"
 #include "brx.h"
 #include "clock.h"
+#include "cm.h"
 #include "disc.h"
 #include "display.h"
 #include "emitter.h"
@@ -62,76 +63,106 @@ bool FPrint() { static const bool s_f = std::getenv("SLY2N_NINJAPRINT") != nullp
 
 // Rail Sprint's look and sound: when it was last running (real time: a pause ends it), the lines' strength
 float s_tRealRail = -1e9f;
+ACTOR* s_paRail = nullptr;   // (who runs: his place the streaks follow)
 float s_uRailLines = 0.0f, s_tRealLinesLast = -1e9f;
 
-// The whoosh: 0.55 s of noise through a band-pass sweeping up and back down, swelling and fading, panned from left to
-// right (a thing rushing past); 48 kHz stereo
-struct WHOOSH { int rate = 48000; int cch = 2; std::vector<int16_t> asample; };
-WHOOSH WhooshMade()
+// The wind: a soft, endless wind made as it plays (two channels of noise, each through a gently wandering band-pass,
+// swelling in slow gusts), or the Mods folder's Sounds/rail_sprint.wav looped; faded in while Rail Sprint runs and out
+// after (UpdateRailWind, each frame)
+constexpr int kRateWind = 48000;
+constexpr float gWind = 0.8f;    // (at full: under the effects slider)
+struct WINDGEN
 {
-    WHOOSH w;
-    const int c = int(0.55f * float(w.rate));
-    w.asample.resize(size_t(c) * 2);
-    std::minstd_rand rng(1234);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    float low = 0.0f, band = 0.0f;
-    for (int i = 0; i < c; ++i)
-    {
-        const float u = float(i) / float(c);
-        const float frq = 350.0f + 1700.0f * std::sin(3.14159265f * std::pow(u, 0.8f));   // up, then back down
-        const float f = 2.0f * std::sin(3.14159265f * frq / float(w.rate));
-        const float q = 0.35f;
-        // (a state variable filter)
-        const float high = dist(rng) - low - q * band;
-        band += f * high;
-        low += f * band;
-        const float env = u < 0.22f ? std::pow(u / 0.22f, 1.5f) : std::pow((1.0f - u) / 0.78f, 2.2f);
-        const float x = band * env * 0.55f;
-        const float pan = std::clamp(u * 1.4f - 0.2f, 0.0f, 1.0f);   // left to right
-        const float gl = std::cos(pan * 1.5707963f), gr = std::sin(pan * 1.5707963f);
-        w.asample[size_t(i) * 2] = int16_t(std::clamp(x * gl * 1.41f, -1.0f, 1.0f) * 32000.0f);
-        w.asample[size_t(i) * 2 + 1] = int16_t(std::clamp(x * gr * 1.41f, -1.0f, 1.0f) * 32000.0f);
-    }
-    return w;
-}
+    std::minstd_rand rng{4321};
+    float alow[2]{}, aband[2]{};
+    float phGust = 0.0f, phWander = 0.0f;
 
-// the Mods folder's Sounds/rail_sprint.wav (mono or stereo, any rate), else the made one
-const WHOOSH& WhooshRail()
-{
-    static const WHOOSH s_w = [] {
-        if (!g_disc.DirMods().empty())
+    void Fill(int16_t* asample, int cframe)
+    {
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        for (int i = 0; i < cframe; ++i)
         {
-            const std::filesystem::path path = cane::path(g_disc.DirMods()) / "Sounds" / "rail_sprint.wav";
-            std::error_code ec;
-            WAVINFO info;
-            WHOOSH w;
-            if (std::filesystem::is_regular_file(path, ec) && FLoadWav(cane::utf8(path), info, w.asample) && (info.cch == 1 || info.cch == 2) &&
-                info.rate > 0 && !w.asample.empty())
+            phGust += 0.55f / float(kRateWind);
+            phWander += 0.23f / float(kRateWind);
+            const float gust = 0.65f + 0.35f * std::sin(6.2831853f * phGust) * std::sin(6.2831853f * phGust * 0.37f + 1.0f);
+            for (int ch = 0; ch < 2; ++ch)
             {
-                w.rate = info.rate;
-                w.cch = info.cch;
-                return w;
+                const float frq = 420.0f + 260.0f * std::sin(6.2831853f * (phWander + 0.31f * float(ch)));
+                const float f = 2.0f * std::sin(3.14159265f * frq / float(kRateWind));
+                const float high = dist(rng) - alow[ch] - 0.9f * aband[ch];
+                aband[ch] += f * high;
+                alow[ch] += f * aband[ch];
+                const float x = (aband[ch] * 0.6f + alow[ch] * 0.15f) * gust;
+                asample[i * 2 + ch] = int16_t(std::clamp(x, -1.0f, 1.0f) * 30000.0f);
             }
         }
-        return WhooshMade();
+    }
+};
+
+// the Mods folder's Sounds/rail_sprint.wav as stereo 16-bit (empty: none)
+struct WINDFILE { int rate = 0; std::vector<int16_t> asample; size_t iframe = 0; };
+WINDFILE& WindFile()
+{
+    static WINDFILE s_wf = [] {
+        WINDFILE wf;
+        if (g_disc.DirMods().empty()) return wf;
+        const std::filesystem::path path = cane::path(g_disc.DirMods()) / "Sounds" / "rail_sprint.wav";
+        std::error_code ec;
+        WAVINFO info;
+        std::vector<int16_t> a;
+        if (!std::filesystem::is_regular_file(path, ec) || !FLoadWav(cane::utf8(path), info, a) || info.rate <= 0 || a.empty()) return wf;
+        if (info.cch == 2) wf.asample = std::move(a);
+        else if (info.cch == 1)
+            for (int16_t x : a) { wf.asample.push_back(x); wf.asample.push_back(x); }
+        else return wf;
+        wf.rate = info.rate;
+        return wf;
     }();
-    return s_w;
+    return s_wf;
 }
 
-// (never destroyed: no voice of it left for after the audio's shutdown; closed when played out, DrawRailSprintLines)
-CPcmStream& StreamWhoosh() { static CPcmStream* s_p = new CPcmStream; return *s_p; }
+// (never destroyed: no voice of it left for after the audio's shutdown; closed when faded out)
+CPcmStream& StreamWind() { static CPcmStream* s_p = new CPcmStream; return *s_p; }
+WINDGEN s_windgen;
+float s_gWindNow = 0.0f;
 
-void PlayRailWhoosh()
+void UpdateRailWind(bool fOn, float dt)
 {
-    const float g = 0.8f * GSoundUserEffects();
-    if (g <= 0.0f) return;
-    const WHOOSH& w = WhooshRail();
+    s_gWindNow = std::clamp(s_gWindNow + (fOn ? dt / 0.35f : -dt / 0.5f), 0.0f, 1.0f);
     std::lock_guard<std::recursive_mutex> lock(g_mtxSound);
-    CPcmStream& stream = StreamWhoosh();
-    if (!stream.FOpen(w.cch, w.rate)) return;   // (again from the start: an earlier one cut)
+    CPcmStream& stream = StreamWind();
+    if (s_gWindNow <= 0.0f)
+    {
+        if (stream.FIsOpen()) stream.Close();
+        return;
+    }
+    WINDFILE& wf = WindFile();
+    const int rate = wf.rate > 0 ? wf.rate : kRateWind;
+    if (!stream.FIsOpen())
+    {
+        if (!stream.FOpen(2, rate)) return;
+        stream.Start();
+    }
+    // 0.1 s buffers, three ahead
+    const int cframe = rate / 10;
+    std::vector<int16_t> a(size_t(cframe) * 2);
+    while (stream.CBufferQueued() < 3)
+    {
+        if (wf.rate > 0)
+        {
+            const size_t cf = wf.asample.size() / 2;
+            for (int i = 0; i < cframe; ++i, wf.iframe = (wf.iframe + 1) % cf)
+            {
+                a[size_t(i) * 2] = wf.asample[wf.iframe * 2];
+                a[size_t(i) * 2 + 1] = wf.asample[wf.iframe * 2 + 1];
+            }
+        }
+        else s_windgen.Fill(a.data(), cframe);
+        if (!stream.FPush(a.data(), size_t(cframe))) break;
+    }
+    // (eased: a soft start and end)
+    const float g = gWind * GSoundUserEffects() * s_gWindNow * s_gWindNow * (3.0f - 2.0f * s_gWindNow);
     stream.SetLevels(g, g);
-    stream.FPush(w.asample.data(), w.asample.size() / size_t(w.cch), true);
-    stream.Start();
 }
 
 // The main Sly as the current player (not a PC Extras guest's moves)
@@ -162,9 +193,8 @@ bool FSilentSprint(ACTOR* pa) { return PslyPlaying(pa) && FPowerupOwned(kItemSil
 float RRailSprint(ACTOR* pa, const PADCTL* pc)
 {
     if (!pc || !(pc->grfbtn & BTN_R1) || !PslyPlaying(pa) || !FPowerupOwned(kItemRailSprint)) return 1.0f;
-    // (called while Sly runs along the rope: a start after a break of 0.4 s whooshes)
-    if (g_clock.tReal - s_tRealRail > 0.4f) PlayRailWhoosh();
-    s_tRealRail = g_clock.tReal;
+    s_tRealRail = g_clock.tReal;   // (while Sly runs along the rope: the wind and its lines, DrawRailSprintLines)
+    s_paRail = pa;
     return kRailSprint;
 }
 
@@ -235,44 +265,88 @@ void DrawSprintGhosts(const SCENE& scene, const CAMERA& cam)
     RenderGhostPoses(scene, cam, adraw);
 }
 
+// The wind's lines: thin, faint streaks of air round Sly, following him: each born a little ahead of him at his side,
+// above or below, sliding back past him along his way and fading in and out over ~0.4 s (in his frame: they go where
+// he goes)
+struct WINDLINE { glm::vec2 off{0.0f}; float along = 0.0f, v = 0.0f, len = 0.0f, w = 1.0f, t = 0.0f, life = 0.0f, a = 0.0f; };
+std::vector<WINDLINE> s_aline;
+float s_tSpawnLine = 0.0f;
+std::minstd_rand s_rngLine(99);
+glm::vec3 s_posRailLast(0.0f), s_dirRail(1.0f, 0.0f, 0.0f);
+float s_tPosRail = -1e9f;
+
+// the canvas point of a world point; false behind the camera
+bool FCanvasOfWorld(const glm::vec3& pos, glm::vec2* pc)
+{
+    const glm::vec3 sc = ConvertCmWorldToScreen(&g_cm, pos);
+    if (sc.z <= 1.0f) return false;
+    *pc = glm::vec2(((sc.x - g_display.uiOffset.x) / g_display.uiScale.x + 1.0f) * 320.0f,
+                    (1.0f - (sc.y - g_display.uiOffset.y) / g_display.uiScale.y) * 224.0f);
+    return true;
+}
+
 void DrawRailSprintLines(int width, int height)
 {
-    // the strength: up in 0.15 s while running, down in 0.3 s after
     const float tReal = g_clock.tReal;
     const float dt = std::clamp(tReal - s_tRealLinesLast, 0.0f, 0.1f);
     s_tRealLinesLast = tReal;
-    {
-        std::lock_guard<std::recursive_mutex> lock(g_mtxSound);
-        if (CPcmStream& stream = StreamWhoosh(); stream.FIsOpen() && stream.CBufferQueued() == 0) stream.Close();
-    }
     const bool fOn = tReal - s_tRealRail < 0.12f;
-    s_uRailLines = std::clamp(s_uRailLines + (fOn ? dt / 0.15f : -dt / 0.3f), 0.0f, 1.0f);
-    if (s_uRailLines <= 0.0f) return;
-    if (static const bool s_fOff = [] { const char* sz = std::getenv("SLY2N_RAILLINES"); return sz && sz[0] == '0'; }(); s_fOff) return;
+    UpdateRailWind(fOn, dt);
+    s_uRailLines = std::clamp(s_uRailLines + (fOn ? dt / 0.25f : -dt / 0.4f), 0.0f, 1.0f);
 
-    // the picture's canvas range (wider than 640 on a wide picture)
-    const glm::vec2 s = g_display.uiScale;
-    const float hx = 320.0f / s.x, hy = 224.0f / s.y;
-    const glm::vec2 c(320.0f, 224.0f);
-    // new lines 20 times a second (a comic's flicker), the same within a step
-    std::minstd_rand rng(uint32_t(tReal * 20.0f) * 2654435761u + 7u);
-    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
-    g_hud.Begin();
-    constexpr int cLine = 26;
-    for (int i = 0; i < cLine; ++i)
+    // Sly's place and his way along the rope (from his movement; kept while he stands)
+    SLY* psly = s_paRail ? PslyPlaying(s_paRail) : nullptr;
+    if (!psly) { s_aline.clear(); return; }
+    const glm::vec3 pos = PosAloCenter(s_paRail->palo);
+    if (const float dtPos = g_clock.t - s_tPosRail; dtPos > 0.0f)
     {
-        // spread round the picture, each in its own sector, jittered
-        const float rad = (float(i) + u01(rng)) / float(cLine) * 6.2831853f;
-        const glm::vec2 d(std::cos(rad), std::sin(rad));
-        // from inside the picture's edge out past it (rEdge: where this direction meets the edge), shorter as they
-        // come and go
-        const float rEdge = 1.0f / std::max(std::abs(d.x), std::abs(d.y));
-        const float r0 = rEdge * (0.62f + 0.22f * u01(rng) + (1.0f - s_uRailLines) * 0.3f);
-        const glm::vec2 a = c + glm::vec2(d.x * hx, d.y * hy) * r0;
-        const glm::vec2 b = c + glm::vec2(d.x * hx, d.y * hy) * (rEdge * 1.08f);
-        const float w = 0.8f + 1.8f * u01(rng);
-        const float alpha = (34.0f + 40.0f * u01(rng)) * s_uRailLines;
-        g_hud.FillScreenLine(a, b, w, glm::vec4(128, 128, 128, alpha), 0.5f);
+        const glm::vec3 d = pos - s_posRailLast;
+        if (dtPos < 0.25f && glm::length(d) > 0.5f) s_dirRail = glm::normalize(glm::mix(s_dirRail, glm::normalize(d), 0.35f));
+        s_posRailLast = pos;
+        s_tPosRail = g_clock.t;
+    }
+    const glm::vec3 dir = s_dirRail;
+    glm::vec3 side = glm::cross(dir, glm::vec3(0.0f, 0.0f, 1.0f));
+    side = glm::length(side) > 0.1f ? glm::normalize(side) : glm::vec3(1.0f, 0.0f, 0.0f);
+    const glm::vec3 up = glm::normalize(glm::cross(side, dir));
+
+    std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+    // new streaks while it runs: about 14 a second
+    if (fOn && !(std::getenv("SLY2N_RAILLINES") && std::getenv("SLY2N_RAILLINES")[0] == '0'))
+    {
+        s_tSpawnLine -= dt;
+        while (s_tSpawnLine <= 0.0f)
+        {
+            s_tSpawnLine += 0.045f + 0.05f * u01(s_rngLine);
+            WINDLINE l;
+            // round him, off his body: 45 to 95 out, from his side, above, below
+            const float rad = u01(s_rngLine) * 6.2831853f, r = 45.0f + 50.0f * u01(s_rngLine);
+            l.off = glm::vec2(std::cos(rad) * r, std::sin(rad) * r * 0.9f);
+            l.along = 40.0f + 60.0f * u01(s_rngLine);    // (ahead of him)
+            l.v = 380.0f + 220.0f * u01(s_rngLine);      // (sliding back past him)
+            l.len = 45.0f + 55.0f * u01(s_rngLine);
+            l.w = 0.8f + 0.7f * u01(s_rngLine);
+            l.life = 0.32f + 0.18f * u01(s_rngLine);
+            l.a = 0.6f + 0.4f * u01(s_rngLine);
+            s_aline.push_back(l);
+        }
+    }
+    for (WINDLINE& l : s_aline) { l.t += dt; l.along -= l.v * dt; }
+    s_aline.erase(std::remove_if(s_aline.begin(), s_aline.end(), [](const WINDLINE& l) { return l.t >= l.life; }), s_aline.end());
+    if (s_aline.empty() || s_uRailLines <= 0.0f) return;
+
+    g_hud.Begin();
+    for (const WINDLINE& l : s_aline)
+    {
+        const glm::vec3 base = pos + side * l.off.x + up * l.off.y;
+        const glm::vec3 p0 = base + dir * l.along, p1 = base + dir * (l.along - l.len);
+        glm::vec2 a, b;
+        if (!FCanvasOfWorld(p0, &a) || !FCanvasOfWorld(p1, &b)) continue;
+        const float fade = std::sin(3.14159265f * (l.t / l.life));
+        // (a soft line: a faint wide one under a thinner, a little brighter)
+        const float alpha = l.a * fade * s_uRailLines;
+        g_hud.FillScreenLine(a, b, l.w * 2.2f, glm::vec4(118, 124, 128, 12.0f * alpha), 0.5f);
+        g_hud.FillScreenLine(a, b, l.w, glm::vec4(122, 126, 128, 34.0f * alpha), 0.5f);
     }
     g_hud.Flush(width, height);
 }

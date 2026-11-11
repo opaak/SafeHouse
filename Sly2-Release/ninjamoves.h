@@ -8,8 +8,8 @@
 //     sprinting a snapshot of his pose, drawn for 0.3 s after as a dark translucent silhouette fading out
 //     (render.h RenderGhostPoses: over the 3D picture, behind what is in front of it, each silhouette once per pixel).
 //   - Rail Sprint (ThiefNet's in Sly 4): R1 held walking a rope or rail (the interaction kind 3) runs it 1.75 times as
-//     fast. It shows: comic speed lines streak in from the picture's edges while it lasts, and a whoosh sounds as it
-//     starts (made here, filtered noise sweeping past left to right; the Mods folder's Sounds/rail_sprint.wav
+//     fast. It shows: thin, faint streaks of air round Sly, following him and sliding back past him, and a soft
+//     wind sounds, faded in and out with it (made as it plays; the Mods folder's Sounds/rail_sprint.wav, looped,
 //     replaces it).
 //   - Climbing Cobra (Salim al-Kupar's): R1 held on a pole or pipe (Sly's state 8) climbs it 1.8 times as fast.
 //
@@ -32,5 +32,5 @@ float RClimbCobra(ACTOR* pa, const PADCTL* pc);
 // after it (before the image passes and the HUD).
 void UpdateSprintGhosts(const SCENE& scene);
 void DrawSprintGhosts(const SCENE& scene, const CAMERA& cam);
-// Rail Sprint's speed lines (game.cpp): over the 3D picture, under the HUD.
+// Rail Sprint's wind streaks round Sly and its wind (game.cpp): over the 3D picture, under the HUD.
 void DrawRailSprintLines(int width, int height);
