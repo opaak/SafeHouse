@@ -2002,6 +2002,7 @@ int RunGame(const GAMEOPTS& go)
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;
                 DrawLeapDragonHud(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Leaping Dragon's target, leapdragon.h)
                 DrawRaccoonusHud(g_gl.renderWidth, g_gl.renderHeight);    // (PC: the Thievius Raccoonus, raccoonus.h)
+                DrawGadgetPagesHud(g_gl.renderWidth, g_gl.renderHeight);  // (PC: the gadget menu's pages, shop.h)
                 RenderSceneForeground(scene, cam, opts);   // kinds 22..25 over the HUD (group 10, 0x157CF0)
                 DrawDebugOverlay(g_gl.renderWidth, g_gl.renderHeight);   // (debugmenu.h: the debug menu over all; Debug keys only)
                 g_gl.RememberOverlaySourceFrame();

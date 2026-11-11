@@ -83,6 +83,20 @@ const char* SzPcItemDesc(int id) { const PCITEM* p = PitemOf(id); return p ? p->
 int NPcItemUse(int id) { const PCITEM* p = PitemOf(id); return p ? p->use : -1; }
 int NPcItemPower(int id) { const PCITEM* p = PitemOf(id); return p ? p->power : 0; }
 bool FPcItemSold(int id) { const PCITEM* p = PitemOf(id); return p && p->fSold; }
+const char* SzPcItemIcon(int id)
+{
+    switch (id)
+    {
+    case kItemLeapingDragon: return "leaping_dragon";
+    case kItemSilentSprint: return "silent_sprint";
+    case kItemRailSprint: return "rail_sprint";
+    case kItemClimbingCobra: return "climbing_cobra";
+    case kItemMeterRechargerSly:
+    case kItemMeterRechargerBentley:
+    case kItemMeterRechargerMurray: return "meter_recharger";
+    default: return nullptr;
+    }
+}
 
 int IdPcSlot(int ichar, int j)
 {

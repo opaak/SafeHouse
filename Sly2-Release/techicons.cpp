@@ -11,6 +11,7 @@
 #include "techicon_silent_sprint.h"
 #include "techicon_rail_sprint.h"
 #include "techicon_climbing_cobra.h"
+#include "techicon_meter_recharger.h"
 
 // (stb_image's functions compiled into this file, static: as texmod.cpp and qolview.cpp, so no clash)
 #define STB_IMAGE_STATIC
@@ -34,6 +35,7 @@ const BUILTIN s_abuiltin[] = {
     {"silent_sprint", techicon_silent_sprint_png, sizeof(techicon_silent_sprint_png)},
     {"rail_sprint", techicon_rail_sprint_png, sizeof(techicon_rail_sprint_png)},
     {"climbing_cobra", techicon_climbing_cobra_png, sizeof(techicon_climbing_cobra_png)},
+    {"meter_recharger", techicon_meter_recharger_png, sizeof(techicon_meter_recharger_png)},
 };
 
 std::map<std::string, unsigned> s_mptex;   // (0: tried, none)

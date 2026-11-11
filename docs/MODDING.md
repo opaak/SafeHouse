@@ -133,8 +133,8 @@ animated (multi-frame) textures and in particles.
 
 ### Technique icons
 
-The Thievius Raccoonus techniques (ThiefNet's Thievius Raccoonus page, their training and messages) have icons that
-can be replaced: a PNG in `Mods/Icons/` named after the technique replaces the built-in one.
+The Thievius Raccoonus techniques (ThiefNet's Thievius Raccoonus page, their training and messages, the gadget menu's
+Ancestor Techniques page) and the extra gadgets (the gadget menu's Extra Gadgets page) have icons that can be replaced: a PNG in `Mods/Icons/` named after the technique replaces the built-in one.
 
 | File | Technique |
 | --- | --- |
@@ -142,6 +142,7 @@ can be replaced: a PNG in `Mods/Icons/` named after the technique replaces the b
 | `Mods/Icons/silent_sprint.png` | Silent Sprint |
 | `Mods/Icons/rail_sprint.png` | Rail Sprint |
 | `Mods/Icons/climbing_cobra.png` | Climbing Cobra |
+| `Mods/Icons/meter_recharger.png` | Meter Recharger (the extra gadgets' page) |
 
 Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
 restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.

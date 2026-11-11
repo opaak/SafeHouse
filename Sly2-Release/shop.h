@@ -25,12 +25,20 @@ void OpenGadgetMenu(SW* psw, LO* ploPlayer);
 void SetGadgetMenu(int s);           // orig 0x001DB520: -1 closed, 0 Sly, 1 Bentley, 2 Murray
 void UpdateGadgetMenu(SW* psw, LO* ploPlayer);   // orig 0x001DAA90
 bool FGadgetMenuShown();
-int IGadgetMenuPage();               // (PC) -1 closed, 0 the grid, 1 the purchased listed, 2 Sly's ancestor techniques
+int IGadgetMenuPage();               // (PC) -1 closed, 0 the grid, 1 the extra gadgets, 2 Sly's ancestor techniques
 int IGadgetMenuChar();               // (PC) -1 closed, 0 Sly, 1 Bentley, 2 Murray
-// (PC) the gadget menu's purchased page (raccoonus.cpp draws it): the owned powerups' names, texts (description and
-// use, with their button if on one: the grid's own text) and slots (-1 none), and the row selected
-struct GADGETTEXT { std::string strName, strText; int islot = -1; };
-std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel);
+// (PC) the gadget menu's pages after the grid (gadgetpages.cpp draws their icons and title in the grid's frame; their
+// description is the frame's own text): page 1 the extra gadgets, page 2 Sly's ancestor techniques
+constexpr int kPageCols = 4;   // (entries in a row)
+struct GADGETPAGEENT { int id = -1; bool fOwned = false; const char* szIcon = nullptr; int islot = -1; };
+std::vector<GADGETPAGEENT> AgpeGadgetPage();
+int IselGadgetPage();               // -1: none
+std::string StrGadgetPageTitle();
+std::string StrGadgetPageText();
+int CGadgetPages();
+void SetGadgetPage(int page);
+// their icons and title over the grid's frame, and the hint to the next page (game.cpp, after the HUD)
+void DrawGadgetPagesHud(int width, int height);
 std::string StrGadgetScript(int id); // 0x37A / 0x37B
 struct FONTBRX;
 void DrawGadgetIcons(const FONTBRX* pfont, const FONTBRX* picons);   // orig 0x001DAC58 (with the screen objects)

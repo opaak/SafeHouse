@@ -48,6 +48,8 @@ const char* SzPcItemDesc(int id);
 int NPcItemUse(int id);
 int NPcItemPower(int id);
 bool FPcItemSold(int id);
+// its icon's key (techicons.h: built in, or the Mods folder's Icons/<key>.png); null: none
+const char* SzPcItemIcon(int id);
 // A PC item on a button: kept here, not in the original's record (its "<character> apukCur <j>" holds -1 there, so a
 // save stays a PS2 one): ichar 0 Sly, 1 Bentley, 2 Murray; j 0 L1, 1 L2, 2 R2; -1 none.
 int IdPcSlot(int ichar, int j);

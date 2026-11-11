@@ -497,6 +497,7 @@ extern int g_frameJoy;   // (joy.cpp: the step)
 namespace
 {
 struct GADGETENT { int key, idOpen, idOwned, idSel, cur; float x, y; uint32_t grf; };
+
 struct GADGETMENU
 {
     SW* psw = nullptr;
@@ -509,10 +510,11 @@ struct GADGETMENU
     int ichar = -1;      // +0x40
     int key = -1;        // +0x48 the powerup selected
     std::vector<GADGETENT> aent;   // +0x4C / +0x50 (0x2C2DE8 / 0x2C3028 / 0x2C3148)
-    int page = 0;        // (PC: square steps through the pages: 0 the grid, 1 the purchased ones listed, 2 Sly's ancestor
-                         // techniques; raccoonus.cpp draws 1 and 2)
-    int iown = 0;        // (PC: page 1's selected row)
-    int dirOwn = 0;      // (PC: page 1's stick, held)
+    int page = 0;        // (PC: the pages, the grid's look kept: 0 the grid, 1 the extra gadgets, 2 Sly's ancestor
+                         // techniques; square, or left / right past a page's end, steps through them; gadgetpages.cpp
+                         // draws 1 and 2's icons and title over the screen object, its description the page's)
+    int isel = 0;        // (PC: pages 1 and 2's selected entry)
+    int dirPage = 0;     // (PC: pages 1 and 2's stick / d-pad, held)
 };
 GADGETMENU s_gm;
 const char* const s_aszChar[3] = {"sly", "bentley", "murray"};
@@ -607,9 +609,15 @@ void StepGadget(int dir, float x, float y)
     GADGETMENU& p = s_gm;
     if (dir == p.dir) return;
     p.dir = dir;
-    if (dir == -1 || p.key == -1) return;
-    const GADGETENT* pcur = PgeFind(p.key);
-    if (!pcur) return;
+    if (dir == -1) return;
+    const GADGETENT* pcur = p.key == -1 ? nullptr : PgeFind(p.key);
+    if (!pcur)
+    {
+        // (PC: nothing owned to step from: left / right go to the pages)
+        if (dir == 0) SetGadgetPage(p.page + 1);
+        else if (dir == 4) SetGadgetPage(p.page - 1);
+        return;
+    }
     const glm::vec2 p0(pcur->x, pcur->y);
     glm::vec2 d(x, -y);
     if (glm::length(d) < 1e-6f) return;
@@ -632,6 +640,9 @@ void StepGadget(int dir, float x, float y)
         SelectGadget(keyBest);
         PsndStartSound(0x35);  // (0x1DB0C8)
     }
+    // (PC) none further right / left: the next / previous page
+    else if (dir == 0) SetGadgetPage(p.page + 1);
+    else if (dir == 4) SetGadgetPage(p.page - 1);
 }
 }  // namespace
 
@@ -646,7 +657,7 @@ void SetGadgetMenu(int s)
     switch (s)
     {
     case -1:
-        if (p.plo && p.page == 0) HideScreenObj(p.plo);   // (on the techniques page: hidden already)
+        if (p.plo) HideScreenObj(p.plo);
         p.page = 0;
         for (GADGETENT& e : p.aent) e.cur = -1;
         p.aent.clear();
@@ -692,6 +703,36 @@ bool FGadgetMenuShown() { return s_gm.ichar != -1; }
 int IGadgetMenuPage() { return s_gm.ichar == -1 ? -1 : s_gm.page; }
 int IGadgetMenuChar() { return s_gm.ichar; }
 
+// (PC) the gadget menu's pages
+int CGadgetPages() { return s_gm.ichar == 0 ? 3 : 2; }
+void SetGadgetPage(int page)
+{
+    GADGETMENU& p = s_gm;
+    if (p.ichar == -1 || !p.plo) return;
+    page = (page % CGadgetPages() + CGadgetPages()) % CGadgetPages();
+    if (page == p.page) return;
+    if (p.page == 0)
+    {
+        // (leaving the grid: its entries' parts let go, the frame kept; DrawGadgetIcons draws nothing off it)
+        for (GADGETENT& e : p.aent)
+        {
+            if (e.cur != -1) ResetScreenObjPart(p.plo, e.cur);
+            e.cur = -1;
+        }
+    }
+    p.page = page;
+    if (page == 0)
+    {
+        // (back on the grid: every entry's part chosen again, the selection's too)
+        for (GADGETENT& e : p.aent) e.cur = -1;
+        SelectGadget(p.key);
+    }
+    else p.isel = 0;
+    p.dirPage = 0;
+    SetGmMsg(-1, -1);
+    PsndStartSound(0x35);
+}
+
 // orig 0x001DB490 (the player's Select): the menu of the current character
 void OpenGadgetMenu(SW* psw, LO* ploPlayer)
 {
@@ -702,8 +743,6 @@ void OpenGadgetMenu(SW* psw, LO* ploPlayer)
     else if (FCidDerivedFrom(cid, 0x37)) SetGadgetMenu(1);
     else if (FCidDerivedFrom(cid, 0x36)) SetGadgetMenu(2);
 }
-
-std::vector<int> AkeyGadgetsOwned();   // (below)
 
 // orig 0x001DAA90
 void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
@@ -717,55 +756,49 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
     if (!fAssign && p.msg != 0 && GrfbtnTakePressed(BtnMenuBack())) { SetGadgetMenu(-1); return; }
     if (!ploPlayer || !FCidDerivedFrom(ploPlayer->Cid(), 0x34)) { SetGadgetMenu(-1); return; }
     UpdateGadgetFlags();
-    // (PC) Sly's ancestor techniques: square switches to their page (the grid's screen object hidden, as on closing;
-    // raccoonus.cpp draws the page) and back; nothing else is done there but closing
-    // (PC) square steps to the next page: the purchased ones listed with their texts, then (Sly) his ancestor techniques,
-    // then the grid again (its screen object hidden on the others, as on closing; raccoonus.cpp draws them)
-    if (!fAssign && GrfbtnTakePressed(0x80))
+    // (PC) square steps to the next page (the extra gadgets, then Sly's ancestor techniques, then the grid again)
+    if (!fAssign && GrfbtnTakePressed(0x80)) SetGadgetPage(p.page + 1);
+    if (p.page != 0)
     {
-        const int cpage = p.ichar == 0 ? 3 : 2;
-        const int pageOld = p.page;
-        p.page = (p.page + 1) % cpage;
-        if (pageOld == 0) HideScreenObj(p.plo);
-        if (p.page == 0) ShowScreenObj(p.plo, 0x318);
-        if (p.page == 1) p.iown = 0;
-        if (p.page != 0) NoteTechniquesPageShown();
-        SetGmMsg(-1, -1);
-        PsndStartSound(0x35);
-    }
-    if (p.page == 1)
-    {
-        // up / down (d-pad or stick) through the purchased ones
+        // the pages' entries: left / right (d-pad or stick) step through them, past the first / last to the page
+        // before / after; up / down a row (gadgetpages.cpp's rows of kPageCols)
+        const std::vector<GADGETPAGEENT> aent = AgpeGadgetPage();
         const uint32_t grf = GrfbtnHeld();
-        float y = g_joy.yLeft;
+        float x = g_joy.xLeft, y = g_joy.yLeft;
         if (grf & 0x1000) y = 1;
         if (grf & 0x4000) y = -1;
-        const int dir = y > 0.7f ? -1 : y < -0.7f ? 1 : 0;
-        if (dir != 0 && dir != p.dirOwn)
+        if (grf & 0x8000) x = -1;
+        if (grf & 0x2000) x = 1;
+        int dir = 0;   // 1 right, 2 left, 3 up, 4 down
+        if (std::fabs(x) > 0.8f && std::fabs(x) >= std::fabs(y)) dir = x > 0 ? 1 : 2;
+        else if (std::fabs(y) > 0.8f) dir = y > 0 ? 3 : 4;
+        if (!fAssign && dir != 0 && p.dirPage == 0)
         {
-            const int c = int(AkeyGadgetsOwned().size());
-            if (c > 0)
-            {
-                const int i = std::clamp(p.iown + dir, 0, c - 1);
-                if (i != p.iown) { p.iown = i; PsndStartSound(0x35); }
-            }
+            const int c = int(aent.size());
+            const int i = p.isel;
+            if (dir == 1) { if (i + 1 < c) { p.isel = i + 1; PsndStartSound(0x35); } else SetGadgetPage(p.page + 1); }
+            else if (dir == 2) { if (i > 0 && c > 0) { p.isel = i - 1; PsndStartSound(0x35); } else SetGadgetPage(p.page - 1); }
+            else if (dir == 3 && i - kPageCols >= 0) { p.isel = i - kPageCols; PsndStartSound(0x35); }
+            else if (dir == 4 && i + kPageCols < c) { p.isel = i + kPageCols; PsndStartSound(0x35); }
         }
-        if (std::fabs(y) < 0.4f) p.dirOwn = 0;
-        else if (dir != 0) p.dirOwn = dir;
-        // L1 / L2 / R2 put the selected one on that button, as the grid does (the extra powerups, extrapowerups.h,
-        // are only here: the grid has no room for them)
-        static const uint32_t s_agrfSlotOwn[3] = {4, 1, 2};   // (0x2C3258: L1, L2, R2)
+        if (std::sqrt(x * x + y * y) < 0.5f) p.dirPage = 0;
+        else if (dir != 0) p.dirPage = dir;
+        if (p.page == 0) return;   // (stepped back onto the grid)
+        // L1 / L2 / R2 put the selected one on that button, as the grid does: an owned extra gadget (extrapowerups.h);
+        // the techniques are always on
+        static const uint32_t s_agrfSlotPage[3] = {4, 1, 2};   // (0x2C3258: L1, L2, R2)
+        const GADGETPAGEENT* pe = p.isel >= 0 && p.isel < int(aent.size()) ? &aent[size_t(p.isel)] : nullptr;
         for (int i = 0; i < 3; ++i)
         {
-            if (!GrfbtnTakePressed(s_agrfSlotOwn[i])) continue;
-            const std::vector<int> akey = AkeyGadgetsOwned();
-            if (akey.empty()) continue;
-            const int key = akey[size_t(std::clamp(p.iown, 0, int(akey.size()) - 1))];
-            if (!FGadgetAssignable(key)) SetGmMsg(1, 0x33);
-            else AssignGadget(ploPlayer, i, key);
+            if (!GrfbtnTakePressed(s_agrfSlotPage[i])) continue;
+            if (!pe || !pe->fOwned) SetGmMsg(1, 0x32);
+            else if (!FGadgetAssignable(pe->id)) SetGmMsg(1, 0x33);
+            else AssignGadget(ploPlayer, i, pe->id);
         }
+        if (!fAssign && GrfbtnTakePressed(0x7E8 & ~0x80u))
+            SetGmMsg(1, pe && pe->fOwned && FGadgetAssignable(pe->id) ? 0x31 : 0xE2);
+        return;
     }
-    if (p.page != 0) return;
     // orig 0x001DA858 with the d-pad as the stick
     if (!fAssign) {
         float x = g_joy.xLeft, y = g_joy.yLeft;
@@ -851,51 +884,76 @@ std::string StrGadgetScript(int id)
     if ((id != 0x37A && id != 0x37B) || s_gm.ichar == -1) return "";
     const SW* psw = s_gm.psw;
     if (s_gm.msg != -1) return StrLocalized(psw, IdText(s_gm.idMsg));   // (USA ids: 0x31..0x33, 0xE2)
+    if (s_gm.page != 0) return StrGadgetPageText();   // (PC: the pages' selected entry)
     if (s_gm.key == -1) return StrLocalized(psw, IdText(0xDD));
     return StrGadgetText(s_gm.key);
 }
 
-// (PC) the gadget menu's purchased page: the character's owned powerups in the grid's order (top to bottom, left to
-// right), their names and texts, and the row selected
-std::vector<int> AkeyGadgetsOwned()
+// (PC) the gadget menu's pages' entries: page 1 the character's extra gadgets sold in ThiefNet (extrapowerups.h, in
+// ThiefNet's order; owned or not), page 2 Sly's ancestor techniques (raccoonus.h; learned or not)
+std::vector<GADGETPAGEENT> AgpeGadgetPage()
 {
-    std::vector<const GADGETENT*> ap;
-    for (const GADGETENT& e : s_gm.aent)
-        if ((e.grf & 4) && ItemName(e.key) != -1) ap.push_back(&e);
-    std::stable_sort(ap.begin(), ap.end(), [](const GADGETENT* a, const GADGETENT* b) {
-        if (std::fabs(a->y - b->y) > 20.0f) return a->y < b->y;
-        return a->x < b->x;
-    });
-    std::vector<int> akey;
-    for (const GADGETENT* pe : ap) akey.push_back(pe->key);
-    // (PC) then the character's extra powerups owned (extrapowerups.h), in ThiefNet's order; the techniques are on
-    // Sly's own page
-    static const int s_akind[3] = {7, 9, 8};   // (pcprogress.h: 7 Sly, 9 Bentley, 8 Murray)
-    for (int k = 0; k < CPcItems(); ++k)
+    std::vector<GADGETPAGEENT> a;
+    const GADGETMENU& p = s_gm;
+    if (p.ichar == -1) return a;
+    if (p.page == 1)
     {
-        const int id = IdPcItem(k);
-        if (FPcItemSold(id) && NPcItemKind(id) == s_akind[s_gm.ichar] && FPcItemOwned(id)) akey.push_back(id);
+        static const int s_akind[3] = {7, 9, 8};   // (pcprogress.h: 7 Sly, 9 Bentley, 8 Murray)
+        for (int k = 0; k < CPcItems(); ++k)
+        {
+            const int id = IdPcItem(k);
+            if (!FPcItemSold(id) || NPcItemKind(id) != s_akind[p.ichar]) continue;
+            GADGETPAGEENT e;
+            e.id = id;
+            e.fOwned = FPcItemOwned(id);
+            e.szIcon = SzPcItemIcon(id);
+            e.islot = e.fOwned ? IslotAssigned(id) : -1;
+            a.push_back(e);
+        }
     }
-    return akey;
+    else if (p.page == 2)
+        for (int i = 0; i < CRaccoonusPages(); ++i)
+        {
+            GADGETPAGEENT e;
+            e.id = RacPage(i).item;
+            e.fOwned = FRaccoonusPageLearned(i);
+            e.szIcon = RacPage(i).szIcon;
+            a.push_back(e);
+        }
+    return a;
 }
 
-std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel)
+int IselGadgetPage()
 {
-    std::vector<GADGETTEXT> agt;
-    if (s_gm.ichar == -1) return agt;
-    for (int key : AkeyGadgetsOwned())
+    const int c = int(AgpeGadgetPage().size());
+    return c == 0 ? -1 : std::clamp(s_gm.isel, 0, c - 1);
+}
+
+std::string StrGadgetPageTitle()
+{
+    return s_gm.page == 1 ? "Extra Gadgets" : s_gm.page == 2 ? "Ancestor Techniques" : "";
+}
+
+// the selected entry's text, as the grid's (name: description. use.)
+std::string StrGadgetPageText()
+{
+    const GADGETMENU& p = s_gm;
+    const std::vector<GADGETPAGEENT> a = AgpeGadgetPage();
+    const int i = IselGadgetPage();
+    if (i < 0)
+        return p.page == 1 ? "Gadgets from Sly 3 and Sly 4 will be sold on ThiefNet: there are none for this character yet." : "";
+    const GADGETPAGEENT& e = a[size_t(i)];
+    if (p.page == 1)
     {
-        GADGETTEXT gt;
-        gt.strName = StrItemName(s_gm.psw, key);
-        gt.strText = StrGadgetText(key);
-        // (the text without its name in front: the page shows the name apart)
-        if (gt.strText.rfind(gt.strName + ": ", 0) == 0) gt.strText.erase(0, gt.strName.size() + 2);
-        else if (gt.strText.rfind(gt.strName + ". ", 0) == 0) gt.strText.erase(0, gt.strName.size() + 2);
-        gt.islot = IslotAssigned(key);
-        agt.push_back(gt);
+        if (e.fOwned) return StrGadgetText(e.id);
+        return std::string(SzPcItemName(e.id)) + ": " + SzPcItemDesc(e.id) + ". Not bought yet: on ThiefNet from Episode " +
+               std::to_string(NPcItemEpisode(e.id)) + ".";
     }
-    if (pisel) *pisel = agt.empty() ? -1 : std::clamp(s_gm.iown, 0, int(agt.size()) - 1);
-    return agt;
+    const RACPAGE& r = RacPage(i);
+    if (e.fOwned) return std::string(r.szTechnique) + " (" + r.szAncestor + "): " + r.szHow + ". Always on.";
+    if (FRaccoonusPageFound(i))
+        return std::string(r.szTechnique) + " (" + r.szAncestor + "): its page is found. Train it on ThiefNet's Thievius Raccoonus page.";
+    return std::string("? ? ?: a page of the Thievius Raccoonus lies in an Episode ") + std::to_string(r.iep) + " vault.";
 }
 
 // orig 0x001DAC58: on each entry assigned to the player's slot j, that slot's button ("&2L&." L1, "&2l&." L2,
@@ -903,7 +961,7 @@ std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel)
 // colour 0x80808080, left / top (0x2163B0 at priority 0x13)
 void DrawGadgetIcons(const FONTBRX* pfont, const FONTBRX* picons)
 {
-    if (!pfont || s_gm.ichar < 0 || !s_gm.plo || !FScreenObjVisible(s_gm.plo)) return;
+    if (!pfont || s_gm.ichar < 0 || !s_gm.plo || !FScreenObjVisible(s_gm.plo) || s_gm.page != 0) return;   // (PC: the grid's page only)
     static const char* const s_asz[3] = {"&2L&.", "&2l&.", "&2r&."};
     const float size = 0.66f * 51.2f;
     for (const GADGETENT& e : s_gm.aent)
