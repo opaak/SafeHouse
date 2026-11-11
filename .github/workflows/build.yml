@@ -162,10 +162,10 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
+      # Both in the public repository; in a fork x86_64 only, unless the repository variable
+      # SAFEHOUSE_BUILD_WINDOWS_ARM64 is true.
       matrix:
-        include:
-          - { arch: x86_64, toolchain: cmake/mingw-toolchain.cmake, ffmpeg: windows }
-          - { arch: arm64, toolchain: cmake/mingw-toolchain-arm64.cmake, ffmpeg: windows-arm64 }
+        include: ${{ fromJSON((github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_WINDOWS_ARM64 == 'true') && '[{"arch":"x86_64","toolchain":"cmake/mingw-toolchain.cmake","ffmpeg":"windows"},{"arch":"arm64","toolchain":"cmake/mingw-toolchain-arm64.cmake","ffmpeg":"windows-arm64"}]' || '[{"arch":"x86_64","toolchain":"cmake/mingw-toolchain.cmake","ffmpeg":"windows"}]') }}
     timeout-minutes: 120
     env:
       SAFEHOUSE_VERSION: ${{ needs.version.outputs.version }}
@@ -230,9 +230,10 @@ jobs:
           key: ccache-windows-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: ccache-windows-${{ matrix.arch }}-
       - name: Configure
+        # (Sly 3 in the public repository; in a fork only with the repository variable SAFEHOUSE_BUILD_SLY3 true)
         run: >-
           cmake -S . -B build/windows-cross -G Ninja -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }} -DCMAKE_BUILD_TYPE=Release
-          -DCANE_LTO=OFF -DBUILD_TESTING=OFF -DCANE_BUILD_SLY2=ON -DCANE_BUILD_SLY3=ON -DCANE_FFMPEG_ROOT="$RUNNER_TEMP/ffmpeg"
+          -DCANE_LTO=OFF -DBUILD_TESTING=OFF -DCANE_BUILD_SLY2=ON -DCANE_BUILD_SLY3=${{ (github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_SLY3 == 'true') && 'ON' || 'OFF' }} -DCANE_FFMPEG_ROOT="$RUNNER_TEMP/ffmpeg"
           -DCMAKE_C_COMPILER_LAUNCHER="${CANE_CCACHE-ccache}" -DCMAKE_CXX_COMPILER_LAUNCHER="${CANE_CCACHE-ccache}"
           -DSAFEHOUSE_VERSION="$SAFEHOUSE_VERSION" -DSAFEHOUSE_BUILD_DATE="$SAFEHOUSE_BUILD_DATE" -DCANE_GIT_HASH="$CANE_GIT_HASH"
       - name: Build
