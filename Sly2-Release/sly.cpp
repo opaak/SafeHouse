@@ -557,15 +557,18 @@ void UpdateSlySlideInput(SLY* p)
 void UpdateSlyPcWalk(SLY* p)
 {
     float speed = 0.0f;
-    if (p->state == 11 && FPowerupOwned(kItemMovingPickpocket)) speed = 260.0f;
-    else if (p->state == 5 && (p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging)) speed = 330.0f;
+    // (slow, as a careful step: the poses' feet do not walk, so a faster glide looks like skating)
+    if (p->state == 11 && FPowerupOwned(kItemMovingPickpocket)) speed = 130.0f;
+    else if (p->state == 5 && (p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging)) speed = 160.0f;
     if (speed <= 0.0f || g_clock.dt <= 0.0f) return;
-    const float rad = RadJoy(p), u = UJoy(p);
+    const float rad = RadJoy(p);
+    // (a dead zone and a soft start: a light touch of the stick does not slide him)
+    const float u = std::clamp((UJoy(p) - 0.25f) / 0.75f, 0.0f, 1.0f);
     const glm::vec3 v = VelAloPos(p->palo);
     const glm::vec3 wanted(std::cos(rad) * u * speed, std::sin(rad) * u * speed, v.z);
     glm::vec3 acc = (wanted - v) * (1.0f / g_clock.dt);
     acc.z = 0.0f;
-    AccelAloPos(p->palo, cmm::LimitVectorLength(acc, 3000.0f));
+    AccelAloPos(p->palo, cmm::LimitVectorLength(acc, 1200.0f));   // (eased in and out: no sudden glide)
 }
 
 // orig: 0x00188960 (state 24's addition, following the base STEP motion)

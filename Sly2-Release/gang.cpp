@@ -1423,8 +1423,14 @@ void UpdateBentley(LO* plo)
     case 11: UpdateGangScriptAnim(p, true); break;
     case 14:
         // orig: 0x00134DA8 case 14: retain the authored animation speed.
+        // (PC: Sly 4's Adrenaline Burst Plus, pcprogress.h: the run's clip played 1.4 times as fast, once at the state's
+        // start, so the root's velocity and the feet go faster together, no sliding)
+        if (static float s_tFaster = -1.0f; FPowerupOwned(kItemAdrenalineBurstPlus) && p->pasega && s_tFaster != p->tState)
+        {
+            SetAsegaSpeed(p->pasega, p->pasega->svtLocal * 1.4f);
+            s_tFaster = p->tState;
+        }
         p->vecVel = VelActorAnimRoot(p);
-        if (FPowerupOwned(kItemAdrenalineBurstPlus)) p->vecVel *= 1.4f;   // (PC: Sly 4's Adrenaline Burst Plus, pcprogress.h)
         SetStepPhysHeading(p->palo, RadJoy(p));
         break;
     case 4: case 8: case 9: case 12: case 13: break;

@@ -267,11 +267,13 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
         // orig: 0x001B5608..0x001B5644 / 0x00204E38: reverse the current
         // animation-root velocity at its authored time and speed.
         glm::vec4 velocity(0.0f);
+        // (PC: Light as a Feather: the run's clip played 1.3 times as fast, so its root's velocity and the feet go
+        // faster together, no sliding)
+        if(ASEGA* a=p->pasega; fFeather && a && !FAsegaRetracted(a) && a->svtLocal<1.29f) SetAsegaSpeed(a,1.3f);
         if(ASEGA* a=p->pasega; a && !FAsegaRetracted(a))
             if(const ASEGCHN* channel=PchnFindAseg(a->paseg,p->palo,1,true);channel&&channel->ptrkp)
                 channel->ptrkp->Eval(nullptr,&velocity,a->t,a->svt);
         p->vecVel=-glm::vec3(velocity);
-        if(fFeather) p->vecVel*=1.3f;
     }
 }
 

@@ -13,6 +13,7 @@
 #include "lo.h"
 #include "guard.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <unordered_map>
@@ -32,15 +33,28 @@ bool FMeterRechargerReady(int id)
     // (the game clock starts again with a world: a time ahead of it is an earlier world's)
     return it == s_mpidTUsed.end() || g_clock.t < it->second || g_clock.t - it->second >= kTMeterRecharge;
 }
-// passive (UpdatePcPowerupsPassive): the meter run empty fills again at once, if ready
+// passive (UpdatePcPowerupsPassive): the meter run empty fills again, if ready: it rises over kTMeterFill (a slide up, the
+// meter's flash at its start), not at once
+constexpr float kTMeterFill = 0.9f;
+std::unordered_map<int, float> s_mpidTFill;   // the item: when its fill began (g_clock.t); absent: not filling
 void UpdateMeterRecharger(ACTOR* pa, int id)
 {
-    if (!FPowerupOwned(id) || !FMeterRechargerReady(id) || pa->n1300 <= 0 || NActorPower(pa) > 0) return;
-    SetActorPower(pa, pa->n1300);
+    if (!FPowerupOwned(id) || pa->n1300 <= 0) return;
+    if (auto it = s_mpidTFill.find(id); it != s_mpidTFill.end())
+    {
+        // (filling: the power up by its share of the time; done at full, or if the clock went back with a new world)
+        if (g_clock.t < it->second) { s_mpidTFill.erase(it); return; }
+        const int n = std::min(pa->n1300, NActorPower(pa) + std::max(1, int(float(pa->n1300) * g_clock.dt / kTMeterFill + 0.5f)));
+        SetActorPower(pa, n);
+        if (n >= pa->n1300 || g_clock.t - it->second > kTMeterFill * 2.0f) s_mpidTFill.erase(it);
+        return;
+    }
+    if (!FMeterRechargerReady(id) || NActorPower(pa) > 0) return;
+    s_mpidTFill[id] = g_clock.t;
     pa->g1304 = g_clock.t;   // (the meter's flash, as a spend shows it)
     s_mpidTUsed[id] = g_clock.t;
     PsndStartSound(0x29);    // (ThiefNet's purchase sound)
-    if (FPrint()) std::printf("gadget: Meter Recharger %d refilled the meter t %.2f\n", id, g_clock.t);
+    if (FPrint()) std::printf("gadget: Meter Recharger %d refills the meter t %.2f\n", id, g_clock.t);
 }
 
 // ---- the table: an item's handlers (null: none)
