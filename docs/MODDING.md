@@ -143,6 +143,12 @@ Ancestor Techniques page) and the extra gadgets (the gadget menu's Gadget Grid 2
 | `Mods/Icons/rail_sprint.png` | Rail Sprint |
 | `Mods/Icons/climbing_cobra.png` | Climbing Cobra |
 | `Mods/Icons/meter_recharger.png` | Meter Recharger (the extra gadgets' page) |
+| `Mods/Icons/flash_bomb.png` | Flash Bomb |
+| `Mods/Icons/run_while_charging.png` | Run While Charging |
+| `Mods/Icons/moving_pickpocket.png` | Moving Pickpocket |
+| `Mods/Icons/homing_darts.png` | Homing Darts |
+| `Mods/Icons/adrenaline_burst_plus.png` | Adrenaline Burst Plus |
+| `Mods/Icons/light_as_a_feather.png` | Light as a Feather |
 
 Square, 128 to 512 pixels a side (at most 1024), transparent outside the icon. They are read once, when first shown:
 restart the game to see a changed one. The built-in ones and their SVG sources are in the repository's `assets/icons`.

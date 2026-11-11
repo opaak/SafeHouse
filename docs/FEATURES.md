@@ -97,11 +97,20 @@ can be turned off where it changes how the game looks or plays.
   What Sly has learned is kept in a small `saveN.pc` file beside the save slot, so the save itself stays the PS2's
   format.
 - **Extra power-ups from Sly 3 and Sly 4**, sold in ThiefNet after the original ones. They are not on the gadget
-  grid: open the gadget menu (Select), press Square for the purchased list and put the selected one on L1, L2 or R2.
+  grid: open the gadget menu (Select), go to Gadget Grid 2 (left / right past the grid's edge, or Square) and put the
+  selected one on L1, L2 or R2.
   Which buttons hold them is kept in the same `saveN.pc` file, so the PS2 save never holds an id the PS2 game
   doesn't know. So far:
   - **Meter Recharger** (Sly, Bentley and Murray, from Episode 3, 1500 coins each): fills the gadget meter at once,
     then needs 60 s to recharge.
+  - Sly 4's passive upgrades, always on once bought:
+    - **Moving Pickpocket** (Sly, Episode 2, 500): Sly keeps walking while he picks a pocket.
+    - **Run While Charging** (Sly, Episode 2, 700): Sly walks while winding up a charged cane swing.
+    - **Homing Darts** (Bentley, Episode 3, 900): the darts aim at the guard nearest the crosshair.
+    - **Light as a Feather** (Murray, Episode 3, 900): Murray runs with R1 while carrying, 1.3 times as fast.
+    - **Flash Bomb** (Sly, Episode 4, 1400): the Smoke Bomb stuns the guards within reach and keeps the alarm down
+      twice as long.
+    - **Adrenaline Burst Plus** (Bentley, Episode 5, 1400): Adrenaline Burst runs 1.4 times as fast.
 
 ## Mods
 

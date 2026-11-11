@@ -12,6 +12,12 @@
 #include "techicon_rail_sprint.h"
 #include "techicon_climbing_cobra.h"
 #include "techicon_meter_recharger.h"
+#include "techicon_flash_bomb.h"
+#include "techicon_run_while_charging.h"
+#include "techicon_moving_pickpocket.h"
+#include "techicon_homing_darts.h"
+#include "techicon_adrenaline_burst_plus.h"
+#include "techicon_light_as_a_feather.h"
 
 // (stb_image's functions compiled into this file, static: as texmod.cpp and qolview.cpp, so no clash)
 #define STB_IMAGE_STATIC
@@ -36,6 +42,12 @@ const BUILTIN s_abuiltin[] = {
     {"rail_sprint", techicon_rail_sprint_png, sizeof(techicon_rail_sprint_png)},
     {"climbing_cobra", techicon_climbing_cobra_png, sizeof(techicon_climbing_cobra_png)},
     {"meter_recharger", techicon_meter_recharger_png, sizeof(techicon_meter_recharger_png)},
+    {"flash_bomb", techicon_flash_bomb_png, sizeof(techicon_flash_bomb_png)},
+    {"run_while_charging", techicon_run_while_charging_png, sizeof(techicon_run_while_charging_png)},
+    {"moving_pickpocket", techicon_moving_pickpocket_png, sizeof(techicon_moving_pickpocket_png)},
+    {"homing_darts", techicon_homing_darts_png, sizeof(techicon_homing_darts_png)},
+    {"adrenaline_burst_plus", techicon_adrenaline_burst_plus_png, sizeof(techicon_adrenaline_burst_plus_png)},
+    {"light_as_a_feather", techicon_light_as_a_feather_png, sizeof(techicon_light_as_a_feather_png)},
 };
 
 std::map<std::string, unsigned> s_mptex;   // (0: tried, none)

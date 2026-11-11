@@ -40,6 +40,19 @@ const PCITEM s_aitem[] = {
      "From Sly 4. Fills the gadget meter at once. It needs a while to recharge before it can be used again", 2, 0, true},
     {kItemMeterRechargerMurray, "meterRechargerMurray", 8, 1500, 3, "Meter Recharger",
      "From Sly 4. Fills the gadget meter at once. It needs a while to recharge before it can be used again", 2, 0, true},
+    // Sly 4's passive upgrades, in ThiefNet as the story goes on (always on once bought)
+    {kItemMovingPickpocket, "movingPickpocket", 7, 500, 2, "Moving Pickpocket",
+     "From Sly 4. Sly keeps walking while he picks a guard's pocket, so he can follow a guard on its round", -1, 0, true},
+    {kItemRunWhileCharging, "runWhileCharging", 7, 700, 2, "Run While Charging",
+     "From Sly 4. Sly can walk while he winds up a charged cane swing, holding &2S&.", -1, 0, true},
+    {kItemHomingDarts, "homingDarts", 9, 900, 3, "Homing Darts",
+     "From Sly 4. Bentley's darts lock onto the guard nearest the crosshair", -1, 0, true},
+    {kItemLightAsAFeather, "lightAsAFeather", 8, 900, 3, "Light as a Feather",
+     "From Sly 4. Murray can run with &2R&. while he carries something, and runs faster with it", -1, 0, true},
+    {kItemFlashBomb, "flashBomb", 7, 1400, 4, "Flash Bomb",
+     "From Sly 4. The Smoke Bomb also flashes: the guards near it are stunned, and the alarm stays down twice as long", -1, 0, true},
+    {kItemAdrenalineBurstPlus, "adrenalineBurstPlus", 9, 1400, 5, "Adrenaline Burst Plus",
+     "From Sly 4. Adrenaline Burst runs 1.4 times as fast", -1, 0, true},
 };
 
 const PCITEM* PitemOf(int id)
@@ -94,6 +107,12 @@ const char* SzPcItemIcon(int id)
     case kItemMeterRechargerSly:
     case kItemMeterRechargerBentley:
     case kItemMeterRechargerMurray: return "meter_recharger";
+    case kItemFlashBomb: return "flash_bomb";
+    case kItemRunWhileCharging: return "run_while_charging";
+    case kItemMovingPickpocket: return "moving_pickpocket";
+    case kItemHomingDarts: return "homing_darts";
+    case kItemAdrenalineBurstPlus: return "adrenaline_burst_plus";
+    case kItemLightAsAFeather: return "light_as_a_feather";
     default: return nullptr;
     }
 }

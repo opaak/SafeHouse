@@ -467,7 +467,18 @@ bool ReleaseSmokeBomb(ACTOR* pa)
             effect = PloAcquireProxyObject(g_psw, proxy, false);
     if (effect) SetAloParent(static_cast<ALO*>(effect), nullptr, nullptr, 3);
     const int removed = RemoveActorAlarms(pa->palo);
-    SetGuardAlarmResume(g_clock.t + GElf(0x2BCC94));
+    // (PC: Sly 4's Flash Bomb, pcprogress.h: the alarm down twice as long, the guards within 1000 stunned as by the
+    // Guttural Roar's mode 0x15)
+    const bool fFlash = FPowerupOwned(kItemFlashBomb);
+    SetGuardAlarmResume(g_clock.t + GElf(0x2BCC94) * (fFlash ? 2.0f : 1.0f));
+    if (fFlash && g_psw && pa->palo)
+    {
+        const glm::vec3 pos = PosAloCenter(pa->palo);
+        for (const auto& up : g_psw->aploAll)
+            if (LO* plo = up.get(); plo->fInWorld && FCidDerivedFrom(plo->Cid(), 0x38) && FIsLoDerivedFrom(plo, 0x30))
+                if (GUARD* pg = PguardFromLo(plo); pg && glm::distance(PosAloCenter(static_cast<ALO*>(plo)), pos) < 1000.0f)
+                    SetGuardMode(pg, 0x15);
+    }
     pa->pasegAbility = nullptr;
     pa->n9BC = -1;
     if (FPrint())

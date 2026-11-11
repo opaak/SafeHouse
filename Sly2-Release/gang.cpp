@@ -3,6 +3,7 @@
 // 0x1B49E0, 0x1B4AA0, 0x1B67F8, 0x1B6728, 0x1B70A0, 0x1B7E40, 0x1B82A0, 0x1B8368; build/hand_wip: 0x134DA8,
 // 0x1B4728, 0x1B50B0, 0x1B6078, checked against the disassembly) and the reference's m_134648_p3.cpp /
 // m_1B4438_p3.cpp.
+#include "pcprogress.h"
 #include "gang.h"
 #include "actioninput.h"
 #include "climb.h"
@@ -553,6 +554,23 @@ void FireBentleyDart(BENTLEY* p, uint32_t grf)
                 posAim = glm::vec3(r * std::cos(th2), r * std::sin(th2), posAim.z + dz);
                 std::printf("dartat %d#%d at %.0f %.0f %.0f (w %.3f)\n", oid, std::atoi(pk + 1), posAim.x, posAim.y, posAim.z, l.w);
             }
+        }
+    }
+    // (PC: Sly 4's Homing Darts, pcprogress.h) the guard nearest the crosshair, within a third of the picture's half
+    // and 6000 away, takes the dart: its centre the aim
+    if (FPowerupOwned(kItemHomingDarts) && g_psw && !std::getenv("SLY2N_DARTAT"))
+    {
+        float best = 0.35f * 0.35f;
+        for (const auto& up : g_psw->aploAll)
+        {
+            LO* plo = up.get();
+            if (!plo->fInWorld || !FCidDerivedFrom(plo->Cid(), 0x38) || !FIsLoDerivedFrom(plo, 0x30) || !PguardFromLo(plo)) continue;
+            const glm::vec3 pos = PosAloCenter(static_cast<ALO*>(plo));
+            if (glm::distance(pos, a) > 6000.0f) continue;
+            const glm::vec3 sc = ConvertCmWorldToScreen(&g_cm, pos);
+            if (sc.z <= 1.0f) continue;
+            const float d2 = sc.x * sc.x + sc.y * sc.y;
+            if (d2 < best) { best = d2; posAim = pos; }
         }
     }
     // +0x16D8 the dart kind: EOPID 774 (a field, grf 0x92) that the jobs' scripts set, e.g. 1 for Ep3's red noise darts
@@ -1405,6 +1423,7 @@ void UpdateBentley(LO* plo)
     case 14:
         // orig: 0x00134DA8 case 14: retain the authored animation speed.
         p->vecVel = VelActorAnimRoot(p);
+        if (FPowerupOwned(kItemAdrenalineBurstPlus)) p->vecVel *= 1.4f;   // (PC: Sly 4's Adrenaline Burst Plus, pcprogress.h)
         SetStepPhysHeading(p->palo, RadJoy(p));
         break;
     case 4: case 8: case 9: case 12: case 13: break;

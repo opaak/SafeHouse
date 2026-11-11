@@ -25,6 +25,13 @@ constexpr int kItemClimbingCobra = 0x2E;
 constexpr int kItemMeterRechargerSly = 0x2F;
 constexpr int kItemMeterRechargerBentley = 0x30;
 constexpr int kItemMeterRechargerMurray = 0x31;
+// Sly 4's passive upgrades (use -1: always on once bought; each acts where the original's code asks FPowerupOwned)
+constexpr int kItemFlashBomb = 0x32;            // Sly: the Smoke Bomb stuns the guards near it (gadget.cpp)
+constexpr int kItemRunWhileCharging = 0x33;     // Sly: walk while winding up the charged swing (sly.cpp)
+constexpr int kItemMovingPickpocket = 0x34;     // Sly: walk while picking a pocket (sly.cpp)
+constexpr int kItemHomingDarts = 0x35;          // Bentley: the darts aim at the guard nearest the crosshair (gang.cpp)
+constexpr int kItemAdrenalineBurstPlus = 0x36;  // Bentley: Adrenaline Burst 1.4 times as fast (gang.cpp)
+constexpr int kItemLightAsAFeather = 0x37;      // Murray: run with R1 while carrying, faster (murraycarry.cpp)
 
 bool FPcItem(int id);
 // the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)

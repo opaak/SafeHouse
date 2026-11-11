@@ -1,3 +1,4 @@
+#include "pcprogress.h"
 #include "actioninput.h"
 #include "jtthrow.h"
 // Murray's carried-object state machine and authored attachment poses.
@@ -257,7 +258,9 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
     const bool moving=p->n1458==0?0.1f<u:0<u;
     // orig: 0x001B54FC..0x001B5594: the acquired passive selects the authored
     // running clip; the stick threshold keeps the standing/moving hysteresis.
-    SetMurrayCarryMove(p,moving?((pc->grfbtn&0x8)&&FPowerupOwned(18)?2:1):0);
+    // (PC: Sly 4's Light as a Feather, pcprogress.h: the run with R1 without 18 too, 1.3 times as fast)
+    const bool fFeather=FPowerupOwned(kItemLightAsAFeather);
+    SetMurrayCarryMove(p,moving?((pc->grfbtn&0x8)&&(FPowerupOwned(18)||fFeather)?2:1):0);
     if(p->n1458==1) { SetStepPhysHeading(p->palo,pc->radJoy);p->vecVel=glm::vec3(SetGaitMix(&p->gait1460,u));UpdateGaitFeet(&p->gait1460); }
     else if(p->n1458==2) {
         SetStepPhysHeading(p->palo,pc->radJoy);
@@ -268,6 +271,7 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
             if(const ASEGCHN* channel=PchnFindAseg(a->paseg,p->palo,1,true);channel&&channel->ptrkp)
                 channel->ptrkp->Eval(nullptr,&velocity,a->t,a->svt);
         p->vecVel=-glm::vec3(velocity);
+        if(fFeather) p->vecVel*=1.3f;
     }
 }
 

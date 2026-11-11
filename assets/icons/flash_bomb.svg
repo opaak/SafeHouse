@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="65%">
+    <stop offset="0" stop-color="#3a63b8"/><stop offset="0.7" stop-color="#1d2f66"/><stop offset="1" stop-color="#121c40"/>
+  </radialGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#d89a1e"/>
+  </linearGradient>
+</defs>
+<circle cx="128" cy="128" r="118" fill="url(#bg)" stroke="#0b0f1f" stroke-width="10"/>
+<circle cx="128" cy="128" r="106" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<g transform="translate(128 128)"><path d="M0 -92 L14 -30 L70 -64 L34 -10 L94 4 L32 18 L62 70 L10 34 L0 94 L-12 34 L-62 70 L-32 18 L-94 4 L-34 -10 L-70 -64 L-14 -30 Z" fill="#fff6c8" stroke="#0b0f1f" stroke-width="8" stroke-linejoin="round" opacity="0.95"/></g>
+<circle cx="118" cy="146" r="42" fill="#0b0f1f"/><circle cx="118" cy="146" r="34" fill="#4a4f66"/><circle cx="106" cy="134" r="10" fill="#9aa0b8"/>
+<path d="M146 116 q 14 -18 30 -14" fill="none" stroke="#0b0f1f" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><path d="M146 116 q 14 -18 30 -14" fill="none" stroke="#c9a46a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="180" cy="100" r="9" fill="#ffffff" stroke="#0b0f1f" stroke-width="4"/>
+</svg>

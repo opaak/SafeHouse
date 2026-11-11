@@ -1,6 +1,7 @@
 // sly.cpp: Sly (sly.h). Ported from the reference's m_188488.cpp, m_189530_p3.cpp, m_18E540.cpp, m_13FF70.cpp and
 // round4low_animation.cpp (0x18E540): oracle-checked or register-level ports of the original's 0x188488..0x191090
 // and the actor's 0x13FF70..0x144E20.
+#include "pcprogress.h"
 #include "sly.h"
 #include "actioninput.h"
 #include "routetele.h"
@@ -1668,7 +1669,15 @@ void UpdateSlyInput(SLY* p)
         break;
     }
     case 7: UpdateInteract(p); break;  // 0x191A10 (+0x4C0)
-    case 11: UpdatePickpocketPose(p); break;  // 0x18B460
+    case 11:
+        UpdatePickpocketPose(p);  // 0x18B460
+        // (PC: Sly 4's Moving Pickpocket, pcprogress.h: a slow walk by the stick, still facing the guard)
+        if (FPowerupOwned(kItemMovingPickpocket))
+        {
+            const float rad = RadJoy(p), u = UJoy(p);
+            p->vecVel = glm::vec3(std::cos(rad) * u * 260.0f, std::sin(rad) * u * 260.0f, 0.0f);
+        }
+        break;
     case 16:
         if (FPowerupOwned(0x1C)) UpdateSlyJuggleVelocity(p);  // 0x18E1E0
         else if (p->f1D2C)
@@ -1705,6 +1714,13 @@ void UpdateSlyInput(SLY* p)
                 SetStepPhysHeadingToward(p->palo, PosAloCenter(static_cast<ALO*>(p->plo10DC)) - PosAloCenter(p->palo));
         }
         else if (p->substate == 5) MoveAroundTarget(p, &p->rb13D0, true, RadJoy(p), UJoy(p));  // 0x1A0720
+        else if ((p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging))
+        {
+            // (PC: Sly 4's Run While Charging, pcprogress.h: the wind-up walks by the stick, turned toward it)
+            const float rad = RadJoy(p), u = UJoy(p);
+            p->vecVel = glm::vec3(std::cos(rad) * u * 330.0f, std::sin(rad) * u * 330.0f, 0.0f);
+            if (0.0f < u) SetStepPhysHeading(p->palo, rad);
+        }
         else if (p->substate == 8 || p->substate == 9)
         {
             // the strike steered by the stick: its direction (behind the heading, x 1000: 0x2BF3C0) in Sly's frame
