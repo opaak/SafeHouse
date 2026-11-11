@@ -95,6 +95,8 @@ struct GHOSTDRAW
     int mode = 0;           // 0 a silhouette (once per pixel, blended); 1 a glow recoloured, added (ghost.frag)
     bool fAdditiveOnly = false;   // only the parts the game draws added (GS ALPHA (Cs - 0) As + Cd): a glow without its
                                   // emblem (Leaping Dragon's aura)
+    bool fOver = false;           // a silhouette over the actor's own surfaces too (its current pose: Shadow Cloak), not
+                                  // only where it is in front of the scene
 };
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
 

@@ -391,6 +391,36 @@ void UpdateSkillFx()
         Add(p);
     }
     s_paloRocket = s_paloFeather = nullptr;
+    // Shadow Cloak: dark violet smoke curling up off him while cloaked; a ring drawn in to his feet as it closes
+    {
+        static float s_uPrev = 0.0f, s_tWisp = -10.0f;
+        ALO* paloCloak = nullptr;
+        const float uCloak = UShadowCloak(&paloCloak);
+        if (paloCloak && paloCloak == pcur)
+        {
+            const glm::vec3 posFeet = PosFeet(paloCloak);
+            if (uCloak >= 0.6f && s_uPrev < 0.6f)
+            {
+                Ring(posFeet + glm::vec3(0, 0, 6), 160.0f, 25.0f, 0.35f, 12.0f, glm::vec4(30, 12, 60, 110));
+                for (int i = 0; i < 10; ++i)
+                {
+                    const float a = Rand(0.0f, 6.2831853f);
+                    Add(Dot(posFeet + glm::vec3(std::cos(a) * 40.0f, std::sin(a) * 40.0f, Rand(10.f, 90.f)),
+                            glm::vec3(std::cos(a) * 90.0f, std::sin(a) * 90.0f, Rand(40.f, 120.f)), Rand(0.6f, 0.9f), 18.0f, 40.0f,
+                            glm::vec4(18, 8, 36, 90), glm::vec4(18, 8, 36, 0), 0.0f, 2.0f));
+                }
+            }
+            if (uCloak > 0.3f && t - s_tWisp > 0.06f)
+            {
+                s_tWisp = t;
+                const float a = Rand(0.0f, 6.2831853f), r = Rand(15.f, 45.f);
+                Add(Dot(posFeet + glm::vec3(std::cos(a) * r, std::sin(a) * r, Rand(10.f, 120.f)),
+                        glm::vec3(Rand(-25.f, 25.f), Rand(-25.f, 25.f), Rand(50.f, 110.f)), Rand(0.7f, 1.1f), 10.0f, 30.0f,
+                        glm::vec4(22, 10, 44, 80.0f * uCloak), glm::vec4(40, 20, 70, 0), 0.0f, 0.8f));
+            }
+        }
+        s_uPrev = paloCloak == pcur ? uCloak : 0.0f;
+    }
     // Coin Magnet's motes: each flies to him faster as it goes, a trail behind it; gone on reaching him
     for (SKILLMOTE& m : s_amote)
     {
@@ -486,10 +516,14 @@ void DrawSkillFxGhosts(const SCENE& scene, const CAMERA& cam)
     }
     if (!s_apartCloak.empty() && s_uCloak > 0.0f)
     {
-        // Shadow Cloak: he is drawn over as a dark, faintly violet shadow, breathing a little
-        const float u = s_uCloak * (0.82f + 0.08f * std::sin(g_clock.tReal * 2.5f));
+        // Shadow Cloak: he is drawn over as a dark, violet shadow of himself, breathing a little
+        const float u = s_uCloak * (0.7f + 0.08f * std::sin(g_clock.tReal * 2.5f));
         std::vector<GHOSTDRAW> adrawCloak;
-        adrawCloak.push_back({&s_apartCloak, glm::vec4(0.04f, 0.02f, 0.08f, u)});
+        GHOSTDRAW gd;
+        gd.papart = &s_apartCloak;
+        gd.rgba = glm::vec4(0.07f, 0.03f, 0.14f, u);
+        gd.fOver = true;
+        adrawCloak.push_back(gd);
         RenderGhostPoses(scene, cam, adrawCloak);
     }
     if (s_aghost.empty() || !g_psw || s_serial != g_psw->serial) return;
@@ -510,9 +544,30 @@ void DrawSkillFx(int width, int height)
     if (!g_psw || s_serial != g_psw->serial) return;
     const float t = g_clock.t;
     const bool fFlash = t - s_tFlash < 0.6f && t >= s_tFlash;
-    if (s_ap.empty() && s_aring.empty() && !fFlash) return;
+    ALO* paloCloak = nullptr;
+    const float uCloak = UShadowCloak(&paloCloak);
+    const bool fVignette = uCloak > 0.0f && paloCloak && paloCloak == PloPoCurrent(g_psw);
+    if (s_ap.empty() && s_aring.empty() && !fFlash && !fVignette) return;
     constexpr float z = 0.9993f;
     g_hud.Begin();
+    if (fVignette)
+    {
+        // Shadow Cloak: the picture's edges darkened, violet, in layers stepping in. The screen's edges in the canvas
+        // (wider than 640 x 448 on a widescreen frame)
+        const float xL = ((-1.0f - g_display.uiOffset.x) / g_display.uiScale.x + 1.0f) * 320.0f;
+        const float xR = ((1.0f - g_display.uiOffset.x) / g_display.uiScale.x + 1.0f) * 320.0f;
+        const float yT = (1.0f - (1.0f - g_display.uiOffset.y) / g_display.uiScale.y) * 224.0f;
+        const float yB = (1.0f - (-1.0f - g_display.uiOffset.y) / g_display.uiScale.y) * 224.0f;
+        for (int i = 0; i < 6; ++i)
+        {
+            const float d = 14.0f * float(i + 1);
+            const glm::vec4 c(10, 4, 22, 16.0f * uCloak);
+            g_hud.FillScreenRect(xL, yT, xR, yT + d, c, z - 2e-4f);
+            g_hud.FillScreenRect(xL, yB - d, xR, yB, c, z - 2e-4f);
+            g_hud.FillScreenRect(xL, yT + d, xL + d * 1.4f, yB - d, c, z - 2e-4f);
+            g_hud.FillScreenRect(xR - d * 1.4f, yT + d, xR, yB - d, c, z - 2e-4f);
+        }
+    }
     for (const FXRING& r : s_aring)
     {
         const float u = (t - r.t0) / r.life;

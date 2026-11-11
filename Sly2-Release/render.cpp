@@ -4465,6 +4465,18 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
             clearBit0();
             glStencilMask(1);
         }
+        // (over its own surfaces: equal depths pass, pulled a little nearer so the two skinnings never fight)
+        if (adraw[ipose].fOver)
+        {
+            glDepthFunc(GL_GEQUAL);
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0f, 64.0f);   // (reversed Z: a greater depth is nearer)
+        }
+        else
+        {
+            glDepthFunc(GL_GREATER);
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }
         const glm::vec4& c = adraw[ipose].rgba;
         glUniform4f(s_locRgba, c.r, c.g, c.b, c.a);
         GLuint vaoCur = 0, texCur = 0;
@@ -4495,6 +4507,7 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     glBindSampler(0, GLuint(sampler0));
     glActiveTexture(GLenum(activeTex));
     glViewport(aviewport[0], aviewport[1], aviewport[2], aviewport[3]);
+    glDisable(GL_POLYGON_OFFSET_FILL);   // (fOver: the renderer keeps it off)
     glDepthFunc(GLenum(depthFunc));
     glDepthMask(fDepthMask);
     glColorMask(acolorMask[0], acolorMask[1], acolorMask[2], acolorMask[3]);
