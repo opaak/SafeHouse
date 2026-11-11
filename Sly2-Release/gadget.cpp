@@ -6,6 +6,7 @@
 #include "worldglobals.h"
 #include "pccharacter.h"   // (PC addition, debug menu only: Carmelita's moveset)
 #include "pcprogress.h"
+#include "extrapowerups.h"
 #include "raccoonus.h"
 #include "damage.h"
 #include "objmethod.h"
@@ -63,8 +64,9 @@ PADCTL* PpadctlOfActor(ACTOR* p)
 }
 int32_t NElf(uint32_t va) { return int32_t(g_disc.U32Elf(va)); }  // (an address comes back as the USA one: disc.h)
 float GElf(uint32_t va) { int32_t n = NElf(va); float g; std::memcpy(&g, &n, 4); return g; }
-int ItemUse(int id) { return id >= 0 && id < 0x2B ? NElf(0x2BCD00 + 0x20 * uint32_t(id)) : -1; }
-int ItemPower(int id) { return id >= 0 && id < 0x2B ? NElf(0x2BCD00 + 0x20 * uint32_t(id) + 0xC) : 0; }
+// (PC items after the table: pcprogress.h)
+int ItemUse(int id) { return id >= 0 && id < 0x2B ? NElf(0x2BCD00 + 0x20 * uint32_t(id)) : FPcItem(id) ? NPcItemUse(id) : -1; }
+int ItemPower(int id) { return id >= 0 && id < 0x2B ? NElf(0x2BCD00 + 0x20 * uint32_t(id) + 0xC) : NPcItemPower(id); }
 
 constexpr uint32_t s_agrfSlot[3] = {4, 1, 2};   // D_002C3258: L1, L2, R2 (the pad's layout)
 
@@ -96,6 +98,12 @@ const char* SzPlayer(ACTOR* pa)
     return FIsLoDerivedFrom(pa->palo, 0x35) ? "sly" : FIsLoDerivedFrom(pa->palo, 0x37) ? "bentley"
          : FIsLoDerivedFrom(pa->palo, 0x36) ? "murray" : nullptr;
 }
+// (PC) pcprogress.h's character: 0 Sly, 1 Bentley, 2 Murray, -1 another
+int IcharPlayer(ACTOR* pa)
+{
+    if (!pa || !pa->palo) return -1;
+    return FIsLoDerivedFrom(pa->palo, 0x35) ? 0 : FIsLoDerivedFrom(pa->palo, 0x37) ? 1 : FIsLoDerivedFrom(pa->palo, 0x36) ? 2 : -1;
+}
 
 // orig 0x00141EF8 (from the post-load 0x1400B8): the slots' ids from the progress "<player> apukCur <i>" (slot 103's
 // root); natively on the first update in a world
@@ -112,6 +120,8 @@ ABILITIES& AbOf(ACTOR* pa)
             {
                 const CRef r = RefGetProgress({sz, "apukCur", std::to_string(i)});
                 ab.a[i].id = r.m_tagk == TAGK_S32 ? r.m_n : -1;
+                // (PC: a PC item on the button is kept beside the save, its record holding -1: pcprogress.h IdPcSlot)
+                if (const int id = IdPcSlot(IcharPlayer(pa), i); id != -1) ab.a[i].id = id;
             }
         UpdateAbilityDisplay(pa);  // 0x141EF8's end: vt slot 105
     }
@@ -211,6 +221,7 @@ bool FSlyCanDo(SLY* p, int n)
 
 bool FCanDo(ACTOR* pa, int n)
 {
+    if (FPcItem(n)) return FPcPowerupCanDo(pa, n);   // (PC: the extra powerups, extrapowerups.h)
     if (SLY* p = dynamic_cast<SLY*>(pa)) return FSlyCanDo(p, n);
     if (FIsLoDerivedFrom(pa->palo, 0x37)) return FBentleyAbilityOk(pa, n);
     return FMurrayAbilityOk(pa, n);  // 0x1B98A0
@@ -222,6 +233,7 @@ void StartAbility(ACTOR* pa, int n)
 {
     if (g_psw) BroadcastTaskEvent(g_psw, 0x3C, pa->palo);   // (taskmgr +0xC = n: not kept natively)
     if (FPrint()) std::printf("gadget: %s starts %d (power %d)\n", SzPlayer(pa), n, NActorPower(pa));
+    if (FPcItem(n)) { StartPcPowerup(pa, n); return; }   // (PC: the extra powerups, extrapowerups.h)
     if (SLY* p = dynamic_cast<SLY*>(pa))
     {
         switch (n)
@@ -316,6 +328,7 @@ void StartAbility(ACTOR* pa, int n)
 void EndAbility(ACTOR* pa, int n)
 {
     if (FPrint()) std::printf("gadget: %s ends %d (power %d)\n", SzPlayer(pa), n, NActorPower(pa));
+    if (FPcItem(n)) { EndPcPowerup(pa, n); return; }   // (PC: the extra powerups, extrapowerups.h)
     if (!dynamic_cast<SLY*>(pa) || (n != 0x1D && n != 0x2A)) return;
     SetClockFactor(&g_clock, 1, 1.0f);
     ABILITIES& ab = AbOf(pa);
@@ -539,6 +552,7 @@ void UpdateActorAbilities(ACTOR* pa)
                 // vt slot 101 (0x141DD0): the time gadgets drain 2 / 1 power a second (D_002BD260 / D_002BD264)
                 if (e.id == 0x1D) DrainActorPower(pa, GElf(0x2BD260));
                 else if (e.id == 0x2A) DrainActorPower(pa, GElf(0x2BD264));
+                else if (FPcItem(e.id)) UpdatePcPowerupHeld(pa, e.id);   // (PC: extrapowerups.h)
             }
         }
     }
@@ -564,8 +578,12 @@ void SetActorAbilitySlot(ACTOR* pa, int i, int id)
         }
         if (sz)
         {
+            // (PC: a PC item's button kept beside the save, -1 in its record, so the record stays a PS2 one:
+            // pcprogress.h IdPcSlot)
+            const bool fPc = FPcItem(ab.a[j].id);
+            SetPcSlot(IcharPlayer(pa), j, fPc ? ab.a[j].id : -1);
             CRef r;
-            r.SetS32(ab.a[j].id);
+            r.SetS32(fPc ? -1 : ab.a[j].id);
             FSetProgress({sz, "apukCur", std::to_string(j)}, r);
         }
     }

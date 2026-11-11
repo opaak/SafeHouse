@@ -139,7 +139,13 @@ void BuildShopList()
     {
         for (int i = 7; i < 0x2B && p.c < 0x40; ++i)
             if (FItemOpen(i) && !FItemOwned(i)) p.aent[p.c++].id = i;
-        // (the PC techniques are not sold: they are learned from the Thievius Raccoonus, raccoonus.h, page 2)
+        // (PC: then the extra powerups, extrapowerups.h; the PC techniques are not sold: they are learned from the
+        // Thievius Raccoonus, raccoonus.h, page 2)
+        for (int k = 0; k < CPcItems() && p.c < 0x40; ++k)
+        {
+            const int id = IdPcItem(k);
+            if (FPcItemSold(id) && FItemOpen(id) && !FItemOwned(id)) p.aent[p.c++].id = id;
+        }
     }
     else if (p.page == 1)
     {
@@ -524,12 +530,51 @@ GADGETENT* PgeFind(int key)
         if (e.key == key) return &e;
     return nullptr;
 }
+// the powerup on the character's button j (PC: a PC item's kept beside the save, pcprogress.h IdPcSlot)
+int IdSlot(int ichar, int j)
+{
+    if (const int id = IdPcSlot(ichar, j); id != -1) return id;
+    return NRef(RefGetProgress({s_aszChar[ichar], "apukCur", std::to_string(j)}));
+}
 int IslotAssigned(int key)
 {
-    if (s_gm.ichar < 0) return -1;
+    if (s_gm.ichar < 0 || key == -1) return -1;
     for (int j = 0; j < 3; ++j)
-        if (NRef(RefGetProgress({s_aszChar[s_gm.ichar], "apukCur", std::to_string(j)})) == key) return j;
+        if (IdSlot(s_gm.ichar, j) == key) return j;
     return -1;
+}
+// (PC) may it go on a button: the grid's flag 1, a PC item's use (pcprogress.h)
+bool FGadgetAssignable(int key)
+{
+    if (FPcItem(key)) return NPcItemUse(key) != -1;
+    const GADGETENT* r = PgeFind(key);
+    return r && (r->grf & 1);
+}
+// orig (from 0x1DAA90) button i takes key: on the player, 0x141FC8 (gadget.cpp), else the progress itself (PC: a PC
+// item's button beside the save, -1 in the record)
+void AssignGadget(LO* ploPlayer, int i, int key)
+{
+    GADGETMENU& p = s_gm;
+    if (ACTOR* pa = ploPlayer ? PactorFromLo(ploPlayer) : nullptr)
+    {
+        SetActorAbilitySlot(pa, i, key);
+        PsndStartSound(0x34);  // (0x1DAA90)
+        return;
+    }
+    for (int j = 0; j < 3; ++j)
+    {
+        const std::vector<std::string> apath{s_aszChar[p.ichar], "apukCur", std::to_string(j)};
+        const int idOld = IdSlot(p.ichar, j);
+        int id;
+        if (j == i) id = key;
+        else if (idOld == key) id = -1;
+        else continue;
+        SetPcSlot(p.ichar, j, FPcItem(id) ? id : -1);
+        CRef ref;
+        ref.SetS32(FPcItem(id) ? -1 : id);
+        FSetProgress(apath, ref);
+    }
+    PsndStartSound(0x34);  // (0x1DAA90)
 }
 
 // orig 0x001DB390
@@ -707,6 +752,18 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
         }
         if (std::fabs(y) < 0.4f) p.dirOwn = 0;
         else if (dir != 0) p.dirOwn = dir;
+        // L1 / L2 / R2 put the selected one on that button, as the grid does (the extra powerups, extrapowerups.h,
+        // are only here: the grid has no room for them)
+        static const uint32_t s_agrfSlotOwn[3] = {4, 1, 2};   // (0x2C3258: L1, L2, R2)
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!GrfbtnTakePressed(s_agrfSlotOwn[i])) continue;
+            const std::vector<int> akey = AkeyGadgetsOwned();
+            if (akey.empty()) continue;
+            const int key = akey[size_t(std::clamp(p.iown, 0, int(akey.size()) - 1))];
+            if (!FGadgetAssignable(key)) SetGmMsg(1, 0x33);
+            else AssignGadget(ploPlayer, i, key);
+        }
     }
     if (p.page != 0) return;
     // orig 0x001DA858 with the d-pad as the stick
@@ -749,27 +806,9 @@ void UpdateGadgetMenu(SW* psw, LO* ploPlayer)
         const GADGETENT* r = PgeFind(p.key);
         if (!r || !(r->grf & 4)) SetGmMsg(1, 0x32);
         else if (!(r->grf & 1)) SetGmMsg(1, 0x33);
-        else
-        {
-            // orig 0x00141FC8 on the player (gadget.cpp): slot i takes it (another slot holding it emptied), the
-            // progress "<character> apukCur"
-            if (ACTOR* pa = ploPlayer ? PactorFromLo(ploPlayer) : nullptr)
-            {
-                SetActorAbilitySlot(pa, i, p.key);
-                PsndStartSound(0x34);  // (0x1DAA90)
-                continue;
-            }
-            for (int j = 0; j < 3; ++j)
-            {
-                const std::vector<std::string> apath{s_aszChar[p.ichar], "apukCur", std::to_string(j)};
-                CRef ref;
-                if (j == i) ref.SetS32(p.key);
-                else if (NRef(RefGetProgress(apath)) == p.key) ref.SetS32(-1);
-                else continue;
-                FSetProgress(apath, ref);
-            }
-            PsndStartSound(0x34);  // (0x1DAA90)
-        }
+        // orig 0x00141FC8 on the player (gadget.cpp): slot i takes it (another slot holding it emptied), the
+        // progress "<character> apukCur"
+        else AssignGadget(ploPlayer, i, p.key);
     }
 }
 
@@ -782,6 +821,15 @@ std::string StrGadgetText(int key)
     static const char* const s_aszIcon[3] = {"&2L&.", "&2l&.", "&2r&."};
     std::string buf;
     std::string desc;
+    if (FPcItem(key))
+    {
+        // (PC items: pcprogress.h; their texts are English, not the game's text ids)
+        if (NPcItemUse(key) == -1) buf = "Always on.";
+        else if (v < 0) buf = StrLocalized(psw, IdText(0xE1));
+        else buf = std::string("Press ") + s_aszIcon[v] + " to use it.";
+        desc = SzPcItemDesc(key);
+        return std::string(SzPcItemName(key)) + (desc.empty() ? "" : ": ") + desc + ". " + buf;
+    }
     if (po && (po->grf & 1) && v < 0) buf = StrLocalized(psw, IdText(0xE1));
     else
     {
@@ -820,6 +868,14 @@ std::vector<int> AkeyGadgetsOwned()
     });
     std::vector<int> akey;
     for (const GADGETENT* pe : ap) akey.push_back(pe->key);
+    // (PC) then the character's extra powerups owned (extrapowerups.h), in ThiefNet's order; the techniques are on
+    // Sly's own page
+    static const int s_akind[3] = {7, 9, 8};   // (pcprogress.h: 7 Sly, 9 Bentley, 8 Murray)
+    for (int k = 0; k < CPcItems(); ++k)
+    {
+        const int id = IdPcItem(k);
+        if (FPcItemSold(id) && NPcItemKind(id) == s_akind[s_gm.ichar] && FPcItemOwned(id)) akey.push_back(id);
+    }
     return akey;
 }
 
@@ -830,7 +886,7 @@ std::vector<GADGETTEXT> AgtGadgetsOwned(int* pisel)
     for (int key : AkeyGadgetsOwned())
     {
         GADGETTEXT gt;
-        gt.strName = StrLocalized(s_gm.psw, ItemName(key));
+        gt.strName = StrItemName(s_gm.psw, key);
         gt.strText = StrGadgetText(key);
         // (the text without its name in front: the page shows the name apart)
         if (gt.strText.rfind(gt.strName + ": ", 0) == 0) gt.strText.erase(0, gt.strName.size() + 2);

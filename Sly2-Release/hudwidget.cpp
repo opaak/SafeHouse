@@ -3,6 +3,7 @@
 // func_001DA4B8.c / func_001DA578.c.
 
 #include "hudwidget.h"
+#include "pcprogress.h"
 #include "actioninput.h"
 #include "skipcut.h"
 #include "debugmenu.h"
@@ -106,6 +107,13 @@ bool FPlayerPowerGadget(LO* player)
         const uint8_t* itemCost = g_disc.PbElf(0x2BCD00 + 0x20 * id + 0xC, 4);
         if (itemCost) std::memcpy(&cost, itemCost, 4);
         if (cost > 0) return true;
+    }
+    // (PC: the extra powerups owned, pcprogress.h, that cost power)
+    const int kind = FCidDerivedFrom(player->Cid(), 0x35) ? 7 : FCidDerivedFrom(player->Cid(), 0x37) ? 9 : FCidDerivedFrom(player->Cid(), 0x36) ? 8 : -1;
+    for (int k = 0; k < CPcItems(); ++k)
+    {
+        const int id = IdPcItem(k);
+        if (NPcItemKind(id) == kind && NPcItemPower(id) > 0 && FPowerupOwned(id)) return true;
     }
     return false;
 }

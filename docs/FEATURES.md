@@ -96,6 +96,12 @@ can be turned off where it changes how the game looks or plays.
   - **Climbing Cobra** (Salim al-Kupar, Episode 4): hold R1 on poles and pipes to climb 1.8 times as fast.
   What Sly has learned is kept in a small `saveN.pc` file beside the save slot, so the save itself stays the PS2's
   format.
+- **Extra power-ups from Sly 3 and Sly 4**, sold in ThiefNet after the original ones. They are not on the gadget
+  grid: open the gadget menu (Select), press Square for the purchased list and put the selected one on L1, L2 or R2.
+  Which buttons hold them is kept in the same `saveN.pc` file, so the PS2 save never holds an id the PS2 game
+  doesn't know. So far:
+  - **Meter Recharger** (Sly, Bentley and Murray, from Episode 3, 1500 coins each): fills the gadget meter at once,
+    then needs 60 s to recharge.
 
 ## Mods
 

@@ -408,7 +408,7 @@ void DrawRaccoonusHud(int width, int height)
                 DrawLine(*pfont, picons, astr[j], 258.0f, 110.0f + 19.0f * float(j), 16.0f, offBlue);
         }
         const std::string strNext = IGadgetMenuChar() == 0 ? "&2S&. Ancestor Techniques    " : "&2S&. Gadgets    ";
-        const std::string strBtn = strNext + SzMenuBackGlyph() + " Close";
+        const std::string strBtn = std::string(agt.empty() ? "" : "&2L&.&2l&.&2r&. Assign    ") + strNext + SzMenuBackGlyph() + " Close";
         DrawLine(*pfont, picons, strBtn, 590.0f - DxLine(*pfont, picons, strBtn, 13.0f), 412.0f, 13.0f, offTab);
     }
     if (fPage)

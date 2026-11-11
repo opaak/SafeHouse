@@ -20,6 +20,11 @@ constexpr int kItemLeapingDragon = 0x2B;
 constexpr int kItemSilentSprint = 0x2C;
 constexpr int kItemRailSprint = 0x2D;
 constexpr int kItemClimbingCobra = 0x2E;
+// The extra powerups (extrapowerups.h: Sly 3's and Sly 4's, sold in ThiefNet for coins and put on L1 / L2 / R2 like
+// the original's). The first, the pipeline's test: Sly 4's Meter Recharger, one for each of the three.
+constexpr int kItemMeterRechargerSly = 0x2F;
+constexpr int kItemMeterRechargerBentley = 0x30;
+constexpr int kItemMeterRechargerMurray = 0x31;
 
 bool FPcItem(int id);
 // the PC items in ThiefNet's order (i 0 .. CPcItems() - 1)
@@ -36,6 +41,17 @@ int NPcItemCost(int id);
 int NPcItemEpisode(int id);
 const char* SzPcItemName(int id);
 const char* SzPcItemDesc(int id);
+// How a PC item is used (gadget.cpp, as the original's table's +0): -1 passive (no button: the techniques, the passive
+// powerups), 1 held (started on the press, ended on the release), 2 at once (started and done on the press); the
+// gadget power it costs (the table's +0xC); sold in ThiefNet for coins (the extra powerups) or not (the techniques:
+// learned from the Thievius Raccoonus, raccoonus.h).
+int NPcItemUse(int id);
+int NPcItemPower(int id);
+bool FPcItemSold(int id);
+// A PC item on a button: kept here, not in the original's record (its "<character> apukCur <j>" holds -1 there, so a
+// save stays a PS2 one): ichar 0 Sly, 1 Bentley, 2 Murray; j 0 L1, 1 L2, 2 R2; -1 none.
+int IdPcSlot(int ichar, int j);
+void SetPcSlot(int ichar, int j, int id);
 
 // The progress itself: cleared (a new game, the title), read with a slot's game, written with it. pathSlot: the save
 // slot's own file (SAVESLOT::path); the PC progress is pathSlot + ".pc".
