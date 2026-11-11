@@ -412,7 +412,8 @@ elseif(UNIX)
  endforeach()
  install(CODE "set(cane_runtime_executables \"${cane_runtime_executables}\")\ninclude(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/runtime-deps.cmake\")")
 
-elseif(CANE_BUILD_GAME)
+elseif(CANE_BUILD_GAME OR CANE_BUILD_SLY2 OR CANE_BUILD_SLY3)
+ # (Windows: FFmpeg's DLLs beside whichever games are built; Sly 2 and 3 play their movies with it too)
  install(DIRECTORY "${CANE_FFMPEG_ROOT}/bin/" DESTINATION bin FILES_MATCHING PATTERN "*.dll")
 endif()
 # The packages' README is the user-facing packaging/README.md (the repository's README.md is for developers), with the

@@ -230,10 +230,11 @@ jobs:
           key: ccache-windows-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: ccache-windows-${{ matrix.arch }}-
       - name: Configure
-        # (Sly 3 in the public repository; in a fork only with the repository variable SAFEHOUSE_BUILD_SLY3 true)
+        # (Sly 1 and Sly 3 in the public repository; in a fork only with the repository variables SAFEHOUSE_BUILD_SLY1 /
+        # SAFEHOUSE_BUILD_SLY3 true: a fork builds Sly 2 and the launcher)
         run: >-
           cmake -S . -B build/windows-cross -G Ninja -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }} -DCMAKE_BUILD_TYPE=Release
-          -DCANE_LTO=OFF -DBUILD_TESTING=OFF -DCANE_BUILD_SLY2=ON -DCANE_BUILD_SLY3=${{ (github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_SLY3 == 'true') && 'ON' || 'OFF' }} -DCANE_FFMPEG_ROOT="$RUNNER_TEMP/ffmpeg"
+          -DCANE_LTO=OFF -DBUILD_TESTING=OFF -DCANE_BUILD_GAME=${{ (github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_SLY1 == 'true') && 'ON' || 'OFF' }} -DCANE_BUILD_SLY2=ON -DCANE_BUILD_SLY3=${{ (github.repository == 'FridiNaTor1/SafeHouse' || vars.SAFEHOUSE_BUILD_SLY3 == 'true') && 'ON' || 'OFF' }} -DCANE_FFMPEG_ROOT="$RUNNER_TEMP/ffmpeg"
           -DCMAKE_C_COMPILER_LAUNCHER="${CANE_CCACHE-ccache}" -DCMAKE_CXX_COMPILER_LAUNCHER="${CANE_CCACHE-ccache}"
           -DSAFEHOUSE_VERSION="$SAFEHOUSE_VERSION" -DSAFEHOUSE_BUILD_DATE="$SAFEHOUSE_BUILD_DATE" -DCANE_GIT_HASH="$CANE_GIT_HASH"
       - name: Build
@@ -256,6 +257,8 @@ jobs:
   windows-smoke:
     name: Windows (the packages start and update)
     needs: windows
+    # (the public repository's full packages only: a fork builds Sly 2 alone, maybe without Setup.exe)
+    if: ${{ github.repository == 'FridiNaTor1/SafeHouse' }}
     runs-on: windows-2022
     timeout-minutes: 40
     steps:
