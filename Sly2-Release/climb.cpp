@@ -354,7 +354,8 @@ void UpdateClimbTransitions(ACTOR* pa)
         nNew = 1;
     }
     if (c.fDown) f20 = -f20;
-    f20 *= RClimbCobra(pa, ppc);   // (PC addition: Climbing Cobra, ninjamoves.h)
+    const float rCobra = RClimbCobra(pa, ppc);   // (PC addition: Climbing Cobra, ninjamoves.h)
+    f20 *= rCobra;
     const float sMax = std::fabs(c.sb.agSlope[1]);
     const float dt = g_clock.dt;
     c.gSpeed = ((-dt) * f20) / sMax + (1.0f - dt) * c.gSpeed;
@@ -362,7 +363,8 @@ void UpdateClimbTransitions(ACTOR* pa)
     {
         // the speed limited so the distance eases into its limits (0x11D018 with the SMP {|slope 1|, 0, 0.2})
         const cmm::LM lm = LmClimb(pa);
-        const cmm::SMP smp{sMax, 0.0f, 0.2f};
+        // (Climbing Cobra: the ends eased into at its faster pace too, else this limit takes the speed back)
+        const cmm::SMP smp{sMax * rCobra, 0.0f, 0.2f};
         float vLo = 0.0f, vHi = 0.0f;
         cmm::GSmooth(pa->sCrvF50, lm.gMin, dt, &smp, &vLo);
         cmm::GSmooth(pa->sCrvF50, lm.gMax, dt, &smp, &vHi);
@@ -380,13 +382,17 @@ void UpdateClimbTransitions(ACTOR* pa)
     else
     {
         const float a0 = std::fabs(c.sb.agSlope[0]), a1 = std::fabs(c.sb.agSlope[1]);
-        float w = (std::fabs(f20) - a0) / (a1 - a0);
+        float w = (std::fabs(f20) / rCobra - a0) / (a1 - a0);   // (the blend as at the original's speed)
         w = w < 0.0f ? 0.0f : (1.0f < w ? 1.0f : w);
         c.aw[1] = w;
         c.aw[0] = 1.0f - w;
         SetBlendWeights(c.sb.pbl, {c.aw[0], c.aw[1]});  // 0x1384C0
     }
     SetClimbState(pa, nNew);
+    // (Climbing Cobra: the climb's clips played as much faster, so the hands and feet keep up with the body)
+    if (ASEGA* pasega = pa->pasega; pasega && !FAsegaRetracted(pasega) && std::fabs(pasega->svtLocal - rCobra) > 0.01f &&
+        (rCobra > 1.0f || pasega->svtLocal > 1.0f))
+        SetAsegaSpeed(pasega, rCobra);
 }
 
 // orig: 0x0019DF70
