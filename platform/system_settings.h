@@ -6,7 +6,7 @@
 //
 // File: 20-byte header {char magic[8]="PCANESYS"; u32 version; u32 payloadSize;
 // u32 fnv1a32(payload)} followed by the raw little-endian payload. Every
-// historic version (1-21) still loads; a write produces kVersion. A
+// historic version (1-22) still loads; a write produces kVersion. A
 // file with a higher version (for example from a newer or forked build) is
 // reported as Newer and never overwritten.
 #include <algorithm>
@@ -21,7 +21,7 @@
 namespace cane::settings {
 namespace fs = std::filesystem;
 inline constexpr char kMagic[8] = { 'P', 'C', 'A', 'N', 'E', 'S', 'Y', 'S' };
-inline constexpr uint32_t kVersion = 21;
+inline constexpr uint32_t kVersion = 22;
 // Action order: Up, Down, Left, Right, Square, Circle, Cross, Triangle, Start,
 // Select, L1, R1, L2, R2, L3, R3 (Input.h JOY_BUTTON).
 inline constexpr int kBindingCount = 16;
@@ -80,6 +80,8 @@ enum PostAaValue : int { PostAa_Off = 0, PostAa_Fxaa = 1 };
 // folder (Mods/ColorGrading/lut.png). outlines: depth-based ink lines over the original's cel borders.
 enum ColorGradeValue : int { Grade_Original = 0, Grade_Vivid = 1, Grade_Lut = 2 };
 enum OutlinesValue : int { Outlines_Original = 0, Outlines_Silhouettes = 1, Outlines_Creases = 2 };
+// v22 softShadows: the cast shadows' edges (Sly 2): the original's hard ones, or blurred over a few pixels.
+enum SoftShadowsValue : int { SoftShadows_Original = 0, SoftShadows_Soft = 1, SoftShadows_Softer = 2 };
 inline constexpr int kAnisotropyLevels[] = { 1, 2, 4, 8, 16 }; // 1 = off
 inline constexpr int kFovPercentMax = 50, kFovPercentStep = 5;
 
@@ -202,9 +204,17 @@ struct V20 {
     int alphaToCoverage;
     int postAa;
 };
+// v21: + bloom, colorGrade, vignette, outlines.
+struct V21 {
+    V20 base;
+    int bloom;
+    int colorGrade;
+    int vignette;
+    int outlines;
+};
 } // namespace legacy
 
-// Current (v21) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
+// Current (v22) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
 // Append new fields only at the end, bump kVersion and add a legacy::V<n> snapshot plus a load branch.
 struct SystemSettings {
     int fogType;                  // 0 off, 1 PS2 (default), 2 PS3
@@ -291,6 +301,11 @@ struct SystemSettings {
     int vignette;                 // default 0
     // outlines: OutlinesValue, ink lines from the depth buffer added to the original's borders
     int outlines;                 // default Outlines_Original
+    // v22, offset 364 (Sly 2, PC lighting; v21 files load with the defaults below, which draw as before):
+    // ambientOcclusion: corners and contact darkened (stepped, cel-style), 0 (off) .. 100
+    int ambientOcclusion;         // default 0
+    // softShadows: SoftShadowsValue
+    int softShadows;              // default SoftShadows_Original
 };
 static_assert(sizeof(Header) == 20);
 static_assert(sizeof(legacy::V1) == 36 && sizeof(legacy::V2) == 40 && sizeof(legacy::V3) == 104);
@@ -299,8 +314,8 @@ static_assert(sizeof(legacy::V7) == 180 && sizeof(legacy::V8) == 196 && sizeof(l
 static_assert(sizeof(legacy::V10) == 208 && sizeof(legacy::V11) == 284 && sizeof(legacy::V12) == 288);
 static_assert(sizeof(legacy::V13) == 292 && sizeof(legacy::V14) == 296 && sizeof(legacy::V15) == 300);
 static_assert(sizeof(legacy::V16) == 304 && sizeof(legacy::V17) == 328 && sizeof(legacy::V18) == 332);
-static_assert(sizeof(legacy::V19) == 340 && sizeof(legacy::V20) == 348);
-static_assert(sizeof(SystemSettings) == 364);
+static_assert(sizeof(legacy::V19) == 340 && sizeof(legacy::V20) == 348 && sizeof(legacy::V21) == 364);
+static_assert(sizeof(SystemSettings) == 372);
 static_assert(offsetof(SystemSettings, guiStyle) == 40 && offsetof(SystemSettings, keyboardBindings) == 44);
 static_assert(offsetof(SystemSettings, gamepadBindings) == 108);
 static_assert(offsetof(SystemSettings, disableControllerInputWhenUnfocused) == 172);
@@ -316,6 +331,7 @@ static_assert(offsetof(SystemSettings, autoCameraRotation) == 328);
 static_assert(offsetof(SystemSettings, alphaToCoverage) == 340 && offsetof(SystemSettings, postAa) == 344);
 static_assert(offsetof(SystemSettings, bloom) == 348 && offsetof(SystemSettings, colorGrade) == 352);
 static_assert(offsetof(SystemSettings, vignette) == 356 && offsetof(SystemSettings, outlines) == 360);
+static_assert(offsetof(SystemSettings, ambientOcclusion) == 364 && offsetof(SystemSettings, softShadows) == 368);
 
 inline uint32_t checksum(const void* data, size_t size) {
     const auto* bytes = static_cast<const uint8_t*>(data);
@@ -411,6 +427,8 @@ inline SystemSettings defaults() {
     s.colorGrade = Grade_Original;
     s.vignette = 0;
     s.outlines = Outlines_Original;
+    s.ambientOcclusion = 0;
+    s.softShadows = SoftShadows_Original;
     return s;
 }
 // Sly 2's defaults: defaults() with Sly 2's keyboard / mouse layout. (A file that lacks the bindings still takes
@@ -461,6 +479,7 @@ inline SystemSettings upgrade(const legacy::V17& old) { return detail::fromPrefi
 inline SystemSettings upgrade(const legacy::V18& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V19& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V20& old) { return detail::fromPrefix(old); }
+inline SystemSettings upgrade(const legacy::V21& old) { return detail::fromPrefix(old); }
 
 // Ok: current version. Upgraded: an older version, converted in memory (the
 // file is untouched until save()). Missing: no file. Corrupt: unreadable,
@@ -520,6 +539,7 @@ inline LoadResult load(const fs::path& file, SystemSettings& out, uint32_t* vers
     case 18: result = detail::loadLegacy<legacy::V18>(stream, header, out); break;
     case 19: result = detail::loadLegacy<legacy::V19>(stream, header, out); break;
     case 20: result = detail::loadLegacy<legacy::V20>(stream, header, out); break;
+    case 21: result = detail::loadLegacy<legacy::V21>(stream, header, out); break;
     case kVersion: {
         SystemSettings current{};
         if (detail::readPayload(stream, header, current)) {
@@ -549,6 +569,7 @@ inline uint32_t payloadSize(uint32_t version) {
     case 18: return sizeof(legacy::V18);
     case 19: return sizeof(legacy::V19);
     case 20: return sizeof(legacy::V20);
+    case 21: return sizeof(legacy::V21);
     case kVersion: return sizeof(SystemSettings);
     default: return 0;
     }
@@ -656,6 +677,8 @@ inline void sanitizeStatic(SystemSettings& s, int monitorHeight, int maxSamples,
     s.colorGrade = std::clamp(s.colorGrade, static_cast<int>(Grade_Original), static_cast<int>(Grade_Lut));
     s.vignette = std::clamp(s.vignette, 0, 100);
     s.outlines = std::clamp(s.outlines, static_cast<int>(Outlines_Original), static_cast<int>(Outlines_Creases));
+    s.ambientOcclusion = std::clamp(s.ambientOcclusion, 0, 100);
+    s.softShadows = std::clamp(s.softShadows, static_cast<int>(SoftShadows_Original), static_cast<int>(SoftShadows_Softer));
     for (int i = 0; i < kCameraKeyCount; ++i)
         if (!validCameraKey(s.cameraKeyBindings[i])) s.cameraKeyBindings[i] = kDefaultCameraKeys[i];
     for (int i = 0; i < 2; ++i)

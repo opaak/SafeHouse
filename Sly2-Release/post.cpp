@@ -50,7 +50,7 @@ struct POSTPROG
         return state > 0;
     }
 };
-POSTPROG s_fxaa, s_sharpen, s_scale, s_outline, s_bloomDown, s_bloomUp, s_grade;
+POSTPROG s_fxaa, s_sharpen, s_scale, s_outline, s_bloomDown, s_bloomUp, s_grade, s_ao, s_aoApply;
 GLuint s_vao = 0, s_sampler = 0;
 
 // Two colour targets at the scene's size: the resolved copy the first pass reads, and the pass between FXAA and the
@@ -134,6 +134,34 @@ void EnsureDepth(int dx, int dy)
     glReadBuffer(GL_NONE);
     s_dxDepth = dx;
     s_dyDepth = dy;
+}
+
+// Ambient occlusion's openness (ao.frag), R8 at the scene's size.
+GLuint s_fboAo = 0, s_texAo = 0;
+int s_dxAo = 0, s_dyAo = 0;
+
+void FreeAo()
+{
+    if (s_fboAo) glDeleteFramebuffers(1, &s_fboAo), s_fboAo = 0;
+    if (s_texAo) glDeleteTextures(1, &s_texAo), s_texAo = 0;
+    s_dxAo = s_dyAo = 0;
+}
+
+void EnsureAo(int dx, int dy)
+{
+    if (dx == s_dxAo && dy == s_dyAo && s_fboAo) return;
+    FreeAo();
+    glGenTextures(1, &s_texAo);
+    glBindTexture(GL_TEXTURE_2D, s_texAo);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, dx, dy, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    glGenFramebuffers(1, &s_fboAo);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_fboAo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texAo, 0);
+    s_dxAo = dx;
+    s_dyAo = dy;
 }
 
 // The bloom chain: half the scene's size, then halving down to about 16 lines (at most kcBloomLevels), RGBA16F.
@@ -242,7 +270,7 @@ bool FEnsureLut()
 struct GLSAVE
 {
     GLint prog = 0, vao = 0, fboDraw = 0, fboRead = 0, activeTex = 0, tex0 = 0, sampler0 = 0;
-    GLint tex1 = 0, sampler1 = 0, tex3d2 = 0, sampler2 = 0;   // (units 1 and 2: the outlines' depth, the bloom, the LUT)
+    GLint tex1 = 0, sampler1 = 0, tex3d2 = 0, tex2d2 = 0, sampler2 = 0;   // (units 1 and 2: the depth, the AO, the bloom, the LUT)
     GLint blendSrcRgb = 0, blendDstRgb = 0, blendSrcAlpha = 0, blendDstAlpha = 0, blendEqRgb = 0, blendEqAlpha = 0;
     GLint viewport[4] = {};
     GLboolean fScissor = 0, fBlend = 0, fDepth = 0, fStencil = 0, fCull = 0, fDepthMask = 0;
@@ -256,6 +284,7 @@ struct GLSAVE
         glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
         glActiveTexture(GL_TEXTURE2);
         glGetIntegerv(GL_TEXTURE_BINDING_3D, &tex3d2);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex2d2);
         glGetIntegerv(GL_SAMPLER_BINDING, &sampler2);
         glActiveTexture(GL_TEXTURE1);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex1);
@@ -296,6 +325,7 @@ struct GLSAVE
         glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(fboRead));
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_3D, GLuint(tex3d2));
+        glBindTexture(GL_TEXTURE_2D, GLuint(tex2d2));
         glBindSampler(2, GLuint(sampler2));
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, GLuint(tex1));
@@ -365,13 +395,14 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
 {
     if (!kfAvailable || !g_gl.window) return;
     const DISPLAY& d = g_display;
+    const bool fAo = d.ambientOcclusion > 0 && s_ao.FReady("ao.frag") && s_aoApply.FReady("aoapply.frag");
     const bool fOutline = d.outlines > 0 && s_outline.FReady("outline.frag");
     const bool fFxaa = d.postAa == 1 && s_fxaa.FReady("fxaa.frag");
     const bool fSharpen = d.upscaler == 1 && d.sharpness > 0 && s_sharpen.FReady("sharpen.frag");
     const bool fBloom = d.bloom > 0 && s_bloomDown.FReady("bloomdown.frag") && s_bloomUp.FReady("bloomup.frag");
     const int grade = d.colorGrade == 2 ? (FEnsureLut() ? 2 : 0) : std::clamp(d.colorGrade, 0, 1);
     const bool fGrade = (fBloom || grade > 0 || d.vignette > 0) && s_grade.FReady("grade.frag");
-    const int cpass = int(fOutline) + int(fFxaa) + int(fSharpen) + int(fGrade);
+    const int cpass = int(fAo) + int(fOutline) + int(fFxaa) + int(fSharpen) + int(fGrade);
     if (cpass == 0) return;
     const int dx = g_gl.renderWidth, dy = g_gl.renderHeight;
     EnsureCommon();
@@ -382,7 +413,7 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, g_gl.FboScene());
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_atarget[0].fbo);
     glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    if (fOutline)
+    if (fOutline || fAo)
     {
         EnsureDepth(dx, dy);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, g_gl.FboScene());
@@ -400,6 +431,39 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
         itarget = 1 - itarget;
         DrawFullScreen(texIn, fbo, 0, 0, dx, dy);
     };
+    const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
+    const float tanHalfY = std::tan(proj.radFovY * 0.5f);
+    if (fAo)
+    {
+        // the openness into its own target (from the depth alone), then blurred, stepped and applied as a pass
+        EnsureAo(dx, dy);
+        s_ao.sh.Use();
+        glUniform1i(s_ao.sh.Loc("texDepth"), 1);
+        glUniform1f(s_ao.sh.Loc("sNear"), cam.sNear);
+        glUniform2f(s_ao.sh.Loc("tanHalf"), tanHalfY * float(dx) / float(dy), tanHalfY);
+        // (about half Sly's height: a corner's, a crate's, a ledge's shade; the creases inside a character barely)
+        glUniform1f(s_ao.sh.Loc("radius"), 70.0f);
+        glUniform2f(s_ao.sh.Loc("fade"), 2500.0f * std::max(d.drawDistance, 1.0f), 9000.0f * std::max(d.drawDistance, 1.0f));
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, s_texDepth);
+        glBindSampler(1, 0);
+        glActiveTexture(GL_TEXTURE0);
+        DrawFullScreen(0, s_fboAo, 0, 0, dx, dy);
+        s_aoApply.sh.Use();
+        glUniform1i(s_aoApply.tex, 0);
+        glUniform1i(s_aoApply.sh.Loc("texAo"), 1);
+        glUniform1i(s_aoApply.sh.Loc("texDepth"), 2);
+        glUniform1f(s_aoApply.sh.Loc("sNear"), cam.sNear);
+        glUniform1f(s_aoApply.sh.Loc("strength"), float(std::clamp(d.ambientOcclusion, 0, 100)) / 100.0f);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, s_texAo);
+        glBindSampler(1, 0);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, s_texDepth);
+        glBindSampler(2, 0);
+        glActiveTexture(GL_TEXTURE0);
+        next();
+    }
     if (fOutline)
     {
         s_outline.sh.Use();
@@ -414,8 +478,7 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
         glUniform1f(s_outline.sh.Loc("sNear"), cam.sNear);
         // (about where the original's fog starts thickening, and gone well before its far end)
         glUniform2f(s_outline.sh.Loc("fade"), 3000.0f * std::max(d.drawDistance, 1.0f), 15000.0f * std::max(d.drawDistance, 1.0f));
-        const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
-        glUniform1f(s_outline.sh.Loc("rcpFocal"), 2.0f * std::tan(proj.radFovY * 0.5f) / float(dy));
+        glUniform1f(s_outline.sh.Loc("rcpFocal"), 2.0f * tanHalfY / float(dy));
         glUniform1i(s_outline.sh.Loc("fCreases"), d.outlines >= 2 ? 1 : 0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, s_texDepth);
@@ -484,10 +547,11 @@ void ShutdownPostProcess()
     if (!kfAvailable) return;
     FreeTargets();
     FreeDepth();
+    FreeAo();
     FreeBloom();
     if (s_texLut) glDeleteTextures(1, &s_texLut), s_texLut = 0;
     s_stateLut = 0;
-    for (POSTPROG* p : {&s_fxaa, &s_sharpen, &s_scale, &s_outline, &s_bloomDown, &s_bloomUp, &s_grade})
+    for (POSTPROG* p : {&s_fxaa, &s_sharpen, &s_scale, &s_outline, &s_bloomDown, &s_bloomUp, &s_grade, &s_ao, &s_aoApply})
         if (p->state > 0) p->sh.Delete(), p->state = 0;
     if (s_vao) glDeleteVertexArrays(1, &s_vao), s_vao = 0;
     if (s_sampler) glDeleteSamplers(1, &s_sampler), s_sampler = 0;

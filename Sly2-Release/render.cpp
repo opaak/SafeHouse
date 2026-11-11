@@ -1766,6 +1766,60 @@ void ClearFbaBits()
     glStencilMask(0xFF);
 }
 
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+// PC soft shadows (display.h softShadows, shadowsoft.frag): a single-sample copy of the frame's depth and stencil (one
+// storage, read through two views: the depth, and the stencil's marks), at the shadow phase's frame size.
+GLuint s_fboShDS = 0, s_texShDS = 0, s_texShStencil = 0;
+int s_dxShDS = 0, s_dyShDS = 0;
+GLSHADER s_shShadowSoft;
+int s_stateShadowSoft = 0;   // 0 not yet, 1 built, -1 failed (the original's hard edges)
+
+bool FEnsureShadowSoft(int dx, int dy)
+{
+    if (s_stateShadowSoft == 0)
+        s_stateShadowSoft = s_shShadowSoft.FInit("shadowcombine.vert", "shadowsoft.frag", "") ? 1 : -1;
+    if (s_stateShadowSoft < 0) return false;
+    if (s_fboShDS && dx == s_dxShDS && dy == s_dyShDS) return true;
+    if (s_fboShDS) glDeleteFramebuffers(1, &s_fboShDS), s_fboShDS = 0;
+    if (s_texShStencil) glDeleteTextures(1, &s_texShStencil), s_texShStencil = 0;
+    if (s_texShDS) glDeleteTextures(1, &s_texShDS), s_texShDS = 0;
+    // (unit 3, put back by the caller: the renderer's units 0 and 1 stay as they are)
+    glActiveTexture(GL_TEXTURE3);
+    glGenTextures(1, &s_texShDS);
+    glBindTexture(GL_TEXTURE_2D, s_texShDS);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH32F_STENCIL8, dx, dy);   // (the frame's format: a blit needs the same)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_DEPTH_COMPONENT);
+    glGenTextures(1, &s_texShStencil);
+    glTextureView(s_texShStencil, GL_TEXTURE_2D, s_texShDS, GL_DEPTH32F_STENCIL8, 0, 1, 0, 1);
+    glBindTexture(GL_TEXTURE_2D, s_texShStencil);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_STENCIL_INDEX);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    GLint fboPrev = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+    glGenFramebuffers(1, &s_fboShDS);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s_texShDS, 0);
+    glDrawBuffer(GL_NONE);
+    const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    if (!fOk)
+    {
+        std::printf("soft shadows: the depth-stencil copy is not usable here: the original's hard edges\n");
+        s_stateShadowSoft = -1;
+        return false;
+    }
+    s_dxShDS = dx;
+    s_dyShDS = dy;
+    return true;
+}
+#endif
+
 // 0x16DD58 (AddScreenCombine) at the phase's end: the unmarked pixels' alpha (entry 0), then the CLUT pass
 // (shadowcombine.frag), one draw per ramp the marks make (their pixels are disjoint: one pass over the frame in all);
 // the marks are cleared. f7 / f8: the phase drew kind 7 / kind 8.
@@ -1790,6 +1844,23 @@ void ShadowCombine(bool f7, bool f8)
             }
         stbi_write_png((std::string(s_szDir) + "/shmarks_" + std::to_string(s_c++) + ".png").c_str(), dx, dy, 3, argb.data(), dx * 3);
     }
+    // (PC soft shadows: the marks and the depth copied out before the combine reads and clears them)
+    bool fSoft = false;
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (g_display.softShadows > 0 && FEnsureShadowSoft(s_dxShAlpha, s_dyShAlpha))
+    {
+        GLint fbo = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fbo);
+        while (glGetError() != GL_NO_ERROR) {}
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(fbo));
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, s_dxShAlpha, s_dyShAlpha, 0, 0, s_dxShAlpha, s_dyShAlpha, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+                          GL_NEAREST);
+        fSoft = glGetError() == GL_NO_ERROR;
+        glBindFramebuffer(GL_FRAMEBUFFER, GLuint(fbo));
+    }
+    GLint texUnit2 = 0, texUnit3 = 0, samplerUnit2 = 0, samplerUnit3 = 0;
+#endif
     if (!s_shShadowCombine.ID) s_shShadowCombine.Init("shadowcombine.vert", "shadowcombine.frag");
     s_shShadowCombine.Use();
     glUniform1i(s_shShadowCombine.Loc("texAlpha"), 1);
@@ -1817,6 +1888,41 @@ void ShadowCombine(bool f7, bool f8)
     glEnable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);   // (0 - Cd) x As / 128 + Cd; A = As
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (fSoft)
+    {
+        // the colour: the ramps' darkening averaged over a disc, every pixel at once (no stencil test); the ramps
+        // below then set only the alpha, as the original's
+        glActiveTexture(GL_TEXTURE2);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit2);
+        glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit2);
+        glBindTexture(GL_TEXTURE_2D, s_texShStencil);
+        glBindSampler(2, 0);
+        glActiveTexture(GL_TEXTURE3);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit3);
+        glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit3);
+        glBindTexture(GL_TEXTURE_2D, s_texShDS);
+        glBindSampler(3, 0);
+        glActiveTexture(GL_TEXTURE0);
+        s_shShadowSoft.Use();
+        glUniform1i(s_shShadowSoft.Loc("texAlpha"), 1);
+        glUniform1i(s_shShadowSoft.Loc("texStencil"), 2);
+        glUniform1i(s_shShadowSoft.Loc("texDepth"), 3);
+        glUniform1ui(s_shShadowSoft.Loc("maskMarks"), f8 ? STENCIL_SH7 | STENCIL_SH8 : STENCIL_SH7);
+        glUniform1ui(s_shShadowSoft.Loc("stencil7"), STENCIL_SH7);
+        glUniform1ui(s_shShadowSoft.Loc("stencil8"), STENCIL_SH8);
+        glUniform3f(s_shShadowSoft.Loc("gain"), 128.0f / 255.0f, 96.0f / 255.0f, 160.0f / 255.0f);
+        glUniform3i(s_shShadowSoft.Loc("framp"), f7 ? 1 : 0, f8 ? 1 : 0, f7 && f8 ? 1 : 0);
+        // (about 2 or 4 PS2 pixels)
+        glUniform1f(s_shShadowSoft.Loc("radius"), float(s_dyShAlpha) / 448.0f * (g_display.softShadows >= 2 ? 4.0f : 2.0f));
+        glDisable(GL_STENCIL_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glEnable(GL_STENCIL_TEST);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+        s_shShadowCombine.Use();
+    }
+#endif
     glUniform1i(locReset, 0);
     // (GAME +0x3E64 / +0x3E70, 0x1EA9F0: 128 / 96 / 160 and black in every world's RAM seen)
     struct RAMP { GLuint stencil; float gain; int m8; bool f; };
@@ -1836,6 +1942,19 @@ void ShadowCombine(bool f7, bool f8)
     }
 #ifdef __SWITCH__
     glDisable(GL_SCISSOR_TEST);
+#endif
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (fSoft)
+    {
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texUnit3));
+        glBindSampler(3, GLuint(samplerUnit3));
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texUnit2));
+        glBindSampler(2, GLuint(samplerUnit2));
+        glActiveTexture(GL_TEXTURE0);
+    }
 #endif
     glDisable(GL_BLEND);
     glStencilMask(0xFF);

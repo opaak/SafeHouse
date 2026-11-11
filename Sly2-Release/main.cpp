@@ -300,7 +300,7 @@ int main(int argc, char** argv)
     VIEWOPTS vo;
     std::string cmRanges = "2DDED0+6A0,2DFBC0+2240,FB1580+1100,FB37E0+80,140C9F0+600,1486000+3400";
     bool fCmFree = false;
-    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1, bloom = -1, grade = -1, vignette = -1, outlines = -1, smoothChars = -1, smoothStrength = -1; float drawDistance = -1; } dispo;
+    struct { bool fAspect = false; DISPASPECT aspect = DISPASPECT_Fit; int internalHeight = -1, frameRate = -1, vsync = -1, window = -1, wideBackgrounds = -1, hqLogo = -1, longShadows = -1, msaa = -1, alphaCoverage = -1, postAa = -1, upscaler = -1, sharpness = -1, aniso = -1, bloom = -1, grade = -1, vignette = -1, outlines = -1, ao = -1, softShadows = -1, smoothChars = -1, smoothStrength = -1; float drawDistance = -1; } dispo;
     std::vector<std::string> rest, physArgs;
     for (int i = 1; i < argc; ++i)
     {
@@ -338,6 +338,9 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--grade") && i + 1 < argc) dispo.grade = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--vignette") && i + 1 < argc) dispo.vignette = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--outlines") && i + 1 < argc) dispo.outlines = std::atoi(argv[++i]);
+        // (lighting: display.h; --ao 0..100, --soft-shadows 0 original / 1 soft / 2 softer)
+        else if (!std::strcmp(argv[i], "--ao") && i + 1 < argc) dispo.ao = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--soft-shadows") && i + 1 < argc) dispo.softShadows = std::atoi(argv[++i]);
         // (TEST, character smoothing: display.h; --smooth-chars 0 off / 2..4, --smooth-strength 0..100)
         else if (!std::strcmp(argv[i], "--smooth-chars") && i + 1 < argc) dispo.smoothChars = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--smooth-strength") && i + 1 < argc) dispo.smoothStrength = std::atoi(argv[++i]);
@@ -537,6 +540,8 @@ int main(int argc, char** argv)
         if (dispo.grade >= 0) g_display.colorGrade = std::clamp(dispo.grade, 0, 2);
         if (dispo.vignette >= 0) g_display.vignette = std::clamp(dispo.vignette, 0, 100);
         if (dispo.outlines >= 0) g_display.outlines = std::clamp(dispo.outlines, 0, 2);
+        if (dispo.ao >= 0) g_display.ambientOcclusion = std::clamp(dispo.ao, 0, 100);
+        if (dispo.softShadows >= 0) g_display.softShadows = std::clamp(dispo.softShadows, 0, 2);
         // (character smoothing: the flags, else the environment's SLY2N_SMOOTH / SLY2N_SMOOTHSTRENGTH, e.g. through the launcher)
         {
             int c = dispo.smoothChars, g = dispo.smoothStrength;

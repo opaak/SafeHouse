@@ -76,6 +76,11 @@ struct DISPLAY
     int colorGrade = 0;
     int vignette = 0;
     int outlines = 0;
+    // PC lighting (v22; post.h, render.cpp ShadowCombine). 0 draws exactly as before.
+    // - ambientOcclusion (0..100): corners, creases and where things meet the floor darkened, in steps (cel-style)
+    // - softShadows (SoftShadowsValue): the cast shadows' edges blurred over about 2 (1) or 4 (2) PS2 pixels
+    int ambientOcclusion = 0;
+    int softShadows = 0;
     // PC character smoothing (TEST; not in system_settings.dat: --smooth-chars / SLY2N_SMOOTH, --smooth-strength /
     // SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel

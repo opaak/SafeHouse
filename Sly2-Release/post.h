@@ -4,7 +4,8 @@
 // default or does nothing until its option is chosen, and with them off the frame is drawn exactly as before.
 //
 // - PostProcessScene: after the 3D scene and before the HUD (game.cpp), over the 3D picture and written back into the
-//   scene target, in this order: the depth-based outlines (outlines; outline.frag), FXAA (postAa), contrast-adaptive
+//   scene target, in this order: the stepped ambient occlusion (ambientOcclusion; ao.frag into its own target,
+//   aoapply.frag), the depth-based outlines (outlines; outline.frag), FXAA (postAa), contrast-adaptive
 //   sharpening (upscaler Sharp, at sharpness), and last the bloom, the colour grade and the vignette in one pass
 //   (bloom, colorGrade, vignette; bloomdown.frag / bloomup.frag build the glow, grade.frag adds it).
 // - FPresentScaled: GL::Present's Sharp scaling of the finished picture into the window (scale.frag).

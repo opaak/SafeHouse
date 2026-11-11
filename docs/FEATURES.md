@@ -52,6 +52,10 @@ can be turned off where it changes how the game looks or plays.
     first start without one writes `neutral.png` there, a LUT that changes nothing: grade a screenshot in an image
     editor, apply the same adjustments to `neutral.png` and save it as `lut.png`.
   - **Vignette:** darkens the picture's corners (measured in a 16:9 frame, so ultrawide keeps its middle bright).
+  - **Ambient occlusion:** corners, creases and where things meet the floor are darkened, from the scene's depth, in
+    two soft steps that suit the cel shading rather than a smooth photographic gradient. Fades out with distance.
+  - **Shadow edges:** Soft or Softer blurs the hard, jagged edges of the characters' cast shadows over about 2 or 4
+    PS2 pixels (the shadows themselves, their shapes and darkness, are the original's).
 - **Low-end GPUs:** weak integrated graphics start at a lower internal resolution on first launch.
 
 ## Controls

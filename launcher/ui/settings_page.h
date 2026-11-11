@@ -610,6 +610,7 @@ private:
             s.alphaToCoverage = d.alphaToCoverage, s.postAa = d.postAa, s.anisotropy = d.anisotropy;
             s.upscaler = d.upscaler, s.upscalerSharpness = d.upscalerSharpness;
             s.bloom = d.bloom, s.colorGrade = d.colorGrade, s.vignette = d.vignette, s.outlines = d.outlines;
+            s.ambientOcclusion = d.ambientOcclusion, s.softShadows = d.softShadows;
             break;
         case Audio: settings::defaultAudio(s); break;
         case Controls:
@@ -814,6 +815,12 @@ private:
         describe("Vivid gives livelier colors. LUT uses Mods/ColorGrading/lut.png; the first start without one writes "
                  "neutral.png there to edit.");
         rangeRow("Vignette", m_settings.vignette, 0, 100, 10, "Darkens the corners of the picture. 0 turns it off.", percent);
+        rangeRow("Ambient occlusion", m_settings.ambientOcclusion, 0, 100, 10,
+                 "Darkens corners, creases and where things meet the floor, in soft steps that suit the cel shading. 0 turns it off.", percent);
+        static const std::vector<std::string> softShadows{ "Original", "Soft", "Softer" };
+        int soft = std::clamp(m_settings.softShadows, 0, 2);
+        if (stepperRow("Shadow edges", &soft, softShadows)) m_settings.softShadows = soft, commit();
+        describe("Blurs the hard, jagged edges of the characters' shadows.");
     }
     void audioRows() {
         if (m_game == GameId::Sly1) {   // (Sly 2 has stereo / mono in its own options)
