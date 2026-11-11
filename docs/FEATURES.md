@@ -96,6 +96,9 @@ can be turned off where it changes how the game looks or plays.
   - **Climbing Cobra** (Salim al-Kupar, Episode 4): hold R1 on poles and pipes to climb 1.8 times as fast.
   What Sly has learned is kept in a small `saveN.pc` file beside the save slot, so the save itself stays the PS2's
   format.
+  In the safe house, right of ThiefNet, the **Thievius Raccoonus** is a stop of its own: cross opens the book, a page
+  for each technique (its ancestor and story, how it is used, learned or where its page still lies), turned with left /
+  right.
 - **Extra power-ups from Sly 3 and Sly 4**, sold in ThiefNet after the original ones. They are not on the gadget
   grid: open the gadget menu (Select), go to Gadget Grid 2 (left / right past the grid's edge, or Square) and put the
   selected one on L1, L2 or R2.

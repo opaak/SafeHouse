@@ -1,6 +1,8 @@
 // See raccoonus.h.
 
 #include "raccoonus.h"
+#include "joy.h"
+#include "frontend.h"
 
 #include "actor.h"
 #include "clock.h"
@@ -53,6 +55,21 @@ const RACPAGE s_apage[] = {
     {kItemClimbingCobra, 4, "Salim al-Kupar", "Climbing Cobra", "Hold &2R&. on poles and pipes to climb them at speed", "climbing_cobra"},
 };
 constexpr int CPAGE = int(sizeof(s_apage) / sizeof(s_apage[0]));
+// The book's stories, a page each (s_apage's order)
+const char* const s_aszLore[] = {
+    "Out west, the Tennessee Kid left posse after posse behind on the wires and rope bridges no horse could follow. "
+    "A Cooper on a line is a Cooper no lawman catches.",
+    "Rioichi crossed the rooftops of old Osaka at a dead run without waking a single guard. Those who saw anything saw "
+    "only shadows.",
+    "From the highest pagoda spires Rioichi struck like a dragon: one breath to choose his perch, one leap to reach it, "
+    "however far.",
+    "In the palaces of old Arabia, Salim al-Kupar wound up pillars and pipes as fast as a cobra rising from its basket.",
+};
+static_assert(sizeof(s_aszLore) / sizeof(s_aszLore[0]) == sizeof(s_apage) / sizeof(s_apage[0]));
+
+// the book (OpenRaccoonusBook): open, its page, the stick held (for its steps), when it opened (its fade in)
+struct BOOK { bool fOpen = false; int ipage = 0; int dirStick = 0; float tOpen = -10.0f; float tTurn = -10.0f; };
+BOOK s_book;
 
 int s_isel = 0;
 float s_tPageShown = -10.0f;   // (the page's fade in)
@@ -170,6 +187,47 @@ void NoteVaultOpened()
 }
 
 void NoteTechniquesPageShown() { s_tTechShown = g_clock.tReal; }
+
+void OpenRaccoonusBook()
+{
+    s_book.fOpen = true;
+    s_book.ipage = std::clamp(s_book.ipage, 0, CPAGE - 1);
+    s_book.dirStick = 0;
+    s_book.tOpen = g_clock.tReal;
+    PsndStartSound(0x35);
+}
+void CloseRaccoonusBook()
+{
+    if (!s_book.fOpen) return;
+    s_book.fOpen = false;
+    PsndStartSound(0x35);
+}
+bool FRaccoonusBookOpen() { return s_book.fOpen; }
+
+void UpdateRaccoonusBook()
+{
+    if (!s_book.fOpen) return;
+    if (GrfbtnTakePressed(BtnMenuBack() | 0x20)) { CloseRaccoonusBook(); return; }   // (back, or circle)
+    // left / right (d-pad or stick) turn the pages
+    const uint32_t grf = GrfbtnHeld();
+    float x = g_joy.xLeft;
+    if (grf & 0x8000) x = -1.0f;
+    if (grf & 0x2000) x = 1.0f;
+    const int dir = x > 0.7f ? 1 : x < -0.7f ? -1 : 0;
+    if (dir != 0 && s_book.dirStick == 0)
+    {
+        const int i = std::clamp(s_book.ipage + dir, 0, CPAGE - 1);
+        if (i != s_book.ipage)
+        {
+            s_book.ipage = i;
+            s_book.tTurn = g_clock.tReal;
+            PsndStartSound(0x35);
+        }
+    }
+    if (std::fabs(x) < 0.4f) s_book.dirStick = 0;
+    else if (dir != 0) s_book.dirStick = dir;
+    GrfbtnTakePressed(0xFFFF);   // (nothing else in the safe house while it is open)
+}
 
 void ResetRaccoonusPage()
 {
@@ -309,12 +367,92 @@ void DrawRaccoonusHud(int width, int height)
     const bool fPage = FShopShown() && IShopPage() == 2;
     const bool fMsg = g_clock.tReal < s_tMsgEnd;
     const bool fTrain = s_train.ipage >= 0 && g_psw && s_train.serial == g_psw->serial && !FShopShown() && IGadgetMenuPage() == -1;
-    if (!fPage && !fMsg && !fTrain) return;
+    const bool fBook = s_book.fOpen, fStop = !fBook && FSafeHouseRaccoonusStop();
+    if (!fPage && !fMsg && !fTrain && !fBook && !fStop) return;
     const FONTBRX* pfont = PfontHud();
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
     g_hud.Begin();
     const float z = DEPTH / 16777216.0f;
+    if (fStop)
+    {
+        // the safe house's stop: its name and the button, on a band at the picture's foot
+        g_hud.FillScreenRect(-480.0f, 352.0f, 1120.0f, 420.0f, glm::vec4(0, 0, 0, 80), z - 3e-4f);
+        const std::string strName = "Thievius Raccoonus", strBtn = std::string(SzMenuConfirmGlyph()) + " Read";
+        DrawLine(*pfont, picons, strName, 320.0f - 0.5f * DxLine(*pfont, picons, strName, 28.0f), 356.0f, 28.0f, glm::vec4(96, 64, 20, 0));
+        DrawLine(*pfont, picons, strBtn, 320.0f - 0.5f * DxLine(*pfont, picons, strBtn, 16.0f), 392.0f, 16.0f, glm::vec4(100, 100, 100, 0));
+    }
+    if (fBook)
+    {
+        // the book: two parchment pages over a dark backdrop, the technique's icon, name and ancestor on the left, its
+        // story, use and state on the right
+        const float u = std::clamp((g_clock.tReal - s_book.tOpen) / 0.25f, 0.0f, 1.0f);
+        const float a = 128.0f * u;
+        const float uTurn = std::clamp((g_clock.tReal - s_book.tTurn) / 0.2f, 0.0f, 1.0f);   // (a page's text fades in)
+        g_hud.FillScreenRect(-480.0f, -40.0f, 1120.0f, 488.0f, glm::vec4(2, 2, 6, 110.0f * u), z - 5e-4f);
+        constexpr float xL = 56.0f, xR = 584.0f, yT = 44.0f, yB = 384.0f, xSpine = 320.0f;
+        g_hud.FillScreenRect(xL - 8.0f, yT - 8.0f, xR + 8.0f, yB + 8.0f, glm::vec4(40, 18, 8, a), z - 4e-4f);       // (the cover)
+        g_hud.FillScreenRect(xL, yT, xSpine - 3.0f, yB, glm::vec4(120, 102, 68, a), z - 3e-4f);                       // (the left page)
+        g_hud.FillScreenRect(xSpine + 3.0f, yT, xR, yB, glm::vec4(124, 106, 72, a), z - 3e-4f);                       // (the right page)
+        g_hud.FillScreenRect(xSpine - 3.0f, yT, xSpine + 3.0f, yB, glm::vec4(70, 54, 32, a), z - 2.5e-4f);           // (the fold)
+        const int i = std::clamp(s_book.ipage, 0, CPAGE - 1);
+        const RACPAGE& pg = s_apage[i];
+        const bool fLearned = FRaccoonusPageLearned(i), fFound = fLearned || FRaccoonusPageFound(i);
+        const float v = u * uTurn;
+        const glm::vec4 offInk(26 * v, 16 * v, 8 * v, 0), offHead(80 * v, 34 * v, 6 * v, 0), offFaint(64 * v, 52 * v, 34 * v, 0),
+            offGreen(18 * v, 60 * v, 18 * v, 0), offFound(90 * v, 50 * v, 8 * v, 0);
+        // the left page
+        const float xLeftMid = 0.5f * (xL + xSpine);
+        DrawTechniqueIcon(pg.szIcon, xLeftMid, 140.0f, 128.0f, fFound ? 128.0f : 26.0f, (fFound ? 128.0f : 80.0f) * v, z);
+        const std::string strName = fFound ? std::string(pg.szTechnique) : std::string("? ? ?");
+        DrawLine(*pfont, picons, strName, xLeftMid - 0.5f * DxLine(*pfont, picons, strName, 26.0f), 228.0f, 26.0f, offHead);
+        if (fFound)
+        {
+            const std::string strAnc = pg.szAncestor;
+            DrawLine(*pfont, picons, strAnc, xLeftMid - 0.5f * DxLine(*pfont, picons, strAnc, 16.0f), 262.0f, 16.0f, offInk);
+        }
+        const std::string strEp = std::string("Episode ") + std::to_string(pg.iep) + " vault";
+        DrawLine(*pfont, picons, strEp, xLeftMid - 0.5f * DxLine(*pfont, picons, strEp, 13.0f), 288.0f, 13.0f, offFaint);
+        // the right page
+        float y = 62.0f;
+        const float xText = xSpine + 18.0f, wText = xR - xText - 16.0f;
+        auto para = [&](const std::string& str, float size, glm::vec4 off) {
+            for (const std::string& line : AstrWrapped(*pfont, picons, str, size, wText))
+            {
+                DrawLine(*pfont, picons, line, xText, y, size, off);
+                y += size + 3.0f;
+            }
+            y += 8.0f;
+        };
+        if (fFound)
+        {
+            para(s_aszLore[i], 14.0f, offInk);
+            DrawLine(*pfont, picons, "How", xText, y, 17.0f, offHead);
+            y += 21.0f;
+            para(std::string(pg.szHow) + ".", 14.0f, offInk);
+        }
+        else para(std::string("This page of the Thievius Raccoonus is still missing. It lies in an Episode ") +
+                      std::to_string(pg.iep) + " vault.", 14.0f, offFaint);
+        const std::string strState = fLearned ? "Learned" : FTrainingItem(pg.item) ? "In training"
+                                   : fFound ? "Found: train it on ThiefNet" : "Missing";
+        DrawLine(*pfont, picons, strState, xText, 352.0f, 16.0f, fLearned ? offGreen : fFound ? offFound : offFaint);
+        // the page number, the arrows to the pages beside, the buttons
+        const std::string strNum = std::to_string(i + 1) + " / " + std::to_string(CPAGE);
+        DrawLine(*pfont, picons, strNum, 320.0f - 0.5f * DxLine(*pfont, picons, strNum, 13.0f), 392.0f, 13.0f, glm::vec4(80 * u, 80 * u, 80 * u, 0));
+        const glm::vec4 rgbaArrow(110, 100, 80, 70.0f * u);
+        if (i > 0)
+        {
+            g_hud.FillScreenLine(glm::vec2(36.0f, 214.0f), glm::vec2(26.0f, 228.0f), 3.0f, rgbaArrow, z);
+            g_hud.FillScreenLine(glm::vec2(26.0f, 228.0f), glm::vec2(36.0f, 242.0f), 3.0f, rgbaArrow, z);
+        }
+        if (i < CPAGE - 1)
+        {
+            g_hud.FillScreenLine(glm::vec2(604.0f, 214.0f), glm::vec2(614.0f, 228.0f), 3.0f, rgbaArrow, z);
+            g_hud.FillScreenLine(glm::vec2(614.0f, 228.0f), glm::vec2(604.0f, 242.0f), 3.0f, rgbaArrow, z);
+        }
+        const std::string strBtn = std::string(SzMenuBackGlyph()) + " Close";
+        DrawLine(*pfont, picons, strBtn, 584.0f - DxLine(*pfont, picons, strBtn, 13.0f), 412.0f, 13.0f, glm::vec4(80 * u, 80 * u, 80 * u, 0));
+    }
     if (fPage)
     {
         // ThiefNet's third page (shop.cpp hides its frame here): the tabs, the book's page with the four

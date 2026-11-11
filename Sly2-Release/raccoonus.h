@@ -55,3 +55,12 @@ void NoteLeapLanded();
 
 // Drawn over the HUD (game.cpp): ThiefNet's whole Thievius Raccoonus page (shop.cpp hides the frame there); the training's panel; the messages.
 void DrawRaccoonusHud(int width, int height);
+
+// The Thievius Raccoonus book in the safe house (po.cpp: its own stop after ThiefNet, cross opens it): a page for each
+// technique, as Sly 4's: its icon, ancestor and story, how it is used and whether it is learned (or where its page
+// still lies). Left / right turn the pages; back closes it. Drawn by DrawRaccoonusHud.
+void OpenRaccoonusBook();
+void CloseRaccoonusBook();
+bool FRaccoonusBookOpen();
+void UpdateRaccoonusBook();   // (po.cpp, each update while it is open: the pad)
+bool FSafeHouseRaccoonusStop();   // po.cpp

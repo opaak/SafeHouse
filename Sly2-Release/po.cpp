@@ -44,6 +44,8 @@ void PrintRef(const CRef& ref, std::string* ps);  // bif.cpp (debug)
 #include "worldaccess.h"
 #include "frontend.h"
 #include "menu.h"
+#include "raccoonus.h"
+#include "sound.h"
 #include "shop.h"
 
 #include <algorithm>
@@ -118,6 +120,7 @@ struct SAFEHOUSE
     bool fAllowedSet = false;   // +0x220 set by the method 1339 (else the option's list)
     std::vector<OID> aoidAllowed;   // +0x220 / +0x224 (at most 6)
     bool fMurrayQol = false;        // (QoL U33: Murray added in Episode 4, see RefSetSafeHouseStates)
+    bool fRacStop = false;          // (PC: on the Thievius Raccoonus' stop, after ThiefNet: raccoonus.h's book)
 };
 std::unordered_map<const LO*, SAFEHOUSE> s_mpsh;
 
@@ -155,6 +158,27 @@ void StepSafeHouse(LO* plo, SAFEHOUSE& sh, int d)
         else if (i == i0) break;
     }
     ClearSmaHandle(&sh.psma);   // (0x1F1448(0, p, -1, 0, +0x188))
+}
+
+// (PC) the allowed state StepSafeHouse(d) would go to (-1: none)
+OID OidSafeHouseStep(LO* plo, SAFEHOUSE& sh, int d)
+{
+    if (!sh.psma || !sh.psma->psm) return -1;
+    SM* psm = sh.psma->psm;
+    const int c = int(psm->asms.size());
+    if (c <= 0) return -1;
+    const std::vector<OID> aoid = AoidAllowed(plo);
+    int i = IsmsFindSm(psm, OidSmaCur(sh.psma));
+    if (i < 0) i = 0;
+    for (int guard = 0; guard < c; ++guard)
+    {
+        i += d;
+        if (i < 0) i = c - 1;
+        else if (i >= c) i = 0;
+        const OID oid = OidFromSmIsms(psm, i);
+        if (std::find(aoid.begin(), aoid.end(), oid) != aoid.end()) return oid;
+    }
+    return -1;
 }
 
 // orig 0x001D7780 (EOPID 1339's method 0x10F648; the loader's option and the scripts): the states the select may
@@ -238,6 +262,8 @@ void SetSafeHouseState(SW* psw, LO* plo, int n)
         Event(plo, 6);
     }
     sh.nState = n;
+    sh.fRacStop = false;
+    CloseRaccoonusBook();
     if (n != 1) return;
     // a job running (and not +0x74) ends
     if (JOB* pjob = psw->tasks.pjobCur; pjob && !pjob->f74) EndJob(psw, pjob);  // 0x162E38
@@ -509,10 +535,31 @@ void UpdateSafeHouse(LO* plo)
     SAFEHOUSE& sh = it->second;
     if (sh.nState != 1 || !sh.psma) return;
     if (FShopShown() || FMenuShown()) return;   // (0x14FD50: the camera's own; the shop / menus take the pad)
+    // (PC) the Thievius Raccoonus: a stop of its own after ThiefNet (state 10), its camera ThiefNet's; cross opens the
+    // book (raccoonus.h: a page for each technique), which takes the pad while open
+    if (FRaccoonusBookOpen()) { UpdateRaccoonusBook(); return; }
     if (const int n = NStepLeftRight())
     {
-        StepSafeHouse(plo, sh, n);
+        const OID oidNow = OidSmaCur(sh.psma);
+        if (sh.fRacStop)
+        {
+            sh.fRacStop = false;
+            if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: ThiefNet again)
+            PsndStartSound(0x35);
+        }
+        else if (n > 0 && oidNow == 10) { sh.fRacStop = true; PsndStartSound(0x35); }
+        else if (n < 0 && OidSafeHouseStep(plo, sh, -1) == 10)
+        {
+            StepSafeHouse(plo, sh, n);
+            sh.fRacStop = true;
+        }
+        else StepSafeHouse(plo, sh, n);
         return;
+    }
+    if (sh.fRacStop)
+    {
+        if (GrfbtnTakePressed(0x40)) OpenRaccoonusBook();   // (cross)
+        return;   // (ThiefNet's own buttons not here)
     }
     const OID oidCur = OidSmaCur(sh.psma);
     static OID s_oidLast = -2;
@@ -639,6 +686,14 @@ int UnlockSafeHouseCharacters(SW* psw)
         ++c;
     }
     return c;
+}
+
+// (PC) the safe house on the Thievius Raccoonus' stop (raccoonus.cpp draws its label)
+bool FSafeHouseRaccoonusStop()
+{
+    for (const auto& [plo, sh] : s_mpsh)
+        if (sh.nState == 1 && sh.fRacStop) return true;
+    return false;
 }
 
 // (debug harness, autoplay.cpp: the safe house's shown state (its machine's current state oid: 7 Sly, 8 Bentley,
