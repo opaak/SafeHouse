@@ -42,7 +42,7 @@ const PCITEM s_aitem[] = {
      "From Sly 4. When the gadget meter runs empty, it fills up again at once; then it needs 60 s to recharge", -1, 0, true},
     // Sly 4's passive upgrades, in ThiefNet as the story goes on (always on once bought)
     {kItemMovingPickpocket, "movingPickpocket", 7, 500, 2, "Moving Pickpocket",
-     "From Sly 4. Sly keeps walking while he picks a guard's pocket, so he can follow a guard on its round", -1, 0, true},
+     "From Sly 4. Hold circle while picking a pocket to keep reaching and follow the guard. Let go to take the loot", -1, 0, true},
     {kItemRunWhileCharging, "runWhileCharging", 7, 700, 2, "Run While Charging",
      "From Sly 4. Sly can walk while he winds up a charged cane swing, holding &2S&.", -1, 0, true},
     {kItemHomingDarts, "homingDarts", 9, 900, 3, "Homing Darts",

@@ -111,7 +111,7 @@ can be turned off where it changes how the game looks or plays.
   - **Meter Recharger** (Sly, Bentley and Murray, from Episode 3, 1500 coins each): passive; when the gadget meter
     runs empty it fills up again at once, then needs 60 s to recharge.
   - Sly 4's passive upgrades, always on once bought:
-    - **Moving Pickpocket** (Sly, Episode 2, 500): Sly keeps walking while he picks a pocket.
+    - **Moving Pickpocket** (Sly, Episode 2, 500): hold circle through a pickpocket and Sly keeps reaching (up to 4 s) while he follows the guard with the stick; letting go takes the loot (still only in reach).
     - **Run While Charging** (Sly, Episode 2, 700): Sly walks while winding up a charged cane swing.
     - **Homing Darts** (Bentley, Episode 3, 900): the darts aim at the guard nearest the crosshair.
     - **Light as a Feather** (Murray, Episode 3, 900): Murray runs with R1 while carrying, 1.3 times as fast.

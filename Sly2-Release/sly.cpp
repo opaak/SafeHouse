@@ -551,6 +551,63 @@ void UpdateSlySlideInput(SLY* p)
     }
 }
 
+// (PC) Sly 4's Moving Pickpocket, held: with the item, circle kept held from the pickpocket's start holds Sly in the
+// reach just short of the take (the clip all but stopped a little before its event 0x167, +0x1BD8) while he walks
+// after the guard (UpdateSlyPcWalk, faster while held); letting go, kHoldMax seconds, or the pocket more than kRBreak
+// away lets the clip run on to the take, which still needs the hand in reach (0x18B460's test: too far, nothing).
+namespace
+{
+struct PPHOLD
+{
+    float tState = -1.0f;   // the pickpocket it is for (its state's start)
+    bool f = false;          // holding
+    bool fPaused = false;    // the clip slowed
+    float tStart = 0.0f;
+    float svtPrev = 1.0f;
+};
+PPHOLD s_pphold;
+constexpr float kHoldMax = 4.0f, kRBreak = 420.0f, kSvtHeld = 0.02f, kDtBeforeTake = 0.08f;
+}
+
+bool FSlyPcPickpocketHolding(SLY* p)
+{
+    return p->state == 11 && s_pphold.f && s_pphold.tState == p->tState;
+}
+
+void UpdateSlyPcPickpocketHold(SLY* p)
+{
+    PPHOLD& h = s_pphold;
+    ASEGA* pasega = p->pasega;
+    const bool fOwned = FPowerupOwned(kItemMovingPickpocket);
+    if (h.tState != p->tState)
+    {
+        // a new pickpocket: held only if circle is still down from its start
+        h = PPHOLD{};
+        h.tState = p->tState;
+        h.f = fOwned && p->plo10DC && sly2actions::Held(PpadctlOf(p), sly2actions::Action::SlyPickpocket, BTN_CIRCLE);
+        h.tStart = g_clock.t;
+    }
+    if (!h.f || !pasega) return;
+    bool fLet = !sly2actions::Held(PpadctlOf(p), sly2actions::Action::SlyPickpocket, BTN_CIRCLE) || g_clock.t - h.tStart > kHoldMax || !p->plo10DC;
+    if (!fLet && FIsLoDerivedFrom(p->plo10DC, 0x30))
+    {
+        const glm::vec3 d = PosAloCenter(static_cast<ALO*>(p->plo10DC)) - PosAloCenter(p->palo);
+        fLet = glm::length(glm::vec2(d.x, d.y)) > kRBreak;
+    }
+    if (fLet)
+    {
+        if (h.fPaused) SetAsegaSpeed(pasega, h.svtPrev);
+        h.f = h.fPaused = false;
+        return;
+    }
+    if (!h.fPaused && pasega->t >= p->g1BD8 - kDtBeforeTake * std::max(pasega->svt, 0.01f) && pasega->t < p->g1BD8)
+    {
+        h.svtPrev = pasega->svtLocal;
+        SetAsegaSpeed(pasega, kSvtHeld);   // (not 0: the reach's time left divides by the speed)
+        h.fPaused = true;
+    }
+}
+
 // (PC) Sly 4's Moving Pickpocket (state 11) and Run While Charging (state 5's wind-up, substates 6 / 7): a walk by the
 // stick, after the step motion as the slide's, by an acceleration in the world toward the stick's velocity (the feet
 // push nothing: these states keep vecVel 0), so it goes straight whichever way the pose turns him
@@ -558,7 +615,7 @@ void UpdateSlyPcWalk(SLY* p)
 {
     float speed = 0.0f;
     // (slow, as a careful step: the poses' feet do not walk, so a faster glide looks like skating)
-    if (p->state == 11 && FPowerupOwned(kItemMovingPickpocket)) speed = 130.0f;
+    if (p->state == 11 && FPowerupOwned(kItemMovingPickpocket)) speed = FSlyPcPickpocketHolding(p) ? 190.0f : 130.0f;
     else if (p->state == 5 && (p->substate == 6 || p->substate == 7) && FPowerupOwned(kItemRunWhileCharging)) speed = 160.0f;
     if (speed <= 0.0f || g_clock.dt <= 0.0f) return;
     const float rad = RadJoy(p);
@@ -568,7 +625,7 @@ void UpdateSlyPcWalk(SLY* p)
     const glm::vec3 wanted(std::cos(rad) * u * speed, std::sin(rad) * u * speed, v.z);
     glm::vec3 acc = (wanted - v) * (1.0f / g_clock.dt);
     acc.z = 0.0f;
-    AccelAloPos(p->palo, cmm::LimitVectorLength(acc, 1200.0f));   // (eased in and out: no sudden glide)
+    AccelAloPos(p->palo, cmm::LimitVectorLength(acc, FSlyPcPickpocketHolding(p) ? 1600.0f : 1200.0f));   // (eased in and out: no sudden glide)
 }
 
 // orig: 0x00188960 (state 24's addition, following the base STEP motion)
@@ -1693,6 +1750,7 @@ void UpdateSlyInput(SLY* p)
     case 7: UpdateInteract(p); break;  // 0x191A10 (+0x4C0)
     case 11:
         UpdatePickpocketPose(p);  // 0x18B460
+        UpdateSlyPcPickpocketHold(p);   // (PC: Sly 4's Moving Pickpocket, held: the reach kept while circle is held)
         // (PC: Sly 4's Moving Pickpocket: its walk, UpdateSlyPcWalk after the step motion)
         break;
     case 16:
