@@ -15,3 +15,5 @@ LO* PloHomingLock();                               // the locked guard (null: no
 void NoteHomingDart(ALO* pdart, LO* ptarget);      // a dart fired at the lock
 void SteerHomingDart(ALO* pdart, glm::vec3* pdir); // its direction turned toward its target (no target: unchanged)
 void DrawHomingLockHud(int width, int height);     // game.cpp, after the HUD
+#include <vector>
+std::vector<ALO*> HomingDartsInFlight();           // (skillfx.cpp: their trails)

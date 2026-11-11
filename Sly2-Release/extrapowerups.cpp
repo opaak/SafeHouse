@@ -12,6 +12,8 @@
 #include "so.h"
 #include "lo.h"
 #include "guard.h"
+#include "skillfx.h"
+#include "po.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -54,6 +56,7 @@ void UpdateMeterRecharger(ACTOR* pa, int id)
     pa->g1304 = g_clock.t;   // (the meter's flash, as a spend shows it)
     s_mpidTUsed[id] = g_clock.t;
     PsndStartSound(0x29);    // (ThiefNet's purchase sound)
+    SkillFxRecharge(pa->palo);
     if (FPrint()) std::printf("gadget: Meter Recharger %d refills the meter t %.2f\n", id, g_clock.t);
 }
 
@@ -144,6 +147,7 @@ void UpdateMegaCharge(SLY* p)
     if (g_clock.t - p->tSubstate < 0.12f) return;   // (as the swing comes round)
     s_tMegaCharge = p->tSubstate;
     HitGuardsAround(p->palo, PosAloCenter(p->palo), 280.0f, 220.0f, 0x800u, -3, 900.0f, 350.0f);
+    if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 280.0f, SKILLFXK_MegaCharge);
 }
 
 // Sly 4's Scorching Hover Pack: while hovering (the jump's kind 17), the guards below (within 220 across, 700 down)
@@ -152,6 +156,7 @@ std::unordered_map<const LO*, float> s_mpguardTScorch;
 void UpdateScorchingHover(ACTOR* pa)
 {
     if (pa->jump.kind != 17 || !FPowerupOwned(kItemScorchingHoverPack) || !g_psw) return;
+    NoteSkillFxHover(pa->palo);   // (the pack's flames, skillfx.h)
     const glm::vec3 pos = PosAloCenter(pa->palo);
     for (CID cid = 0x38; cid <= 0x43; ++cid)
         for (LO* plo : std::vector<LO*>(g_psw->mpcidaplo[cid]))
@@ -170,6 +175,7 @@ void UpdateScorchingHover(ACTOR* pa)
             ctm.pos = posG;
             ctm.vec = glm::vec3(0.0f, 0.0f, 200.0f);
             PaloAcceptContact(&ctm);
+            SkillFxBurn(posG);
             if (FPrint()) std::printf("gadget: Scorching Hover Pack burns guard %d\n", plo->oid);
         }
 }

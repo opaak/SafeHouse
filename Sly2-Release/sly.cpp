@@ -43,6 +43,7 @@ void BroadcastTaskEvent(SW* psw, int n, LO* plo);  // orig 0x001619A0 (task.h)
 #include "vtnative.h"
 #include "worldaccess.h"
 #include "xf.h"
+#include "skillfx.h"
 #include "xfmath.h"
 #include "dzg.h"
 #include "jump.h"
@@ -639,6 +640,7 @@ void UpdateSlySlideMotion(SLY* p)
     const glm::vec3 perpendicular = velocity - forward * along;
     // (PC: Sly 3's Rocket Boots, pcprogress.h: the slide keeps its speed, none of the 100 a second it loses)
     const float decel = FPowerupOwned(kItemRocketBoots) ? 0.0f : 100.0f;
+    if (FPowerupOwned(kItemRocketBoots)) NoteSkillFxRocketSlide(p->palo);   // (its sparks, skillfx.h)
     const glm::vec3 next = MatRotateAxis(omega.z * g_clock.dt, glm::vec3(0.0f, 0.0f, 1.0f)) *
         (forward * (along - decel * g_clock.dt) + perpendicular * (1.0f - 1.0f * g_clock.dt));
     glm::vec3 acceleration = (next - velocity) * (1.0f / g_clock.dt);

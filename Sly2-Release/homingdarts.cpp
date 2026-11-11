@@ -100,6 +100,15 @@ void UpdateHomingLock(BENTLEY* p)
     s_lock.tReal = g_clock.tReal;
 }
 
+std::vector<ALO*> HomingDartsInFlight()
+{
+    std::vector<ALO*> a;
+    if (!g_psw) return a;
+    for (const DART& d : s_adart)
+        if (d.serial == g_psw->serial && d.palo && d.palo->fInWorld && g_clock.tReal - d.tReal < 4.5f) a.push_back(d.palo);
+    return a;
+}
+
 LO* PloHomingLock() { return FLockShown() ? s_lock.plo : nullptr; }
 
 void NoteHomingDart(ALO* pdart, LO* ptarget)

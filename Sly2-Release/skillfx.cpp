@@ -1,0 +1,390 @@
+// See skillfx.h.
+#include "skillfx.h"
+
+#include "alo.h"
+#include "brx.h"
+#include "clock.h"
+#include "cm.h"
+#include "display.h"
+#include "emitter.h"
+#include "homingdarts.h"
+#include "hud.h"
+#include "lo.h"
+#include "po.h"
+#include "render.h"
+#include "scene.h"
+#include "so.h"
+#include "sw.h"
+
+#include <glm/glm.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <deque>
+#include <random>
+#include <vector>
+
+namespace
+{
+std::minstd_rand s_rng(4242);
+float Rand(float lo, float hi) { return std::uniform_real_distribution<float>(lo, hi)(s_rng); }
+
+// colours in GS units (0x80 = full; alpha 0x80 = opaque)
+const glm::vec4 kPale(110, 118, 128, 110), kDust(96, 88, 74, 70), kOrange(128, 72, 16, 120), kFlame(128, 96, 30, 128);
+const glm::vec4 kEmber(120, 34, 8, 110), kBlue(50, 100, 128, 110), kWhite(128, 128, 128, 128), kSpark(128, 110, 60, 128);
+
+// ---- particles: a dot (a disc shrinking or growing) or a streak (a line along its velocity)
+struct FXP
+{
+    glm::vec3 pos, vel;
+    float grav = 0.0f, drag = 0.0f;    // (units / s^2 down; the share of the velocity lost a second)
+    float t0 = 0.0f, life = 0.5f;
+    float size0 = 10.0f, size1 = 0.0f; // world units
+    glm::vec4 rgba0, rgba1;            // (the alpha fades to rgba1's)
+    bool fStreak = false;
+};
+std::vector<FXP> s_ap;
+
+// ---- rings: a circle on the ground growing from r0 to r1
+struct FXRING
+{
+    glm::vec3 pos;
+    float r0 = 0, r1 = 100, t0 = 0, life = 0.4f, w = 10.0f;   // w: world units across
+    float dz = 0;                                             // (rising: the ring's height at the end)
+    glm::vec4 rgba;
+};
+std::vector<FXRING> s_aring;
+
+float s_tFlash = -10.0f, s_aFlash = 0.0f;
+uint32_t s_serial = 0;
+
+void Reset()
+{
+    s_ap.clear();
+    s_aring.clear();
+    s_tFlash = -10.0f;
+}
+
+bool FStep()
+{
+    if (!g_psw) return false;
+    if (s_serial != g_psw->serial) { Reset(); s_serial = g_psw->serial; }
+    return true;
+}
+
+void Add(const FXP& p) { if (s_ap.size() < 1200) s_ap.push_back(p); }
+
+FXP Dot(const glm::vec3& pos, const glm::vec3& vel, float life, float s0, float s1, glm::vec4 c0, glm::vec4 c1, float grav = 0, float drag = 0)
+{
+    FXP p;
+    p.pos = pos, p.vel = vel, p.life = life, p.size0 = s0, p.size1 = s1, p.rgba0 = c0, p.rgba1 = c1, p.grav = grav, p.drag = drag;
+    p.t0 = g_clock.t;
+    return p;
+}
+
+void Ring(const glm::vec3& pos, float r0, float r1, float life, float w, glm::vec4 c, float dz = 0.0f, float tDelay = 0.0f)
+{
+    FXRING r;
+    r.pos = pos, r.r0 = r0, r.r1 = r1, r.life = life, r.w = w, r.rgba = c, r.dz = dz;
+    r.t0 = g_clock.t + tDelay;
+    s_aring.push_back(r);
+}
+
+// dust round a point, pushed out flat
+void DustRing(const glm::vec3& pos, int c, float v, float size)
+{
+    for (int i = 0; i < c; ++i)
+    {
+        const float a = 6.2831853f * (float(i) + Rand(0.0f, 0.6f)) / float(c);
+        const glm::vec3 d(std::cos(a), std::sin(a), 0.0f);
+        Add(Dot(pos + d * Rand(10.0f, 40.0f) + glm::vec3(0, 0, 8), d * v * Rand(0.6f, 1.0f) + glm::vec3(0, 0, Rand(40.0f, 140.0f)),
+                Rand(0.45f, 0.75f), size * 0.6f, size * Rand(1.4f, 2.0f), kDust, glm::vec4(kDust.r, kDust.g, kDust.b, 0), 0.0f, 3.0f));
+    }
+}
+
+void Sparks(const glm::vec3& pos, int c, float v, glm::vec4 col, float up = 0.4f)
+{
+    for (int i = 0; i < c; ++i)
+    {
+        glm::vec3 d(Rand(-1.0f, 1.0f), Rand(-1.0f, 1.0f), Rand(0.0f, 1.0f) + up);
+        d = glm::normalize(d);
+        FXP p = Dot(pos, d * v * Rand(0.5f, 1.0f), Rand(0.25f, 0.5f), 3.0f, 1.5f, col, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0), 1400.0f, 1.0f);
+        p.fStreak = true;
+        Add(p);
+    }
+}
+
+// ---- the canvas (640 x 448) of a world point; false behind the camera
+bool FCanvas(const glm::vec3& pos, glm::vec2* pc)
+{
+    const glm::vec3 sc = ConvertCmWorldToScreen(&g_cm, pos);
+    if (sc.z <= 1.0f) return false;
+    *pc = glm::vec2(((sc.x - g_display.uiOffset.x) / g_display.uiScale.x + 1.0f) * 320.0f,
+                    (1.0f - (sc.y - g_display.uiOffset.y) / g_display.uiScale.y) * 224.0f);
+    return true;
+}
+// a world length at a point in canvas pixels (along the camera's up)
+float PixelsOf(const glm::vec3& pos, float s, const glm::vec2& c)
+{
+    glm::vec2 c2;
+    if (!FCanvas(pos + g_cm.mat[2] * s, &c2)) return 0.0f;
+    return glm::length(c2 - c);
+}
+
+// ---- afterimages (Adrenaline Burst Plus), as Silent Sprint's (ninjamoves.cpp)
+struct GHOST { float t = 0; std::vector<GHOSTPART> apart; };
+std::deque<GHOST> s_aghost;
+ALO* s_paloGhost = nullptr;
+float s_tGhostNote = -10.0f, s_tGhostLast = -10.0f;
+constexpr float kDtGhost = 0.06f, kTGhostLife = 0.32f, kTGhostMin = 0.05f;
+
+void CollectSgs(const SCENE& scene, const ALO* palo, int depth, std::vector<const SCENEGLOBSET*>& apsgs)
+{
+    if (!palo) return;
+    if (const SCENEGLOBSET* psgs = PsgsOfAlo(scene, palo))
+        if (std::find(apsgs.begin(), apsgs.end(), psgs) == apsgs.end()) apsgs.push_back(psgs);
+    if (depth >= 2) return;
+    for (const auto& [ib, plo] : palo->apart)
+    {
+        (void)ib;
+        if (plo && plo->fInWorld && FIsLoDerivedFrom(plo, 0x30)) CollectSgs(scene, static_cast<const ALO*>(plo), depth + 1, apsgs);
+    }
+}
+
+// the moves noted this step (the hooks), for UpdateSkillFx
+ALO* s_paloHover = nullptr;
+ALO* s_paloRocket = nullptr;
+ALO* s_paloFeather = nullptr;
+float s_tFeatherPuff = -10.0f, s_tAdrenStreak = -10.0f;
+glm::vec3 s_posFeatherLast(0.0f), s_posRocketLast(0.0f);
+}  // namespace
+
+void SkillFxShockwave(const glm::vec3& pos, float r, SKILLFXK k)
+{
+    if (!FStep()) return;
+    switch (k)
+    {
+    case SKILLFXK_MegaCharge:
+        Ring(pos + glm::vec3(0, 0, 6), 30.0f, r, 0.32f, 14.0f, kPale);
+        Ring(pos + glm::vec3(0, 0, 6), 20.0f, r * 0.7f, 0.4f, 6.0f, kWhite, 0.0f, 0.05f);
+        DustRing(pos, 12, 420.0f, 26.0f);
+        JoltCm(&g_cm, 0);
+        break;
+    case SKILLFXK_MegaStomp:
+        Ring(pos + glm::vec3(0, 0, 6), 40.0f, r, 0.45f, 22.0f, kPale);
+        Ring(pos + glm::vec3(0, 0, 6), 30.0f, r * 0.75f, 0.55f, 10.0f, kWhite, 0.0f, 0.08f);
+        DustRing(pos, 22, 700.0f, 40.0f);
+        DustRing(pos, 10, 300.0f, 30.0f);
+        JoltCm(&g_cm, 0);
+        break;
+    case SKILLFXK_BombBlast:
+        Ring(pos, r * 0.2f, r, 0.35f, 16.0f, kOrange);
+        Ring(pos, r * 0.1f, r * 0.8f, 0.45f, 8.0f, kFlame, 0.0f, 0.04f);
+        Sparks(pos + glm::vec3(0, 0, 20), 18, 900.0f, kSpark, 0.6f);
+        break;
+    }
+}
+
+void SkillFxFlash(const glm::vec3& pos)
+{
+    if (!FStep()) return;
+    glm::vec2 c;
+    const bool fSeen = FCanvas(pos, &c) && c.x > -40.0f && c.x < 680.0f && c.y > -40.0f && c.y < 488.0f;
+    s_tFlash = g_clock.t;
+    s_aFlash = fSeen ? 1.0f : 0.45f;
+    Ring(pos + glm::vec3(0, 0, 10), 50.0f, 1000.0f, 0.3f, 18.0f, kWhite);
+    Sparks(pos + glm::vec3(0, 0, 60), 24, 700.0f, kWhite, 0.8f);
+}
+
+void SkillFxRecharge(ALO* palo)
+{
+    if (!FStep() || !palo) return;
+    const glm::vec3 pos = PosAloCenter(palo);
+    for (int i = 0; i < 3; ++i) Ring(pos + glm::vec3(0, 0, 5), 70.0f, 55.0f, 0.7f, 6.0f, kBlue, 170.0f, 0.12f * float(i));
+    for (int i = 0; i < 16; ++i)
+    {
+        const float a = Rand(0.0f, 6.2831853f);
+        Add(Dot(pos + glm::vec3(std::cos(a) * 60.0f, std::sin(a) * 60.0f, Rand(0.0f, 60.0f)), glm::vec3(0, 0, Rand(120.0f, 260.0f)),
+                Rand(0.5f, 0.9f), 6.0f, 0.0f, kWhite, glm::vec4(kBlue.r, kBlue.g, kBlue.b, 0)));
+    }
+}
+
+void SkillFxBurn(const glm::vec3& pos)
+{
+    if (!FStep()) return;
+    Sparks(pos + glm::vec3(0, 0, 60), 12, 500.0f, kFlame, 0.9f);
+    for (int i = 0; i < 6; ++i)
+        Add(Dot(pos + glm::vec3(Rand(-30.f, 30.f), Rand(-30.f, 30.f), Rand(40.f, 110.f)), glm::vec3(0, 0, Rand(80.f, 200.f)), 0.45f, 18.0f, 4.0f,
+                kOrange, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+}
+
+void NoteSkillFxHover(ALO* palo) { s_paloHover = palo; }
+void NoteSkillFxRocketSlide(ALO* palo) { s_paloRocket = palo; }
+void NoteSkillFxAdrenaline(ALO* palo) { s_paloGhost = palo; s_tGhostNote = g_clock.t; }
+void NoteSkillFxFeather(ALO* palo) { s_paloFeather = palo; }
+
+void UpdateSkillFx()
+{
+    if (!FStep()) return;
+    const float t = g_clock.t, dt = std::clamp(g_clock.dt, 0.0f, 0.1f);
+    LO* pcur = PloPoCurrent(g_psw);
+    // the continuous moves (the current player's only)
+    if (s_paloHover && s_paloHover == pcur)
+    {
+        const glm::vec3 pos = PosAloCenter(s_paloHover) + glm::vec3(0, 0, 45);
+        for (int i = 0; i < 3; ++i)
+            Add(Dot(pos + glm::vec3(Rand(-10.f, 10.f), Rand(-10.f, 10.f), 0), glm::vec3(Rand(-60.f, 60.f), Rand(-60.f, 60.f), Rand(-650.f, -450.f)),
+                    Rand(0.18f, 0.3f), 16.0f, 3.0f, kFlame, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+    }
+    if (s_paloRocket && s_paloRocket == pcur)
+    {
+        const glm::vec3 pos = PosAloCenter(s_paloRocket) + glm::vec3(0, 0, 8);
+        const glm::vec3 v = dt > 0.0f && glm::length(s_posRocketLast) > 0.0f ? (pos - s_posRocketLast) / dt : glm::vec3(0.0f);
+        s_posRocketLast = pos;
+        for (int i = 0; i < 2; ++i)
+        {
+            FXP p = Dot(pos + glm::vec3(Rand(-12.f, 12.f), Rand(-12.f, 12.f), 0), -v * Rand(0.1f, 0.3f) + glm::vec3(Rand(-120.f, 120.f), Rand(-120.f, 120.f), Rand(150.f, 380.f)),
+                        Rand(0.2f, 0.35f), 3.0f, 1.0f, kSpark, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0), 1600.0f, 1.0f);
+            p.fStreak = true;
+            Add(p);
+        }
+        Add(Dot(pos, glm::vec3(0.0f), 0.18f, 14.0f, 4.0f, glm::vec4(kOrange.r, kOrange.g, kOrange.b, 70), glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+    }
+    else s_posRocketLast = glm::vec3(0.0f);
+    if (s_paloFeather && s_paloFeather == pcur)
+    {
+        const glm::vec3 pos = PosAloCenter(s_paloFeather);
+        if (t - s_tFeatherPuff > 0.22f && glm::length(glm::vec2(pos - s_posFeatherLast)) > 25.0f)
+        {
+            s_tFeatherPuff = t;
+            s_posFeatherLast = pos;
+            for (int i = 0; i < 4; ++i)
+                Add(Dot(pos + glm::vec3(Rand(-25.f, 25.f), Rand(-25.f, 25.f), 6), glm::vec3(Rand(-70.f, 70.f), Rand(-70.f, 70.f), Rand(30.f, 90.f)),
+                        Rand(0.5f, 0.8f), 14.0f, 30.0f, glm::vec4(kDust.r, kDust.g, kDust.b, 50), glm::vec4(kDust.r, kDust.g, kDust.b, 0), 0.0f, 2.5f));
+        }
+    }
+    if (s_paloGhost && s_paloGhost == pcur && t - s_tGhostNote < 0.1f && t - s_tAdrenStreak > 0.05f)
+    {
+        // a few faint green streaks of speed round him
+        s_tAdrenStreak = t;
+        const glm::vec3 pos = PosAloCenter(s_paloGhost) + glm::vec3(Rand(-35.f, 35.f), Rand(-35.f, 35.f), Rand(20.f, 110.f));
+        FXP p = Dot(pos, glm::vec3(0, 0, Rand(-40.f, 40.f)), 0.2f, 2.0f, 1.0f, glm::vec4(60, 128, 70, 70), glm::vec4(60, 128, 70, 0));
+        Add(p);
+    }
+    s_paloHover = s_paloRocket = s_paloFeather = nullptr;
+    // the homing darts' trails
+    for (ALO* pdart : HomingDartsInFlight())
+        Add(Dot(PosAloCenter(pdart), glm::vec3(0.0f), 0.22f, 6.0f, 1.5f, kOrange, glm::vec4(kEmber.r, kEmber.g, kEmber.b, 0)));
+    // the particles move
+    for (FXP& p : s_ap)
+    {
+        p.vel *= std::max(0.0f, 1.0f - p.drag * dt);
+        p.vel.z -= p.grav * dt;
+        p.pos += p.vel * dt;
+    }
+    s_ap.erase(std::remove_if(s_ap.begin(), s_ap.end(), [&](const FXP& p) { return t - p.t0 > p.life || t < p.t0; }), s_ap.end());
+    s_aring.erase(std::remove_if(s_aring.begin(), s_aring.end(), [&](const FXRING& r) { return t - r.t0 > r.life || t < r.t0 - 1.0f; }), s_aring.end());
+}
+
+void UpdateSkillFxGhosts(const SCENE& scene)
+{
+    if (!g_psw) return;
+    const float t = g_clock.t;
+    if (s_serial != g_psw->serial) s_aghost.clear();
+    while (!s_aghost.empty() && (t - s_aghost.front().t > kTGhostLife || s_aghost.front().t > t)) s_aghost.pop_front();
+    if (!s_paloGhost || s_paloGhost != PloPoCurrent(g_psw) || t - s_tGhostNote > 0.1f || t - s_tGhostLast < kDtGhost) return;
+    std::vector<const SCENEGLOBSET*> apsgs;
+    CollectSgs(scene, s_paloGhost, 0, apsgs);
+    if (apsgs.empty()) return;
+    GHOST g;
+    g.t = t;
+    for (const SCENEGLOBSET* psgs : apsgs)
+    {
+        if (!psgs->pglobset) continue;
+        GHOSTPART part;
+        part.psgs = psgs;
+        part.pglobset = psgs->pglobset;
+        part.amatGlob = psgs->amatGlob;
+        part.afVisible = psgs->afVisible;
+        part.aamatBone = psgs->aamatBone;
+        g.apart.push_back(std::move(part));
+    }
+    s_aghost.push_back(std::move(g));
+    while (s_aghost.size() > 6) s_aghost.pop_front();
+    s_tGhostLast = t;
+}
+
+void DrawSkillFxGhosts(const SCENE& scene, const CAMERA& cam)
+{
+    if (s_aghost.empty() || !g_psw || s_serial != g_psw->serial) return;
+    const float t = g_clock.t;
+    std::vector<GHOSTDRAW> adraw;
+    for (const GHOST& g : s_aghost)
+    {
+        const float age = t - g.t;
+        if (age < kTGhostMin || age > kTGhostLife) continue;
+        const float u = 1.0f - (age - kTGhostMin) / (kTGhostLife - kTGhostMin);
+        adraw.push_back({&g.apart, glm::vec4(0.08f, 0.26f, 0.1f, 0.45f * u)});
+    }
+    RenderGhostPoses(scene, cam, adraw);
+}
+
+void DrawSkillFx(int width, int height)
+{
+    if (!g_psw || s_serial != g_psw->serial) return;
+    const float t = g_clock.t;
+    const bool fFlash = t - s_tFlash < 0.6f && t >= s_tFlash;
+    if (s_ap.empty() && s_aring.empty() && !fFlash) return;
+    constexpr float z = 0.9993f;
+    g_hud.Begin();
+    for (const FXRING& r : s_aring)
+    {
+        const float u = (t - r.t0) / r.life;
+        if (u < 0.0f || u > 1.0f) continue;
+        const float e = 1.0f - (1.0f - u) * (1.0f - u);   // (fast out, slowing)
+        const float rad = r.r0 + (r.r1 - r.r0) * e;
+        const glm::vec3 c = r.pos + glm::vec3(0, 0, r.dz * u);
+        const glm::vec4 rgba(r.rgba.r, r.rgba.g, r.rgba.b, r.rgba.a * (1.0f - u) * std::min(1.0f, u * 8.0f));
+        constexpr int cseg = 40;
+        glm::vec2 cPrev;
+        bool fPrev = false;
+        for (int i = 0; i <= cseg; ++i)
+        {
+            const float a = 6.2831853f * float(i) / float(cseg);
+            const glm::vec3 p = c + glm::vec3(std::cos(a) * rad, std::sin(a) * rad, 0.0f);
+            glm::vec2 cc;
+            const bool f = FCanvas(p, &cc);
+            if (f && fPrev)
+            {
+                const float w = std::clamp(PixelsOf(p, r.w * (1.0f - 0.5f * u), cc), 0.6f, 9.0f);
+                g_hud.FillScreenLine(cPrev, cc, w, rgba, z);
+            }
+            cPrev = cc;
+            fPrev = f;
+        }
+    }
+    for (const FXP& p : s_ap)
+    {
+        const float u = std::clamp((t - p.t0) / p.life, 0.0f, 1.0f);
+        const glm::vec4 rgba = glm::mix(p.rgba0, p.rgba1, u);
+        glm::vec2 c;
+        if (!FCanvas(p.pos, &c)) continue;
+        if (p.fStreak)
+        {
+            glm::vec2 c2;
+            if (!FCanvas(p.pos - p.vel * 0.025f, &c2)) continue;
+            g_hud.FillScreenLine(c2, c, std::clamp(PixelsOf(p.pos, p.size0 + (p.size1 - p.size0) * u, c), 0.6f, 3.0f), rgba, z + 1e-4f);
+        }
+        else
+        {
+            const float rpx = std::clamp(PixelsOf(p.pos, p.size0 + (p.size1 - p.size0) * u, c), 0.5f, 40.0f);
+            g_hud.DrawRing(c.x, c.y, rpx, 0.0f, 1.0f, rgba, z);
+        }
+    }
+    if (fFlash)
+    {
+        const float u = (t - s_tFlash) / 0.6f;
+        g_hud.Fade(glm::vec4(128, 128, 128, 128.0f * 0.85f * s_aFlash * (1.0f - u) * (1.0f - u)));
+    }
+    g_hud.Flush(width, height);
+}

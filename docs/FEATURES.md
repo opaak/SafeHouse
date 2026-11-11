@@ -123,6 +123,8 @@ can be turned off where it changes how the game looks or plays.
     - **Mega Charge Attack** (Sly, Episode 5, 1600): the charged cane strike hits every guard around Sly, harder.
     - **Mega Stomp** (Murray, Episode 5, 1500): the Thunder Flop's landing knocks down the guards around him.
     - **Scorching Hover Pack** (Bentley, Episode 6, 1800): the Hover Pack's jet burns the guards below.
+    - Each shows itself with light effects of its own (shockwave rings, dust, flames, sparks, afterimages, the Flash
+      Bomb's flash and a camera jolt for the big hits); they change nothing about how a move plays.
 
 ## Mods
 

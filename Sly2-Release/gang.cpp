@@ -6,6 +6,7 @@
 #include "pcprogress.h"
 #include "extrapowerups.h"
 #include "homingdarts.h"
+#include "skillfx.h"
 #include "gang.h"
 #include "actioninput.h"
 #include "climb.h"
@@ -1423,6 +1424,7 @@ void UpdateBentley(LO* plo)
             SetAsegaSpeed(p->pasega, p->pasega->svtLocal * 1.4f);
             s_tFaster = p->tState;
         }
+        if (FPowerupOwned(kItemAdrenalineBurstPlus)) NoteSkillFxAdrenaline(p->palo);   // (its afterimages, skillfx.h)
         p->vecVel = VelActorAnimRoot(p);
         SetStepPhysHeading(p->palo, RadJoy(p));
         break;
@@ -1990,7 +1992,11 @@ void SetMurrayFlopPhase(MURRAY* p, int n)
         p->pxp13E4 = nullptr;
         // (PC: Sly 4's Mega Stomp, pcprogress.h: the landing's shockwave, every guard within 520 knocked down as by the
         // flop's own contact, pushed away)
-        if (FPowerupOwned(kItemMegaStomp)) HitGuardsAround(p->palo, PosAloCenter(p->palo), 520.0f, 260.0f, 4u, -20, 700.0f, 500.0f);
+        if (FPowerupOwned(kItemMegaStomp))
+        {
+            HitGuardsAround(p->palo, PosAloCenter(p->palo), 520.0f, 260.0f, 4u, -20, 700.0f, 500.0f);
+            if (p->palo == PloPoCurrent(g_psw)) SkillFxShockwave(PosAloCenter(p->palo), 520.0f, SKILLFXK_MegaStomp);   // (skillfx.h)
+        }
         const ASEGEV* landing = nullptr;
         if (p->pasega && p->pasega->paseg)
             for (const ASEGEV& ev : PasegdOf(p->pasega->paseg)->aaev[1])

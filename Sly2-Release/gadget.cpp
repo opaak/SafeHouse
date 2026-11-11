@@ -3,6 +3,7 @@
 // Sly2-Reference's m_13FF70.cpp (ActorUpdateAbilities), m_188488.cpp (0x18D760).
 
 #include "gadget.h"
+#include "skillfx.h"
 #include "worldglobals.h"
 #include "pccharacter.h"   // (PC addition, debug menu only: Carmelita's moveset)
 #include "pcprogress.h"
@@ -474,6 +475,7 @@ bool ReleaseSmokeBomb(ACTOR* pa)
     if (fFlash && g_psw && pa->palo)
     {
         const glm::vec3 pos = PosAloCenter(pa->palo);
+        SkillFxFlash(pos);   // (the flash: skillfx.h)
         for (const auto& up : g_psw->aploAll)
             if (LO* plo = up.get(); plo->fInWorld && FCidDerivedFrom(plo->Cid(), 0x38) && FIsLoDerivedFrom(plo, 0x30))
                 if (GUARD* pg = PguardFromLo(plo); pg && glm::distance(PosAloCenter(static_cast<ALO*>(plo)), pos) < 1000.0f)

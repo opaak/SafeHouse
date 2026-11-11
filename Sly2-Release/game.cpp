@@ -27,6 +27,7 @@
 #include "post.h"
 #include "leapdragon.h"
 #include "homingdarts.h"
+#include "skillfx.h"
 #include "ninjamoves.h"
 #include "raccoonus.h"
 #include "pcprogress.h"
@@ -1605,6 +1606,7 @@ int RunGame(const GAMEOPTS& go)
         UpdateHud(psw.get());
         UpdateRaccoonusTraining();   // (PC: the Thievius Raccoonus' training, once a game step: raccoonus.h)
         UpdateLeapDragon();          // (PC: Leaping Dragon's red aura, leapdragon.h)
+        UpdateSkillFx();             // (PC: the extra powerups' effects, skillfx.h)
         // debug: SLY2N_F6AT=frame does F6 headless
         static const int s_iframeF6 = std::getenv("SLY2N_F6AT") ? std::atoi(std::getenv("SLY2N_F6AT")) : -1;
         if (frame == s_iframeF6) DebugUnlockAll(psw.get());
@@ -1993,11 +1995,14 @@ int RunGame(const GAMEOPTS& go)
             }
             if (FAnimatedOverlayDrawNormal()) {
                 UpdateSprintGhosts(scene);   // (PC: Silent Sprint's afterimages, ninjamoves.h)
+                UpdateSkillFxGhosts(scene);  // (PC: Adrenaline Burst Plus' afterimages, skillfx.h)
                 RenderScene(scene, cam, opts);
                 DrawSprintGhosts(scene, cam);
+                DrawSkillFxGhosts(scene, cam);
                 DrawLeapDragonAura(scene, cam);   // (PC: Leaping Dragon's red aura, leapdragon.h)
                 PostProcessScene(cam, opts.rgbaCel);   // (image quality over the 3D picture, before the HUD: post.h)
                 DrawRailSprintLines(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Rail Sprint's speed lines, ninjamoves.h)
+                DrawSkillFx(g_gl.renderWidth, g_gl.renderHeight);           // (PC: the extra powerups' effects, skillfx.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;

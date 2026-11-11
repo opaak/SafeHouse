@@ -1,4 +1,5 @@
 #include "pcprogress.h"
+#include "skillfx.h"
 #include "actioninput.h"
 #include "jtthrow.h"
 // Murray's carried-object state machine and authored attachment poses.
@@ -270,6 +271,7 @@ void UpdateMurrayCarryHeld(MURRAY* p) {
         // (PC: Light as a Feather: the run's clip played 1.3 times as fast, so its root's velocity and the feet go
         // faster together, no sliding)
         if(ASEGA* a=p->pasega; fFeather && a && !FAsegaRetracted(a) && a->svtLocal<1.29f) SetAsegaSpeed(a,1.3f);
+        if(fFeather) NoteSkillFxFeather(p->palo);   // (its puffs of dust, skillfx.h)
         if(ASEGA* a=p->pasega; a && !FAsegaRetracted(a))
             if(const ASEGCHN* channel=PchnFindAseg(a->paseg,p->palo,1,true);channel&&channel->ptrkp)
                 channel->ptrkp->Eval(nullptr,&velocity,a->t,a->svt);
