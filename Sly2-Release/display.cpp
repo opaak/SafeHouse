@@ -46,6 +46,8 @@ void FromSettings(const st::SystemSettings& s)
     g_display.shadowMaps = s.shadowMaps;   // (v23, shadows: display.h)
     g_display.worldShadows = s.worldShadows;
     for (int i = 0; i < st::kWorldShadowsEpisodes && i < 9; ++i) g_display.aWorldShadowsEpisode[i] = s.worldShadowsEpisode[i];
+    g_display.smoothChars = s.smoothChars;   // (v24, character smoothing: display.h)
+    g_display.smoothStrength = s.smoothStrength;
     PcInputFromSettings(s);   // (the controls and the prompts: pcinput.h)
     SetSoundUserVolumes(s.musicVolume, s.soundEffectsVolume, s.dialogueVolume);   // (the launcher's sliders: sound.h)
 }

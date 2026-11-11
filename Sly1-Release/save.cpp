@@ -683,11 +683,12 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
     static_assert(sizeof(GS)==6656 && alignof(GS)==4 && sizeof(WS)==1100 && sizeof(LS)==120);
     static_assert(offsetof(GS,aws)==16 && offsetof(GS,gameWorldCur)==6616);
     static_assert(sizeof(SaveFileHeader)==20 && sizeof(cane::settings::Header)==20);
-    static_assert(sizeof(cane::settings::legacy::V8)==196 && sizeof(VIDEOSAVESETTINGS)==416);
+    static_assert(sizeof(cane::settings::legacy::V8)==196 && sizeof(VIDEOSAVESETTINGS)==424);
     static_assert(offsetof(VIDEOSAVESETTINGS,alphaToCoverage)==340 && offsetof(VIDEOSAVESETTINGS,postAa)==344);
     static_assert(offsetof(VIDEOSAVESETTINGS,bloom)==348 && offsetof(VIDEOSAVESETTINGS,outlines)==360);
     static_assert(offsetof(VIDEOSAVESETTINGS,ambientOcclusion)==364 && offsetof(VIDEOSAVESETTINGS,softShadows)==368);
     static_assert(offsetof(VIDEOSAVESETTINGS,shadowMaps)==372 && offsetof(VIDEOSAVESETTINGS,worldShadows)==376 && offsetof(VIDEOSAVESETTINGS,worldShadowsEpisode)==380);
+    static_assert(offsetof(VIDEOSAVESETTINGS,smoothChars)==416 && offsetof(VIDEOSAVESETTINGS,smoothStrength)==420);
     static_assert(offsetof(VIDEOSAVESETTINGS,hackMouseAim)==288 && offsetof(VIDEOSAVESETTINGS,debugKeys)==292 && offsetof(VIDEOSAVESETTINGS,controllerVibration)==296 && offsetof(VIDEOSAVESETTINGS,longShadows)==300);
     static_assert(offsetof(VIDEOSAVESETTINGS,padInvertCameraX)==304 && offsetof(VIDEOSAVESETTINGS,mouseInvertTurretY)==324);
     static_assert(offsetof(VIDEOSAVESETTINGS,alwaysOriginalPsPrompts)==200 && offsetof(VIDEOSAVESETTINGS,instantSkipCutscenes)==284);
@@ -774,9 +775,15 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
          require(cane::settings::load(SystemSettingsPath(),loaded,&version)==cane::settings::LoadResult::Upgraded && version==22 &&
                  loaded.ambientOcclusion==60 && loaded.shadowMaps==cane::settings::ShadowMaps_Original && loaded.worldShadows==0 &&
                  loaded.worldShadowsEpisode[2]==cane::settings::WorldShadows_Global,"v22 settings upgrade failed");}
-        // Round-trip the current writer (v23), with the fields Sly 1 does not use kept as loaded.
+        // v23 files take Sly 2's v24 smoothing defaults (off, full strength).
+        {VIDEOSAVESETTINGS file=cane::settings::defaults();file.worldShadows=70;file.smoothChars=3;file.smoothStrength=40;
+         require(cane::settings::save(SystemSettingsPath(),file,23),"v23 settings writer failed");
+         VIDEOSAVESETTINGS loaded{};uint32_t version=0;
+         require(cane::settings::load(SystemSettingsPath(),loaded,&version)==cane::settings::LoadResult::Upgraded && version==23 &&
+                 loaded.worldShadows==70 && loaded.smoothChars==0 && loaded.smoothStrength==100,"v23 settings upgrade failed");}
+        // Round-trip the current writer (v24), with the fields Sly 1 does not use kept as loaded.
         {VIDEOSAVESETTINGS file=cane::settings::defaults();file.alphaToCoverage=0;file.postAa=1;file.bloom=40;file.colorGrade=1;file.vignette=30;file.outlines=2;file.ambientOcclusion=60;file.softShadows=2;
-         file.shadowMaps=1;file.worldShadows=70;file.worldShadowsEpisode[2]=30;file.worldShadowsEpisode[8]=0;file.fovPercent=35;file.showFps=1;file.streamerMode=1;file.hackMouseAim=0;file.debugKeys=1;file.controllerVibration=0;file.longShadows=0;
+         file.shadowMaps=1;file.worldShadows=70;file.worldShadowsEpisode[2]=30;file.worldShadowsEpisode[8]=0;file.smoothChars=3;file.smoothStrength=60;file.fovPercent=35;file.showFps=1;file.streamerMode=1;file.hackMouseAim=0;file.debugKeys=1;file.controllerVibration=0;file.longShadows=0;
          file.padInvertCameraX=1;file.padInvertCameraY=1;file.mouseInvertBinocX=1;file.mouseInvertBinocY=1;file.mouseInvertTurretX=1;file.mouseInvertTurretY=1;
          require(cane::settings::save(SystemSettingsPath(),file),"Settings writer failed");
          VIDEOSAVESETTINGS loaded{};require(LoadSystemSettings(&loaded),"Current settings rejected");
@@ -802,7 +809,8 @@ void TestSaveCompatibility(const std::filesystem::path& fixtures)
                 current.mouseInvertTurretX==1 && current.mouseInvertTurretY==1 && current.alphaToCoverage==0 && current.postAa==1 &&
                 current.bloom==40 && current.colorGrade==1 && current.vignette==30 && current.outlines==2 &&
                 current.ambientOcclusion==60 && current.softShadows==2 && current.shadowMaps==1 && current.worldShadows==70 &&
-                current.worldShadowsEpisode[2]==30 && current.worldShadowsEpisode[8]==0 && current.worldShadowsEpisode[0]==cane::settings::WorldShadows_Global,
+                current.worldShadowsEpisode[2]==30 && current.worldShadowsEpisode[8]==0 && current.worldShadowsEpisode[0]==cane::settings::WorldShadows_Global &&
+                current.smoothChars==3 && current.smoothStrength==60,
                 "Other builds' settings not kept");
         // A file from a newer build is reported, never accepted or overwritten.
         {auto newer=bytes(SystemSettingsPath());newer[8]=static_cast<char>(cane::settings::kVersion+1);

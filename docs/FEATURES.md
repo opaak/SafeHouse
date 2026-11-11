@@ -56,6 +56,9 @@ can be turned off where it changes how the game looks or plays.
     two soft steps that suit the cel shading rather than a smooth photographic gradient. Fades out with distance.
   - **Shadow edges:** Soft or Softer blurs the hard, jagged edges of the characters' cast shadows over about 2 or 4
     PS2 pixels (the shadows themselves, their shapes and darkness, are the original's).
+  - **Character smoothing** (test): Low, Medium or High splits each triangle of the characters' models 2 x 2, 3 x 3
+    or 4 x 4 and curves it along the averaged normals, so their blocky silhouettes round off (their cel borders follow);
+    **Smoothing strength** sets how far. OpenGL on Windows and Linux.
   - **Character shadows** (test): Shadow maps draw the characters' cast shadows from their own shapes, with soft edges,
     in place of the original's shadow volumes.
   - **Level shadows** (test): buildings, walls and props cast shadows from the level's main light, in one cel tone,

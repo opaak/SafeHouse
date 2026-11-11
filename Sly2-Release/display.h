@@ -92,8 +92,8 @@ struct DISPLAY
     // aWorldShadowsEpisode: per episode (0 the prologue .. 8) its own strength in place of worldShadows (-1: worldShadows).
     int worldShadows = 0;
     int aWorldShadowsEpisode[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
-    // PC character smoothing (TEST; not in system_settings.dat: --smooth-chars / SLY2N_SMOOTH, --smooth-strength /
-    // SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
+    // PC character smoothing (settings v24 smoothChars / smoothStrength, the launcher's "Character smoothing"; over them
+    // --smooth-chars / SLY2N_SMOOTH, --smooth-strength / SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel
     // borders bent the same way (celborder.vert SMOOTH), so the silhouettes round off. 0 / 1: off (exactly as before);
     // 2..4 the split. smoothStrength (0..100): how far toward the curved surface. OpenGL on Windows and Linux only,

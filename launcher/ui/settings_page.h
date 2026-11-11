@@ -612,6 +612,7 @@ private:
             s.bloom = d.bloom, s.colorGrade = d.colorGrade, s.vignette = d.vignette, s.outlines = d.outlines;
             s.ambientOcclusion = d.ambientOcclusion, s.softShadows = d.softShadows;
             s.shadowMaps = d.shadowMaps, s.worldShadows = d.worldShadows;
+            s.smoothChars = d.smoothChars, s.smoothStrength = d.smoothStrength;
             for (int i = 0; i < settings::kWorldShadowsEpisodes; ++i) s.worldShadowsEpisode[i] = d.worldShadowsEpisode[i];
             break;
         case Audio: settings::defaultAudio(s); break;
@@ -823,7 +824,17 @@ private:
         int soft = std::clamp(m_settings.softShadows, 0, 2);
         if (stepperRow("Shadow edges", &soft, softShadows)) m_settings.softShadows = soft, commit();
         describe("Blurs the hard, jagged edges of the characters' shadows.");
+        smoothingRows();
         shadowRows();
+    }
+    // Sly 2's character smoothing (system_settings.h v24; Sly2-Release display.h smoothChars / smoothStrength). A test.
+    void smoothingRows() {
+        static const std::vector<std::string> levels{ "Off", "Low", "Medium", "High" };
+        int level = m_settings.smoothChars >= 2 ? std::min(m_settings.smoothChars, settings::kSmoothCharsMax) - 1 : 0;
+        if (stepperRow("Character smoothing", &level, levels)) m_settings.smoothChars = level == 0 ? 0 : level + 1, commit();
+        describe("Rounds off the characters' blocky models (each triangle split 2x2, 3x3 or 4x4 and curved). A test: OpenGL only.");
+        if (m_settings.smoothChars >= 2)
+            rangeRow("Smoothing strength", m_settings.smoothStrength, 0, 100, 10, "How far the models are curved: 100 fully round.", percent);
     }
     // Sly 2's PC shadows (system_settings.h v23; Sly2-Release display.h shadowMaps / worldShadows, render.cpp). Test
     // features: every option's first value draws as before.
