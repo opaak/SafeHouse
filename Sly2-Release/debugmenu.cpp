@@ -804,6 +804,7 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 cycle("Level shadows here (" + StrEpisodeName(iep) + ")", &g_display.aWorldShadowsEpisode[iep], {-1, 0, 30, 60, 100},
                       {"Global", "Off", "30%", "60%", "100%"});
         }
+        cycle("Lamp shadows (with the level's)", &g_display.lampShadows, {0, 1, 2, 4}, {"Off", "1 lamp", "2 lamps", "4 lamps"});
         cycle("Shadow casters (debug)", &g_display.shadowOverlay, {0, 1}, {"Off", "Shown"});
         cycle("Outlines", &g_display.outlines, {0, 1, 2}, {"Original", "Silhouettes", "Creases"});
         cycle("Bloom", &g_display.bloom, {0, 25, 50, 100}, {"Off", "25%", "50%", "100%"});

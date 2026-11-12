@@ -2972,6 +2972,287 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glActiveTexture(GL_TEXTURE0);
 }
 
+// ------------------------------------------------------------ PC: lamp shadows (TEST, display.h lampShadows)
+// The level's point lights (the bake's lights of kind 1: their light reaches as far as distanceOffset + distance x
+// distanceScale stays above 0) cast shadows too, while the level's shadows are on: each frame the few that light the
+// most of what is round the camera (bright, near, wide; one chosen last frame kept unless another is clearly better,
+// and a new one faded in) each get a cube map of the casters within their reach (DrawWorldShadows' casters: not the
+// characters, the glows, the sky), its six faces in one pass (lsdepth.geom, layered), the distance over the reach as
+// the depth (lsdepth.frag); then every pixel looked up in them (lsapply.frag), the shadow as dark as the lamp lights it.
+constexpr int kcLampMax = 4, kcLampFace = 512;
+constexpr float kcLampRangeMin = 60.0f, kcLampRangeMax = 6000.0f;
+GLSHADER s_shLsDepth, s_shLsApply;
+int s_stateLs = 0;
+GLuint s_fboLs = 0, s_texLs = 0, s_ssboLs = 0;
+struct LAMP { glm::vec3 pos{0.0f}; float range = 0.0f, off = 0.0f, scale = 0.0f, gWeight = 0.0f; };
+LAMP s_alampPrev[kcLampMax];
+int s_clampPrev = 0;
+
+bool FLampShadowsReady()
+{
+    if (s_stateLs != 0) return s_stateLs > 0;
+    s_stateLs = -1;
+    if (s_shLsDepth.FInit("lsdepth.vert", "lsdepth.geom", "lsdepth.frag", "") && s_shLsApply.FInit("shadowcombine.vert", "lsapply.frag", ""))
+    {
+        GLint texPrev = 0, fboPrev = 0, activePrev = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+        glActiveTexture(GL_TEXTURE4);
+        glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP_ARRAY, &texPrev);
+        glGenTextures(1, &s_texLs);
+        glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, s_texLs);
+        glTexStorage3D(GL_TEXTURE_CUBE_MAP_ARRAY, 1, GL_DEPTH_COMPONENT32F, kcLampFace, kcLampFace, 6 * kcLampMax);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, GLuint(texPrev));
+        glActiveTexture(GLenum(activePrev));
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+        glGenFramebuffers(1, &s_fboLs);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboLs);
+        glFramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, s_texLs, 0);   // (layered: gl_Layer picks the face)
+        glDrawBuffer(GL_NONE);
+        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) s_stateLs = 1;
+        glGenBuffers(1, &s_ssboLs);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    }
+    std::printf("lamp shadows (TEST): %s\n", s_stateLs > 0 ? "on" : "did not build: off");
+    return s_stateLs > 0;
+}
+
+int NLampShadowsNow()
+{
+    static int s_n = -2;
+    if (s_n == -2)
+    {
+        s_n = -1;
+        if (const char* psz = std::getenv("SLY2N_LAMPSHADOWS")) s_n = std::clamp(std::atoi(psz), 0, kcLampMax);
+    }
+    return s_n >= 0 ? s_n : std::clamp(g_display.lampShadows, 0, kcLampMax);
+}
+
+// The lamps of this frame: the level's point lights with a reach, scored by how much of what is round the camera they
+// light (their brightness, x the share of the reach left at the camera's focus); last frame's kept by a margin
+int CLampsChosen(const glm::vec3& posFocus, int clampMax, LAMP alamp[kcLampMax])
+{
+    struct CAND { LAMP lamp; float score; };
+    static std::vector<CAND> s_acand;
+    s_acand.clear();
+    for (const LIGHTREC& r : WorldLights().alight)
+    {
+        if (r.kind != 1 || r.distanceScale >= 0.0f || r.distanceOffset <= 0.0f) continue;
+        const float range = -r.distanceOffset / r.distanceScale;
+        if (range < kcLampRangeMin || range > kcLampRangeMax) continue;   // (too small to see, or a whole area's fill)
+        const float gBright = std::max({r.rgba.r, r.rgba.g, r.rgba.b});
+        if (gBright <= 0.0f) continue;
+        const float d = glm::distance(posFocus, r.dirOrPos);
+        if (d > range + 1800.0f) continue;   // (its light out of sight round the camera)
+        float score = gBright * std::sqrt(range) * (1.0f - d / (range + 1800.0f));
+        for (int i = 0; i < s_clampPrev; ++i)
+            if (glm::distance(s_alampPrev[i].pos, r.dirOrPos) < 1.0f) score *= 1.35f;   // (kept unless clearly beaten)
+        s_acand.push_back({LAMP{r.dirOrPos, range, r.distanceOffset, r.distanceScale, 0.0f}, score});
+    }
+    const size_t c = std::min<size_t>(size_t(clampMax), s_acand.size());
+    std::partial_sort(s_acand.begin(), s_acand.begin() + ptrdiff_t(c), s_acand.end(), [](const CAND& a, const CAND& b) { return a.score > b.score; });
+    for (size_t i = 0; i < c; ++i)
+    {
+        alamp[i] = s_acand[i].lamp;
+        // (faded in over about a third of a second when newly chosen)
+        float gPrev = 0.0f;
+        for (int j = 0; j < s_clampPrev; ++j)
+            if (glm::distance(s_alampPrev[j].pos, alamp[i].pos) < 1.0f) gPrev = s_alampPrev[j].gWeight;
+        alamp[i].gWeight = std::min(1.0f, gPrev + 0.05f);
+    }
+    s_clampPrev = int(c);
+    for (size_t i = 0; i < c; ++i) s_alampPrev[i] = alamp[i];
+    return int(c);
+}
+
+void DrawLampShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
+                     GLuint fbo, int dx, int dy)
+{
+    if (!FLampShadowsReady() || !FEnsureDsCopy(dx, dy)) return;
+    LAMP alamp[kcLampMax];
+    const glm::vec3 posFocus = posCamera + glm::normalize(dirCamera + glm::vec3(1e-4f, 0.0f, 0.0f)) * 500.0f;
+    const int clamp = CLampsChosen(posFocus, NLampShadowsNow(), alamp);
+    static int s_clampPrinted = -1;
+    if (clamp != s_clampPrinted && std::getenv("SLY2N_WSPRINT"))
+    {
+        s_clampPrinted = clamp;
+        std::printf("lamp shadows: %d lamps", clamp);
+        for (int i = 0; i < clamp; ++i) std::printf("  (%.0f %.0f %.0f reach %.0f)", alamp[i].pos.x, alamp[i].pos.y, alamp[i].pos.z, alamp[i].range);
+        std::printf("\n");
+    }
+    if (clamp == 0) return;
+
+    // the casters, with their world spheres (DrawWorldShadows' sorting, without its box)
+    struct LSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; glm::vec4 sphere; };
+    static std::vector<LSDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBoneLs;
+    s_ad.clear();
+    s_amatBoneLs.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
+        if (sgs.fActorTree)
+        {
+            bool fChar = false;
+            for (const GLOB& glob : sgs.pglobset->aglob) fChar = fChar || FCharacterGlob(glob);
+            if (fChar) continue;
+        }
+        if (sgs.gAlpha < 0.5f) continue;
+        const bool fWhole = sgs.fBounds && sgs.sBoundsRadius <= kcWsSkyRadius;
+        if (fWhole)
+        {
+            bool fNear = false;
+            for (int l = 0; l < clamp && !fNear; ++l) fNear = glm::distance(sgs.posBounds, alamp[l].pos) < alamp[l].range + sgs.sBoundsRadius;
+            if (!fNear) continue;
+        }
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            const GLOB& glob = gs.aglob[i];
+            if (FCharacterGlob(glob)) continue;
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) continue;
+            const glm::mat4& mat = sgs.amatGlob[i];
+            glm::vec4 sphere(sgs.posBounds, sgs.sBoundsRadius);
+            if (!fWhole)
+            {
+                const glm::vec4 s = SphereOfGlob(*pgeom);
+                if (s.w < 0.0f) continue;   // (unknown, in an object too wide to judge whole: left out)
+                const float rScale = std::max({glm::length(glm::vec3(mat[0])), glm::length(glm::vec3(mat[1])), glm::length(glm::vec3(mat[2]))});
+                sphere = glm::vec4(glm::vec3(mat * glm::vec4(glm::vec3(s), 1.0f)), s.w * rScale);
+                if (sphere.w > kcWsSkyGlobRadius) continue;
+                bool fNear = false;
+                for (int l = 0; l < clamp && !fNear; ++l) fNear = glm::distance(glm::vec3(sphere), alamp[l].pos) < alamp[l].range + sphere.w;
+                if (!fNear) continue;
+            }
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBoneLs.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBoneLs.insert(s_amatBoneLs.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+            }
+            for (const SUBGLOB& sub : pgeom->asubglob)
+                if (WsWhySub(sub) == WSWHY_Casts)
+                    s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &mat, iboneFirst, cbone, sphere});
+        }
+    }
+
+    SMSAVE save;
+    // the cube maps: every lamp's six faces (one layered pass a lamp)
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboLs);
+    glViewport(0, 0, kcLampFace, kcLampFace);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepth(1.0);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_BLEND);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    s_shLsDepth.Use();
+    const GLint locModel = s_shLsDepth.Loc("matModel"), locCBone = s_shLsDepth.Loc("cbone"), locBoneFirst = s_shLsDepth.Loc("iboneFirst");
+    GLint ssboPrev = 0;
+    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboLs);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBoneLs.size()) * sizeof(glm::mat4)),
+                 s_amatBoneLs.empty() ? nullptr : s_amatBoneLs.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboLs);
+    // (the cube map's faces: +X -X +Y -Y +Z -Z, each looking out with the GL cube map's own up)
+    static const glm::vec3 s_adir[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const glm::vec3 s_aup[6] = {{0, -1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 0}};
+    for (int l = 0; l < clamp; ++l)
+    {
+        const LAMP& lamp = alamp[l];
+        const glm::mat4 matProj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 2.0f, lamp.range);
+        glm::mat4 amat[6];
+        for (int f = 0; f < 6; ++f) amat[f] = matProj * glm::lookAt(lamp.pos, lamp.pos + s_adir[f], s_aup[f]);
+        glUniformMatrix4fv(s_shLsDepth.Loc("amatFace"), 6, GL_FALSE, glm::value_ptr(amat[0]));
+        glUniform1i(s_shLsDepth.Loc("layerFirst"), 6 * l);
+        glUniform3f(s_shLsDepth.Loc("posLight"), lamp.pos.x, lamp.pos.y, lamp.pos.z);
+        glUniform1f(s_shLsDepth.Loc("rcpRange"), 1.0f / lamp.range);
+        GLuint vaoCur = 0;
+        for (const LSDRAW& d : s_ad)
+        {
+            if (glm::distance(glm::vec3(d.sphere), lamp.pos) >= lamp.range + d.sphere.w) continue;
+            if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+            glUniform1i(locCBone, GLint(d.cbone));
+            glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+            glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        }
+    }
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
+
+    // the frame: its depth copied, every pixel looked up
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, dx, dy);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, s_texShDS);
+    glBindSampler(3, 0);
+    GLint texCube4 = 0, sampler4 = 0, texUnit5 = 0, samplerUnit5 = 0;
+    glActiveTexture(GL_TEXTURE4);
+    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP_ARRAY, &texCube4);
+    glGetIntegerv(GL_SAMPLER_BINDING, &sampler4);
+    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, s_texLs);
+    glBindSampler(4, 0);
+    glActiveTexture(GL_TEXTURE5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit5);
+    glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit5);
+    glBindTexture(GL_TEXTURE_2D, s_fCharMaskFrame ? s_texCharMask : 0);
+    glBindSampler(5, 0);
+    glActiveTexture(GL_TEXTURE0);
+    s_shLsApply.Use();
+    glUniform1i(s_shLsApply.Loc("texDepth"), 3);
+    glUniform1i(s_shLsApply.Loc("texLs"), 4);
+    glUniform1i(s_shLsApply.Loc("texMask"), 5);
+    glUniform1i(s_shLsApply.Loc("fMask"), s_fCharMaskFrame ? 1 : 0);
+    const glm::mat4 matClipToWorld = glm::inverse(matWorldToClip);
+    glUniformMatrix4fv(s_shLsApply.Loc("matClipToWorld"), 1, GL_FALSE, glm::value_ptr(matClipToWorld));
+    glUniform2f(s_shLsApply.Loc("viewSize"), float(dx), float(dy));
+    glUniform1i(s_shLsApply.Loc("lampCount"), clamp);
+    glm::vec4 avLamp[kcLampMax], avAtt[kcLampMax];
+    for (int l = 0; l < clamp; ++l)
+    {
+        avLamp[l] = glm::vec4(alamp[l].pos, alamp[l].range);
+        avAtt[l] = glm::vec4(alamp[l].off, alamp[l].scale, alamp[l].gWeight, 0.0f);
+    }
+    glUniform4fv(s_shLsApply.Loc("alamp"), clamp, glm::value_ptr(avLamp[0]));
+    glUniform4fv(s_shLsApply.Loc("aatt"), clamp, glm::value_ptr(avAtt[0]));
+    glUniform1f(s_shLsApply.Loc("rcpFace"), 2.0f / float(kcLampFace));
+    glUniform1f(s_shLsApply.Loc("strength"), float(NWorldShadowsNow()) / 100.0f);
+    glBindVertexArray(s_vaoEmpty);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glActiveTexture(GL_TEXTURE4);   // (unit 4's cube map array and unit 5 put back: SMSAVE keeps unit 4's 2D)
+    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, GLuint(texCube4));
+    glBindSampler(4, GLuint(sampler4));
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texUnit5));
+    glBindSampler(5, GLuint(samplerUnit5));
+    glActiveTexture(GL_TEXTURE0);
+}
+
 // ------------------------------------------------------------ PC debug: the level shadows' casters shown
 // Every group the frame drew (not into render targets, not over the HUD) drawn again over the picture in a colour
 // that tells how DrawWorldShadows sorts it, where it is the frame's surface (GEQUAL against the frame's depth, a little
@@ -4928,6 +5209,8 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
     if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
+    // (PC TEST: the lamps' shadows, display.h lampShadows, with the level's)
+    if (NWorldShadowsNow() > 0 && NLampShadowsNow() > 0) DrawLampShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     // (PC debug: the casters shown, display.h shadowOverlay)
     if (g_display.shadowOverlay > 0) DrawShadowCasterOverlay(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     else s_wspick = WSPICK{};

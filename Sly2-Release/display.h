@@ -92,6 +92,9 @@ struct DISPLAY
     // aWorldShadowsEpisode: per episode (0 the prologue .. 8) its own strength in place of worldShadows (-1: worldShadows).
     int worldShadows = 0;
     int aWorldShadowsEpisode[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    // PC lamp shadows (TEST; render.cpp DrawLampShadows; SLY2N_LAMPSHADOWS over it): while the level's shadows are on,
+    // the nearest strongest point lights (lamps, lanterns, windows) cast shadows too, at most this many (0: none; 1..4).
+    int lampShadows = 4;
     // (PC debug menu only, not saved) the level shadows' casters coloured over the picture, with a picker at its
     // centre (render.h WSWHY / WSPICK): 0 off, 1 on.
     int shadowOverlay = 0;
