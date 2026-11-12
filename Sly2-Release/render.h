@@ -91,6 +91,10 @@ struct GHOSTPART
 // (PC) The characters' own pixels this frame (an R8 mask, the frame pass's size), when the ambient occlusion or the
 // level's shadows are on; 0 when not built (render.cpp FBuildCharacterMask).
 unsigned TexCharacterMaskFrame();
+// (PC) How opaque the see-through surfaces (glass, water, clouds: alpha-blended, drawn without the depth) in front
+// of the frame's depth are, per pixel (R8, the frame pass's size), when the outlines are on; 0 when not built
+// (render.cpp FBuildTranslucentMask). The depth-based outlines fade under it.
+unsigned TexTranslucentMaskFrame();
 
 // (PC debug: the debug menu's Display > Graphics > "Shadow casters") The level's shadows' casters coloured over the
 // picture, each group as DrawWorldShadows sorts it (green: casts; red: left out; blue: a character, its own shadows;

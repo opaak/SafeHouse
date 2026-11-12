@@ -497,8 +497,22 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, s_texDepth);
         glBindSampler(1, 0);
+        // (the see-through surfaces' cover, unit 3: the lines fade under glass, water and clouds; put back after the pass)
+        const GLuint texTrans = TexTranslucentMaskFrame();
+        GLint texUnit3 = 0, samplerUnit3 = 0;
+        glActiveTexture(GL_TEXTURE3);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit3);
+        glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit3);
+        glBindTexture(GL_TEXTURE_2D, texTrans);
+        glBindSampler(3, 0);
+        glUniform1i(s_outline.sh.Loc("texCover"), 3);
+        glUniform1i(s_outline.sh.Loc("fCover"), texTrans ? 1 : 0);
         glActiveTexture(GL_TEXTURE0);
         next();
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texUnit3));
+        glBindSampler(3, GLuint(samplerUnit3));
+        glActiveTexture(GL_TEXTURE0);
     }
     if (fFxaa)
     {

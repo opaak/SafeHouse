@@ -7,7 +7,9 @@
 //   behind it); only the near side is inked, so the line sits on the object's edge as the original's borders do
 // - creases (outlines 2): the surface's slope changes across the pixel (a wall meeting the floor, a box's edges);
 //   measured per pixel angle, so the lines do not depend on the resolution
-// The lines fade out with distance (fade), as the fog would hide them. Alpha passes through.
+// The lines fade out with distance (fade), as the fog would hide them, and under the see-through surfaces in front of
+// them (glass, water, clouds: not in the depth; texCover, render.cpp FBuildTranslucentMask) as they cover them. Alpha
+// passes through.
 
 uniform sampler2D tex;        // the picture
 uniform sampler2D texDepth;   // the scene's depth (unit 1, texelFetch)
@@ -17,6 +19,8 @@ uniform float sNear;          // the projection's near distance (depth = sNear /
 uniform vec2 fade;            // view distances where the lines start and finish fading
 uniform float rcpFocal;       // one pixel's angle: 2 tan(fovY / 2) / renderHeight
 uniform int fCreases;
+uniform sampler2D texCover;   // (PC) how opaque the see-through surfaces in front of the depth are (unit 3, R8)
+uniform int fCover;           // 0: no cover this frame
 in vec2 vUv;
 out vec4 FragColor;
 
@@ -61,5 +65,13 @@ void main()
     }
     float w = sNear / d0;
     float ink = max(sil, crease) * inkRgba.a * (1.0 - smoothstep(fade.x, fade.y, w));
+    if (fCover != 0)
+    {
+        // (the line's own pixel and the two beside it across: a line one pixel past a pane's edge fades with it)
+        float cover = texelFetch(texCover, p, 0).r;
+        cover = max(cover, max(texelFetch(texCover, clamp(p + ivec2(1, 0), ivec2(0), s_lim), 0).r,
+                               texelFetch(texCover, clamp(p - ivec2(1, 0), ivec2(0), s_lim), 0).r));
+        ink *= 1.0 - cover;
+    }
     FragColor = vec4(mix(c.rgb, inkRgba.rgb, ink), c.a);
 }

@@ -2434,6 +2434,195 @@ bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, GL
     return true;
 }
 
+// ------------------------------------------------------------ PC: the see-through surfaces' cover
+// The depth-based outlines (post.cpp, outline.frag) see only what wrote the depth: the see-through surfaces (glass,
+// water, the clouds and the shafts of light: alpha-blended, their fragments drawn without the depth, as the GS's AFAIL
+// FB_ONLY) let the lines of what is behind them through. Their cover is drawn again after the frame pass into an R8
+// mask from the camera: the blended parts (GS ALPHA (Cs - Cd) As + Cd, or with a fixed alpha) of the visible groups,
+// with their texture's and colour's alpha, where they are in front of the frame's depth (GREATER against a copy of it,
+// a little farther: a surface that wrote the depth is not in front of itself), the greatest kept (MAX). The outlines
+// fade under it. Built when the outlines are on (RenderScene).
+GLSHADER s_shTransMask;
+int s_stateTransMask = 0;   // 0 not yet, 1 built, -1 failed (no mask: the lines as before)
+GLuint s_fboTransMask = 0, s_texTransMask = 0, s_ssboTransMask = 0, s_texDSTrans = 0;
+int s_dxTransMask = 0, s_dyTransMask = 0;
+bool s_fTransMaskFrame = false;
+
+bool FEnsureTranslucentMask(int dx, int dy)
+{
+    if (s_stateTransMask == 0)
+    {
+        s_stateTransMask = -1;
+        if (s_shTransMask.FInit("tmask.vert", "tmask.frag", "")) s_stateTransMask = 1, glGenBuffers(1, &s_ssboTransMask);
+        std::printf("see-through cover: %s\n", s_stateTransMask > 0 ? "built" : "did not build: the outlines show through see-through surfaces");
+    }
+    if (s_stateTransMask < 0 || !FEnsureDsCopy(dx, dy)) return false;
+    if (s_fboTransMask && dx == s_dxTransMask && dy == s_dyTransMask && s_texDSTrans == s_texShDS) return true;
+    if (s_fboTransMask) glDeleteFramebuffers(1, &s_fboTransMask), s_fboTransMask = 0;
+    if (s_texTransMask) glDeleteTextures(1, &s_texTransMask), s_texTransMask = 0;
+    GLint activePrev = 0, texPrev = 0, fboPrev = 0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+    glActiveTexture(GL_TEXTURE5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+    glGenTextures(1, &s_texTransMask);
+    glBindTexture(GL_TEXTURE_2D, s_texTransMask);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, dx, dy);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+    glActiveTexture(GLenum(activePrev));
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+    glGenFramebuffers(1, &s_fboTransMask);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboTransMask);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texTransMask, 0);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s_texShDS, 0);
+    const GLenum buf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &buf);
+    const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    if (!fOk)
+    {
+        std::printf("see-through cover: its framebuffer is not usable here\n");
+        s_stateTransMask = -1;
+        return false;
+    }
+    s_dxTransMask = dx;
+    s_dyTransMask = dy;
+    s_texDSTrans = s_texShDS;
+    return true;
+}
+
+// a pass's cover factor when it is see-through: 1 for (Cs - Cd) As + Cd, the fixed alpha / 0x80 for (Cs - Cd) FIX + Cd;
+// negative when it is not (opaque, added, subtracted)
+float RTranslucentPass(const SHDPASS& ps)
+{
+    if (!ps.fBlend) return -1.0f;
+    const int a = int(ps.alpha & 3), b = int((ps.alpha >> 2) & 3), c = int((ps.alpha >> 4) & 3), d = int((ps.alpha >> 6) & 3);
+    if (a != 0 || b != 1 || d != 1) return -1.0f;
+    if (c == 0) return 1.0f;
+    if (c == 2) return std::min(float((ps.alpha >> 32) & 0xFF) / 128.0f, 1.0f);
+    return -1.0f;
+}
+
+const GLOB* PglobGeometry(const GLOBSET& gs, size_t i);
+
+bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
+{
+    if (!FEnsureTranslucentMask(dx, dy)) return false;
+    struct TDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone;
+                   GLuint tex; uint8_t sampler, fTextured, icolor; float aConst, rAlpha; };
+    static std::vector<TDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBone;
+    s_ad.clear();
+    s_amatBone.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.gAlpha <= 0.0f) continue;
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) continue;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            bool fBones = false;
+            for (const SUBGLOB& sub : pgeom->asubglob)
+            {
+                if (!sub.pshd || !sub.indexCount || sub.pshd->shdk == 2 || sub.pshd->shdk == 3) continue;
+                for (size_t ip = 0; ip < sub.pshd->apass.size(); ++ip)
+                {
+                    const SHDPASS& ps = sub.pshd->apass[ip];
+                    const float r = RTranslucentPass(ps);
+                    if (r <= 0.0f) continue;
+                    if (!fBones && i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+                    {
+                        iboneFirst = uint32_t(s_amatBone.size());
+                        cbone = uint32_t(sgs.aamatBone[i].size());
+                        s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+                    }
+                    fBones = true;
+                    TDRAW d{pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone,
+                            0, 0, uint8_t(ps.fTextured ? 1 : 0), uint8_t(ps.icolor), float((ps.rgbaConst >> 24) & 0xFF), r * std::min(sgs.gAlpha, 1.0f)};
+                    if (ps.fTextured)
+                    {
+                        const TEXSEL sel = TexselFromShd(sub.pshd, sub.psaa ? sub.psaa->iframe : 0, ps.itexPass);
+                        d.tex = TexFromSel(sel);
+                        d.sampler = SamplerFor(d.tex, uint8_t((sel.fClampS ? 1 : 0) | (sel.fClampT ? 2 : 0) | (ps.fNearest ? 4 : 0)));
+                        if (!d.tex) continue;
+                    }
+                    s_ad.push_back(d);
+                    break;   // (one pass a part: its first see-through one)
+                }
+            }
+        }
+    }
+    SMSAVE save;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboTransMask);
+    glViewport(0, 0, dx, dy);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (!s_ad.empty())
+    {
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_MAX);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glDisable(GL_STENCIL_TEST);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_GREATER);   // (reversed Z: in front of the frame's surface)
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-1.0f, -64.0f);   // (a little farther: not in front of itself)
+        s_shTransMask.Use();
+        glUniformMatrix4fv(s_shTransMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+        const GLint locModel = s_shTransMask.Loc("matModel"), locCBone = s_shTransMask.Loc("cbone"), locBoneFirst = s_shTransMask.Loc("iboneFirst"),
+                    locTextured = s_shTransMask.Loc("fTextured"), locIcolor = s_shTransMask.Loc("icolor"), locAConst = s_shTransMask.Loc("aConst"),
+                    locRAlpha = s_shTransMask.Loc("rAlpha");
+        glUniform1i(s_shTransMask.Loc("tex"), 0);
+        GLint ssboPrev = 0, texPrev = 0, samplerPrev = 0;
+        glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+        glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+        glGetIntegerv(GL_SAMPLER_BINDING, &samplerPrev);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboTransMask);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                     s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboTransMask);
+        GLuint vaoCur = 0;
+        for (const TDRAW& d : s_ad)
+        {
+            if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+            if (d.fTextured)
+            {
+                glBindTexture(GL_TEXTURE_2D, d.tex);
+                glBindSampler(0, s_asampler[d.sampler & 15u]);
+            }
+            glUniform1i(locTextured, d.fTextured);
+            glUniform1i(locIcolor, d.icolor);
+            glUniform1f(locAConst, d.aConst);
+            glUniform1f(locRAlpha, d.rAlpha);
+            glUniform1i(locCBone, GLint(d.cbone));
+            glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+            glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        }
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glBlendEquation(GL_FUNC_ADD);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+        glBindSampler(0, GLuint(samplerPrev));
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
+    }
+    static size_t s_cPrinted = size_t(-1);
+    if (std::getenv("SLY2N_WSPRINT") && s_ad.size() != s_cPrinted) std::printf("see-through cover: %zu parts\n", s_cPrinted = s_ad.size());
+    return true;
+}
+
 bool FWorldShadowsReady()
 {
     if (s_stateWs != 0) return s_stateWs > 0;
@@ -4676,6 +4865,7 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     RenderPass(scene, pv, opts);
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
+    s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     // (PC debug: the casters shown, display.h shadowOverlay)
@@ -4974,6 +5164,16 @@ const char* PchzWsWhy(int why)
     case WSWHY_Glow: return "an additive glow";
     default: return "?";
     }
+}
+
+// (PC) the see-through surfaces' cover of this frame for post.cpp's outlines (0: none)
+unsigned TexTranslucentMaskFrame()
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    return s_fTransMaskFrame ? s_texTransMask : 0u;
+#else
+    return 0u;
+#endif
 }
 
 // (PC) the characters' mask of this frame for post.cpp's ambient occlusion (0: none)
