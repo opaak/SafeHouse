@@ -806,6 +806,19 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
         }
         cycle("Lamp shadows (with the level's)", &g_display.lampShadows, {0, 1, 2, 4}, {"Off", "1 lamp", "2 lamps", "4 lamps"});
         cycle("Shadow casters (debug)", &g_display.shadowOverlay, {0, 1}, {"Off", "Shown"});
+        cycle("Texture picker (debug)", &g_display.texturePicker, {0, 1}, {"Off", "Shown"});
+        if (g_display.texturePicker > 0)
+        {
+            item("Copy the picked texture to Mods", [] {
+                std::string str;
+                FCopyPickedTextureToMods(&str);
+                Status(str);
+            }, TexpickCur().fTextured ? TexpickCur().name : std::string("(none)"));
+            item("Reload texture mods", [] {
+                ReloadTextureMods();
+                Status("texture mods read again");
+            }, "edits shown at once");
+        }
         cycle("Outlines", &g_display.outlines, {0, 1, 2}, {"Original", "Silhouettes", "Creases"});
         cycle("Bloom", &g_display.bloom, {0, 25, 50, 100}, {"Off", "25%", "50%", "100%"});
         cycle("Colour grade", &g_display.colorGrade, {0, 1, 2}, {"Original", "Vivid", "LUT"});
@@ -837,6 +850,7 @@ struct LAYOUT
     int crow = 0;
 };
 LAYOUT s_layout;
+float s_yInfoBottom = 412.0f;   // (the info boxes at the bottom left: the next one's bottom)
 
 void DrawLine(const FONTBRX& font, const FONTBRX* picons, const std::string& text, float x, float y, float size, glm::vec4 off)
 {
@@ -851,17 +865,64 @@ float DxLine(const FONTBRX& font, const FONTBRX* picons, const std::string& text
 
 // (PC debug) the shadow casters' overlay (display.h shadowOverlay; render.h WSPICK): a crosshair at the centre of the
 // picture, the colours' key and the group under the crosshair, at the picture's bottom left.
-void DrawShadowCasterInfo(const FONTBRX& font, const FONTBRX* picons)
+// a crosshair at the centre of the picture (yellow: something under it)
+void DrawPickerCrosshair(bool fHit)
 {
     const float xL = XCanvasPictureLeft(), xR = XCanvasPictureRight();
     const float xC = 0.5f * (xL + xR), yC = ((-g_display.uiOffset.y) / g_display.uiScale.y + 1.0f) * 224.0f;
     const float z = DEPTH / 16777216.0f - 1e-4f;
-    const WSPICK& pick = WspickCur();
-    const glm::vec4 rgbaCross = pick.fValid ? glm::vec4(255, 255, 90, 128) : glm::vec4(220, 220, 220, 110);
+    const glm::vec4 rgbaCross = fHit ? glm::vec4(255, 255, 90, 128) : glm::vec4(220, 220, 220, 110);
     g_hud.FillScreenRect(xC - 9.0f, yC - 0.75f, xC - 3.0f, yC + 0.75f, rgbaCross, z);
     g_hud.FillScreenRect(xC + 3.0f, yC - 0.75f, xC + 9.0f, yC + 0.75f, rgbaCross, z);
     g_hud.FillScreenRect(xC - 0.75f, yC - 9.0f, xC + 0.75f, yC - 3.0f, rgbaCross, z);
     g_hud.FillScreenRect(xC - 0.75f, yC + 3.0f, xC + 0.75f, yC + 9.0f, rgbaCross, z);
+}
+
+// a box of lines at the picture's bottom left, its bottom at yBottom
+float DrawInfoBox(const FONTBRX& font, const FONTBRX* picons, const std::vector<std::pair<std::string, glm::vec4>>& alines, float yBottom)
+{
+    const float size = 14.0f, dyLine = 17.0f;
+    float w = 0.0f;
+    for (const auto& l : alines) w = std::max(w, DxLine(font, picons, l.first, size));
+    const float x0 = std::max(XCanvasPictureLeft(), -1000.0f) + 14.0f;
+    const float y0 = yBottom - dyLine * float(alines.size());
+    g_hud.FillScreenRect(x0, y0 - 4.0f, x0 + w + 20.0f, y0 + dyLine * float(alines.size()) + 2.0f, glm::vec4(0, 0, 0, 80), DEPTH / 16777216.0f - 1e-4f);
+    for (size_t i = 0; i < alines.size(); ++i) DrawLine(font, picons, alines[i].first, x0 + 10.0f, y0 + dyLine * float(i), size, alines[i].second);
+    return y0 - 10.0f;
+}
+
+// (PC debug) the texture picker (display.h texturePicker; render.h TEXPICK): the part under the crosshair and its texture
+float DrawTexturePickerInfo(const FONTBRX& font, const FONTBRX* picons, float yBottom)
+{
+    const TEXPICK& pick = TexpickCur();
+    if (g_display.shadowOverlay <= 0) DrawPickerCrosshair(pick.fValid);
+    std::vector<std::pair<std::string, glm::vec4>> alines;
+    const glm::vec4 offKey(90, 90, 90, 0), offInfo(100, 100, 100, 0), offName(30, 110, 40, 0), offMod(40, 70, 128, 0);
+    alines.push_back({"Texture picker: the debug menu's Graphics page copies it to Mods/Textures and reloads the edits", offKey});
+    if (!pick.fValid) alines.push_back({"(nothing under the crosshair)", offInfo});
+    else
+    {
+        std::string strName = "object";
+        if (LO* plo = s_psw && pick.oid >= 0 ? PloFindSwObjectByOid(s_psw, OID(pick.oid)) : nullptr) strName = StrClassName(plo->Cid());
+        char ach[256];
+        std::snprintf(ach, sizeof ach, "%s  oid %d  group %d / %d  part %d / %d", strName.c_str(), pick.oid, pick.iglob, pick.cglob, pick.isub + 1, pick.csub);
+        alines.push_back({ach, offInfo});
+        if (!pick.fTextured) alines.push_back({"no texture (a plain colour)", offInfo});
+        else
+        {
+            alines.push_back({pick.name, offName});
+            static const char* const s_apchzSource[3] = {"the original", "replaced: Mods/Textures", "replaced: the texture pack"};
+            std::snprintf(ach, sizeof ach, "%d x %d   %s", pick.dx, pick.dy, s_apchzSource[std::clamp(pick.nSource, 0, 2)]);
+            alines.push_back({ach, pick.nSource ? offMod : offInfo});
+        }
+    }
+    return DrawInfoBox(font, picons, alines, yBottom);
+}
+
+void DrawShadowCasterInfo(const FONTBRX& font, const FONTBRX* picons)
+{
+    const WSPICK& pick = WspickCur();
+    DrawPickerCrosshair(pick.fValid);
 
     std::vector<std::pair<std::string, glm::vec4>> alines;
     const glm::vec4 offKey(90, 90, 90, 0), offInfo(100, 100, 100, 0), offYes(30, 110, 40, 0), offNo(128, 40, 30, 0), offChar(40, 70, 128, 0);
@@ -894,13 +955,7 @@ void DrawShadowCasterInfo(const FONTBRX& font, const FONTBRX* picons)
             std::snprintf(ach, sizeof ach, "Level shadow: no - %s", PchzWsWhy(pick.why));
         alines.push_back({ach, pick.why == WSWHY_Casts ? offYes : pick.why == WSWHY_Character ? offChar : offNo});
     }
-    const float size = 14.0f, dyLine = 17.0f;
-    float w = 0.0f;
-    for (const auto& l : alines) w = std::max(w, DxLine(font, picons, l.first, size));
-    const float x0 = std::max(xL, -1000.0f) + 14.0f;
-    const float y0 = 412.0f - dyLine * float(alines.size());
-    g_hud.FillScreenRect(x0, y0 - 4.0f, x0 + w + 20.0f, y0 + dyLine * float(alines.size()) + 2.0f, glm::vec4(0, 0, 0, 80), z);
-    for (size_t i = 0; i < alines.size(); ++i) DrawLine(font, picons, alines[i].first, x0 + 10.0f, y0 + dyLine * float(i), size, alines[i].second);
+    DrawInfoBox(font, picons, alines, s_yInfoBottom);
 }
 
 void DrawPerf(const FONTBRX& font, const FONTBRX* picons)
@@ -1165,6 +1220,8 @@ void DrawDebugMenu()
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
     if (s_fPerf) DrawPerf(*pfont, picons);
+    s_yInfoBottom = 412.0f;
+    if (g_display.texturePicker > 0) s_yInfoBottom = DrawTexturePickerInfo(*pfont, picons, s_yInfoBottom);
     if (g_display.shadowOverlay > 0) DrawShadowCasterInfo(*pfont, picons);
     if (!s_fOpen || s_apage.empty()) return;
     const PAGE& page = s_apage.back();
@@ -1237,7 +1294,7 @@ void DrawDebugOverlay(int width, int height)
     // (PC Extras: Carmelita's aim mode crosshair, pccharacter.h)
     g_fAddedGpuTimes = g_pcinput.fDebugKeys && s_fPerf;   // (render.h: measured while the Perf Display shows them)
     const bool fCross = g_pcinput.fDebugKeys && FPcCarmCrosshair();
-    if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0)) return;
+    if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0 || g_display.texturePicker > 0)) return;
     g_hud.Begin();
     if (fCross) DrawPcCarmCrosshair();
     DrawDebugMenu();

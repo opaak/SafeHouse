@@ -15,6 +15,14 @@ std::string SzTextureModName(const std::vector<uint8_t>& rgba, int dx, int dy);
 // --texture-pack DIR: a texture pack (DIR/Textures, the same names) under the mods folder's own textures, which win.
 // The launcher passes the PS3 HD pack this way while it is turned on (ps3hd.cpp).
 void SetTexturePackDirectory(const std::string& dir);
+// (PC debug menu: the texture picker) The mods folder and the pack read again at their next use (the renderer's cache
+// is reset with it: render.h ReloadTextureMods).
+void RescanTextureMods();
+// Where a texture's replacement comes from: 0 none, 1 the mods folder, 2 the texture pack.
+int NTextureModSource(const std::string& name);
+// The texture (the game's texels) written into the mods folder's Textures under its mod name, as the export writes it,
+// for editing; *pfExisted when that file is there already (left as it is). False: no mods folder, or not written.
+bool FCopyTextureToMods(const std::vector<uint8_t>& rgba, int dx, int dy, std::string* ppath, bool* pfExisted);
 // The mods folder's PNG for this decoded texture as the game's texels (rows bottom-up, alpha in the PS2 range), at
 // the PNG's own size (*pw x *ph); false: none, or no mods.
 bool FLoadTextureMod(const std::vector<uint8_t>& rgba, int dx, int dy, std::vector<uint8_t>& out, int* pw, int* ph);

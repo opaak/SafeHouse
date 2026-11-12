@@ -121,6 +121,24 @@ struct WSPICK
 };
 const WSPICK& WspickCur();
 
+// (PC debug: the debug menu's Display > Graphics > "Texture picker", display.h texturePicker) The part of a group under
+// the centre of the picture, drawn brighter, and its texture: its name in the mods folder (texmod.h), its size, where
+// its replacement comes from. OpenGL on Windows and Linux only.
+struct TEXPICK
+{
+    bool fValid = false;
+    int oid = -1, iglob = 0, cglob = 0, isub = 0, csub = 0;
+    bool fTextured = false;   // (an untextured part: no name)
+    std::string name;         // "<W>x<H>_<hash>.png"
+    int dx = 0, dy = 0;
+    int nSource = 0;          // 0 the original, 1 the mods folder's, 2 the texture pack's
+};
+const TEXPICK& TexpickCur();
+// The picked texture written into Mods/Textures for editing (an existing file left alone); a line for the debug menu
+bool FCopyPickedTextureToMods(std::string* pstr);
+// The mods folder's textures read again and every texture made again from them (the edits shown at once)
+void ReloadTextureMods();
+
 // (PC) The GPU time of the passes the PC added (the level's shadow map and its look-up, the lamps' maps and theirs, the
 // characters' and the see-through masks), measured while g_fAddedGpuTimes (the debug menu's Perf Display sets it):
 // one line, "" when off or nothing ran.

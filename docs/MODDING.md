@@ -102,6 +102,7 @@ To try a different Mods folder, use `--mods DIR`. An empty value (`--mods ""`) s
    - Only one level's textures: `Sly2-Release --disc "<installation>" --dump-textures dump 2` writes what Paris
      draws to `dump/`.
 
+   - Or find it in the game: with the debug keys on, the debug menu's Display > Graphics > **Texture picker** names the texture under the crosshair at the centre of the picture, **Copy the picked texture to Mods** puts the copy in `Mods/Textures/` for you, and **Reload texture mods** shows your edits without restarting.
 2. **Copy** the PNG into `Mods/Textures/` under the **same file name**, and edit the copy. (Leave `Textures`
    itself alone: it is the reference, and the game never reads it.)
 

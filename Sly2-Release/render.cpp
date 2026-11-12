@@ -3726,6 +3726,162 @@ void DrawShadowCasterOverlay(const SCENE& scene, const glm::mat4& matWorldToClip
     glDisable(GL_POLYGON_OFFSET_FILL);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
 }
+
+// ------------------------------------------------------------ PC debug: the texture picker (display.h texturePicker)
+// Every part of every group the frame drew, numbered into the picker's target (as the casters' overlay's), the centre
+// pixel read back; the part drawn brighter over the picture; its texture's mod name found once per texture.
+TEXPICK s_texpick;
+const BMP* s_pbmpPick = nullptr;
+const CLUT* s_pclutPick = nullptr;
+
+void DrawTexturePicker(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
+{
+    s_texpick = TEXPICK{};
+    if (!FEnsureWsDebug(dx, dy)) return;
+    struct TPDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone;
+                    const SCENEGLOBSET* psgs; const SUBGLOB* psub; int iglob, isub, csub; };
+    static std::vector<TPDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBone;
+    s_ad.clear();
+    s_amatBone.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) continue;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBone.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+            }
+            const int csub = int(pgeom->asubglob.size());
+            for (int k = 0; k < csub; ++k)
+            {
+                const SUBGLOB& sub = pgeom->asubglob[size_t(k)];
+                if (!sub.pshd || !sub.indexCount || sub.pshd->shdk == 2 || sub.pshd->shdk == 3) continue;
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone,
+                                &sgs, &sub, int(i), k, csub});
+            }
+        }
+    }
+    if (s_ad.empty()) return;
+
+    SMSAVE save;
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_GEQUAL);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.0f, 64.0f);
+    s_shWsDebug.Use();
+    glUniformMatrix4fv(s_shWsDebug.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+    const GLint locModel = s_shWsDebug.Loc("matModel"), locCBone = s_shWsDebug.Loc("cbone"), locBoneFirst = s_shWsDebug.Loc("iboneFirst"),
+                locRgba = s_shWsDebug.Loc("rgba");
+    glUniform1f(s_shWsDebug.Loc("sTowardEye"), 0.0f);
+    GLint ssboPrev = 0;
+    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboWsDebug);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                 s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboWsDebug);
+    auto draw = [&](const TPDRAW& d, GLuint& vaoCur) {
+        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        glUniform1i(locCBone, GLint(d.cbone));
+        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+    };
+    // the picker: the centre pixel's part (its number + 1 in the colour)
+    int iHit = -1;
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboPick);
+        glViewport(0, 0, dx, dy);
+        const int xC = dx / 2, yC = dy / 2;
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(xC, yC, 1, 1);
+        glDisable(GL_BLEND);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        GLuint vaoCur = 0;
+        for (size_t k = 0; k < s_ad.size(); ++k)
+        {
+            const uint32_t n = uint32_t(k) + 1;
+            glUniform4f(locRgba, float(n & 0xFF) / 255.0f, float((n >> 8) & 0xFF) / 255.0f, float((n >> 16) & 0xFF) / 255.0f, 1.0f);
+            draw(s_ad[k], vaoCur);
+        }
+        uint8_t ab[4] = {};
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, s_fboPick);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(xC, yC, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ab);
+        const uint32_t n = uint32_t(ab[0]) | (uint32_t(ab[1]) << 8) | (uint32_t(ab[2]) << 16);
+        if (n > 0 && n <= s_ad.size()) iHit = int(n - 1);
+        glDisable(GL_SCISSOR_TEST);
+    }
+    if (iHit >= 0)
+    {
+        const TPDRAW& d = s_ad[size_t(iHit)];
+        TEXPICK& p = s_texpick;
+        p.fValid = true;
+        p.oid = d.psgs->oid;
+        p.iglob = d.iglob;
+        p.cglob = int(d.psgs->pglobset->aglob.size());
+        p.isub = d.isub;
+        p.csub = d.csub;
+        // its first textured pass's texture (the one the frame shows: its animation's frame)
+        const SHD* pshd = d.psub->pshd;
+        for (const SHDPASS& ps : pshd->apass)
+        {
+            if (!ps.fTextured) continue;
+            const TEXSEL sel = TexselFromShd(pshd, d.psub->psaa ? d.psub->psaa->iframe : 0, ps.itexPass);
+            if (!sel.pbmp) break;
+            p.fTextured = true;
+            p.dx = sel.pbmp->dx;
+            p.dy = sel.pbmp->dy;
+            static std::pair<const BMP*, const CLUT*> s_keyName{nullptr, nullptr};
+            static std::string s_name;
+            if (s_keyName.first != sel.pbmp || s_keyName.second != sel.pclut)
+            {
+                std::vector<uint8_t> rgba;
+                std::string err;
+                s_name = FDecodeTexture(sel.pbmp, sel.pclut, rgba, err) ? SzTextureModName(rgba, p.dx, p.dy) : std::string();
+                s_keyName = {sel.pbmp, sel.pclut};
+            }
+            p.name = s_name;
+            p.nSource = p.name.empty() ? 0 : NTextureModSource(p.name);
+            s_pbmpPick = sel.pbmp;
+            s_pclutPick = sel.pclut;
+            break;
+        }
+        // the part drawn brighter over the picture (a pulse)
+        static uint32_t s_cframePulse = 0;
+        const float u = 0.5f + 0.5f * std::sin(float(++s_cframePulse) * 0.2f);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(0, 0, dx, dy);
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        glUniform4f(locRgba, 1.0f, 0.95f, 0.3f, 0.2f + 0.3f * u);
+        GLuint vaoCur = 0;
+        draw(d, vaoCur);
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
+}
 #endif
 }  // namespace
 
@@ -5494,6 +5650,9 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     // (PC debug: the casters shown, display.h shadowOverlay)
     if (g_display.shadowOverlay > 0) DrawShadowCasterOverlay(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     else s_wspick = WSPICK{};
+    // (PC debug: the texture under the crosshair, display.h texturePicker)
+    if (g_display.texturePicker > 0) DrawTexturePicker(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
+    else s_texpick = TEXPICK{};
 #endif
 }
 
@@ -5915,6 +6074,41 @@ const WSPICK& WspickCur()
     static const WSPICK s_none;
     return s_none;
 #endif
+}
+
+const TEXPICK& TexpickCur()
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    return s_texpick;
+#else
+    static const TEXPICK s_none;
+    return s_none;
+#endif
+}
+
+bool FCopyPickedTextureToMods(std::string* pstr)
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (!s_texpick.fValid || !s_texpick.fTextured || !s_pbmpPick) { *pstr = "no texture under the crosshair"; return false; }
+    std::vector<uint8_t> rgba;
+    std::string err;
+    if (!FDecodeTexture(s_pbmpPick, s_pclutPick, rgba, err)) { *pstr = "the texture did not decode: " + err; return false; }
+    std::string path;
+    bool fExisted = false;
+    if (!FCopyTextureToMods(rgba, s_pbmpPick->dx, s_pbmpPick->dy, &path, &fExisted)) { *pstr = "not written (no mods folder?)"; return false; }
+    std::printf("texture picker: %s %s\n", fExisted ? "already in the mods folder:" : "copied to", path.c_str());
+    *pstr = (fExisted ? "already there: " : "copied: ") + s_texpick.name;
+    return true;
+#else
+    *pstr = "not on this platform";
+    return false;
+#endif
+}
+
+void ReloadTextureMods()
+{
+    RescanTextureMods();
+    ResetTextureCache();
 }
 
 const char* PchzWsWhy(int why)

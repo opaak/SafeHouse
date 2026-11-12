@@ -33,11 +33,12 @@ uint64_t HashRgba(const std::vector<uint8_t>& ab)
 }
 
 // The replacement textures by name: the mods folder's, then the texture pack's (--texture-pack: the PS3 HD pack)
-// where the mods folder has none of that name. Scanned once.
+// where the mods folder has none of that name. Scanned once, and again after RescanTextureMods.
 std::string s_dirPack;
-const std::unordered_map<std::string, std::string>& ModTextures()
+bool s_fRescan = false;
+std::unordered_map<std::string, std::string> MapModTextures()
 {
-    static const std::unordered_map<std::string, std::string> s_map = [] {
+    {
         std::unordered_map<std::string, std::string> map;
         auto scan = [&](const std::string& root, const char* what) {
             if (root.empty()) return;
@@ -52,12 +53,62 @@ const std::unordered_map<std::string, std::string>& ModTextures()
         scan(g_disc.DirMods(), "");
         scan(s_dirPack, " (texture pack)");
         return map;
-    }();
+    }
+}
+
+const std::unordered_map<std::string, std::string>& ModTextures()
+{
+    static std::unordered_map<std::string, std::string> s_map = MapModTextures();
+    if (s_fRescan)
+    {
+        s_fRescan = false;
+        s_map = MapModTextures();
+    }
     return s_map;
+}
+
+// The game's texels (rows bottom-up, alpha in the PS2's range) as a PNG's: rows top-down, alpha doubled
+std::vector<uint8_t> AbPngOfTexels(const std::vector<uint8_t>& rgba, int dx, int dy)
+{
+    std::vector<uint8_t> ab(rgba.size());
+    for (int y = 0; y < dy; ++y)
+        for (int x = 0; x < dx; ++x)
+            for (int k = 0; k < 4; ++k)
+            {
+                const uint8_t v = rgba[(size_t(y) * dx + x) * 4 + k];
+                ab[(size_t(dy - 1 - y) * dx + x) * 4 + k] = k < 3 ? v : uint8_t(std::min(255, v * 2));
+            }
+    return ab;
 }
 }  // namespace
 
 void SetTexturePackDirectory(const std::string& dir) { s_dirPack = dir; }
+
+void RescanTextureMods() { s_fRescan = true; }
+
+int NTextureModSource(const std::string& name)
+{
+    const auto& map = ModTextures();
+    const auto it = map.find(name);
+    if (it == map.end()) return 0;
+    std::error_code ec;
+    const fs::path dirMods = cane::path(g_disc.DirMods()) / "Textures";
+    return !g_disc.DirMods().empty() && fs::equivalent(cane::path(it->second).parent_path(), dirMods, ec) ? 1 : 2;
+}
+
+bool FCopyTextureToMods(const std::vector<uint8_t>& rgba, int dx, int dy, std::string* ppath, bool* pfExisted)
+{
+    *pfExisted = false;
+    if (g_disc.DirMods().empty() || rgba.size() != size_t(dx) * dy * 4) return false;
+    std::error_code ec;
+    const fs::path dir = cane::path(g_disc.DirMods()) / "Textures";
+    fs::create_directories(dir, ec);
+    const fs::path path = dir / cane::path(SzTextureModName(rgba, dx, dy));
+    *ppath = cane::utf8(path);
+    if (fs::exists(path, ec)) { *pfExisted = true; return true; }
+    const std::vector<uint8_t> ab = AbPngOfTexels(rgba, dx, dy);
+    return stbi_write_png(ppath->c_str(), dx, dy, 4, ab.data(), dx * 4) != 0;
+}
 
 std::string SzTextureModName(const std::vector<uint8_t>& rgba, int dx, int dy)
 {
@@ -174,14 +225,7 @@ int DumpWorldTextures(const std::string& dir, const FK& fk, int filter, const st
                 const int dx = sel.pbmp->dx, dy = sel.pbmp->dy;
                 const std::string name = SzTextureModName(rgba, dx, dy);
                 if (!setName.insert(name).second) continue;  // (the same texels under another CLUT / bitmap, or world)
-                std::vector<uint8_t> ab(rgba.size());
-                for (int y = 0; y < dy; ++y)
-                    for (int x = 0; x < dx; ++x)
-                        for (int k = 0; k < 4; ++k)
-                        {
-                            const uint8_t v = rgba[(size_t(y) * dx + x) * 4 + k];
-                            ab[(size_t(dy - 1 - y) * dx + x) * 4 + k] = k < 3 ? v : uint8_t(std::min(255, v * 2));
-                        }
+                const std::vector<uint8_t> ab = AbPngOfTexels(rgba, dx, dy);
                 const std::string path = cane::utf8(cane::path(dir) / name);
                 if (stbi_write_png(path.c_str(), dx, dy, 4, ab.data(), dx * 4)) ++c;
             }
