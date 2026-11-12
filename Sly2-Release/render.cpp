@@ -2288,6 +2288,53 @@ void DrawShadowMaps(const glm::mat4& matWorldToClip)
     ApplyShadowMaps(fbo, matWorldToClip);
 }
 
+// ------------------------------------------------------------ PC: the added passes' GPU times
+// (render.h StrAddedGpuTimes: the debug menu's Perf Display) Each added pass in a GL_TIME_ELAPSED query, three frames of
+// queries in turn, each read when the GPU has it (no stall); a pass not run fades out of the line.
+struct AGTIMER { GLuint aq[3] = {}; bool afPending[3] = {}; double ms = 0.0; bool fRun = false; };
+AGTIMER s_aagt[AGT_Max];
+int s_iagtSlot = 0, s_agtActive = -1;
+
+void StepAddedGpuTimers()
+{
+    for (AGTIMER& t : s_aagt)
+    {
+        for (int k = 0; k < 3; ++k)
+        {
+            if (!t.afPending[k]) continue;
+            GLint fAvail = 0;
+            glGetQueryObjectiv(t.aq[k], GL_QUERY_RESULT_AVAILABLE, &fAvail);
+            if (!fAvail) continue;
+            GLuint64 ns = 0;
+            glGetQueryObjectui64v(t.aq[k], GL_QUERY_RESULT, &ns);
+            t.ms = t.ms * 0.9 + 0.1 * double(ns) / 1e6;
+            t.afPending[k] = false;
+        }
+        if (!t.fRun) t.ms *= 0.9;
+        t.fRun = false;
+    }
+    s_iagtSlot = (s_iagtSlot + 1) % 3;
+}
+
+void BeginAddedGpuTimer(AGT agt)
+{
+    if (!g_fAddedGpuTimes || s_agtActive >= 0) return;
+    AGTIMER& t = s_aagt[agt];
+    if (!t.aq[0]) glGenQueries(3, t.aq);
+    t.fRun = true;
+    if (t.afPending[s_iagtSlot]) return;   // (its last use not read yet)
+    glBeginQuery(GL_TIME_ELAPSED, t.aq[s_iagtSlot]);
+    s_agtActive = int(agt);
+}
+
+void EndAddedGpuTimer(AGT agt)
+{
+    if (s_agtActive != int(agt)) return;
+    glEndQuery(GL_TIME_ELAPSED);
+    s_aagt[agt].afPending[s_iagtSlot] = true;
+    s_agtActive = -1;
+}
+
 // ------------------------------------------------------------ PC: world shadows (TEST, display.h worldShadows)
 // The level's static meshes into one orthographic depth map from its main directional light (the strongest
 // directional shadow light of the world's light context, else of the bake's lights; SLY2N_WORLDSHADOWDIR "x y z" over
@@ -2303,6 +2350,11 @@ struct WSBOX { glm::vec3 L{0.0f, 0.0f, -1.0f}, cWorld{0.0f}; glm::mat4 matLight{
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
 GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
+// (the map of the casters that stay still, kept while nothing it was drawn from changes: s_texWs is it with the moving
+// casters drawn over a copy, each frame)
+GLuint s_fboWsStatic = 0, s_texWsStatic = 0;
+uint64_t s_keyWsStatic = 0;
+int s_cWsStaticDrawn = 0;   // (how often it was drawn: SLY2N_WSPRINT)
 // (PC) The characters' own pixels this frame (render kinds 4 / 6, the FBA kinds the original's shadows keep off: Sly,
 // the gang, the guards), drawn into an R8 mask from the camera against a copy of the frame's depth: the world shadows
 // and the ambient occlusion leave them alone. Built after the frame pass when either is on (RenderScene).
@@ -2642,23 +2694,30 @@ bool FWorldShadowsReady()
         glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
         glActiveTexture(GL_TEXTURE4);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
-        glGenTextures(1, &s_texWs);
-        glBindTexture(GL_TEXTURE_2D, s_texWs);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT32F, kcWsMap, kcWsMap);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+        bool fOk = true;
+        for (int k = 0; k < 2; ++k)
+        {
+            GLuint& tex = k == 0 ? s_texWs : s_texWsStatic;
+            GLuint& fboMap = k == 0 ? s_fboWs : s_fboWsStatic;
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT32F, kcWsMap, kcWsMap);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            glGenFramebuffers(1, &fboMap);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboMap);
+            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex, 0);
+            glDrawBuffer(GL_NONE);
+            fOk = fOk && glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        }
         glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
         glActiveTexture(GLenum(activePrev));
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
-        glGenFramebuffers(1, &s_fboWs);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, s_texWs, 0);
-        glDrawBuffer(GL_NONE);
-        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) s_stateWs = 1;
+        if (fOk) s_stateWs = 1;
         glGenBuffers(1, &s_ssboWs);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
     }
@@ -2726,8 +2785,11 @@ WSBOX BoxWorldShadows(const glm::vec3& posCamera, const glm::vec3& dirCamera)
     const glm::vec3 posFocus = posCamera + glm::normalize(glm::vec3(dirCamera.x, dirCamera.y, 0.0f) + glm::vec3(1e-4f, 0.0f, 0.0f)) * (kcWsRadius * 0.45f);
     glm::vec3 c = glm::vec3(matRot * glm::vec4(posFocus, 1.0f));
     box.texel = 2.0f * kcWsRadius / float(kcWsMap);
-    c.x = std::floor(c.x / box.texel) * box.texel;
-    c.y = std::floor(c.y / box.texel) * box.texel;
+    // (snapped to 64 texels, about 80 units: the box stays still while the camera moves within that, and the map of
+    // the casters that stay still is drawn again only when it moves; whole texels, so no shimmer)
+    const float snap = box.texel * 64.0f;
+    c.x = std::floor(c.x / snap) * snap;
+    c.y = std::floor(c.y / snap) * snap;
     const glm::mat4 matView = glm::translate(glm::mat4(1.0f), glm::vec3(-c.x, -c.y, -c.z - kcWsDepth * 0.5f)) * matRot;
     box.matLight = glm::orthoRH_ZO(-kcWsRadius, kcWsRadius, -kcWsRadius, kcWsRadius, 1.0f, kcWsDepth) * matView;
     box.cWorld = glm::vec3(glm::inverse(matRot) * glm::vec4(c, 1.0f));
@@ -2836,7 +2898,15 @@ constexpr float kcLampRangeMin = 60.0f, kcLampRangeMax = 6000.0f;
 GLSHADER s_shLsDepth, s_shLsApply;
 int s_stateLs = 0;
 GLuint s_fboLs = 0, s_texLs = 0, s_ssboLs = 0;
-struct LAMP { glm::vec3 pos{0.0f}; float range = 0.0f, off = 0.0f, scale = 0.0f, gWeight = 0.0f; };
+struct LAMP { glm::vec3 pos{0.0f}; float range = 0.0f, off = 0.0f, scale = 0.0f, gWeight = 0.0f; int islot = 0; };
+// The cube maps' slots: a lamp keeps its slot while it is chosen, and its map is drawn again only when what it was drawn
+// from changed (its casters' draws and matrices; a skinned caster in reach: each time), at most one such a frame
+// (round the slots in turn: the others a few frames late); a lamp new to its slot is drawn at once. Each slot's six
+// layers have their own framebuffer (a view of them), cleared alone.
+struct LAMPSLOT { bool fUsed = false; glm::vec3 pos{0.0f}; uint64_t key = 0; GLuint texView = 0, fbo = 0; };
+LAMPSLOT s_aslotLamp[kcLampMax];
+int s_islotLampNext = 0;
+int s_cLampMapsDrawn = 0;   // (SLY2N_WSPRINT)
 LAMP s_alampPrev[kcLampMax];
 int s_clampPrev = 0;
 
@@ -2866,7 +2936,19 @@ bool FLampShadowsReady()
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboLs);
         glFramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, s_texLs, 0);   // (layered: gl_Layer picks the face)
         glDrawBuffer(GL_NONE);
-        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) s_stateLs = 1;
+        bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        for (LAMPSLOT& slot : s_aslotLamp)
+        {
+            const int islot = int(&slot - s_aslotLamp);
+            glGenTextures(1, &slot.texView);
+            glTextureView(slot.texView, GL_TEXTURE_2D_ARRAY, s_texLs, GL_DEPTH_COMPONENT32F, 0, 1, GLuint(6 * islot), 6);
+            glGenFramebuffers(1, &slot.fbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, slot.fbo);
+            glFramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, slot.texView, 0);   // (its six layers: 0..5)
+            glDrawBuffer(GL_NONE);
+            fOk = fOk && glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        }
+        if (fOk) s_stateLs = 1;
         glGenBuffers(1, &s_ssboLs);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
     }
@@ -2935,6 +3017,26 @@ int CBuildLampMaps(const SCENE& scene, const glm::vec3& posCamera, const glm::ve
     LAMP* alamp = s_alampFrame;
     const glm::vec3 posFocus = posCamera + glm::normalize(dirCamera + glm::vec3(1e-4f, 0.0f, 0.0f)) * 500.0f;
     const int clamp = CLampsChosen(posFocus, NLampShadowsNow(), alamp);
+    // their slots: kept, else a free one (drawn at once)
+    bool afTaken[kcLampMax] = {};
+    for (int l = 0; l < clamp; ++l)
+    {
+        alamp[l].islot = -1;
+        for (int k = 0; k < kcLampMax; ++k)
+            if (!afTaken[k] && s_aslotLamp[k].fUsed && glm::distance(s_aslotLamp[k].pos, alamp[l].pos) < 1.0f) { alamp[l].islot = k; afTaken[k] = true; break; }
+    }
+    for (int l = 0; l < clamp; ++l)
+        if (alamp[l].islot < 0)
+            for (int k = 0; k < kcLampMax; ++k)
+                if (!afTaken[k])
+                {
+                    alamp[l].islot = k;
+                    afTaken[k] = true;
+                    s_aslotLamp[k].pos = alamp[l].pos;
+                    s_aslotLamp[k].key = 0;   // (new here: drawn at once)
+                    break;
+                }
+    for (int k = 0; k < kcLampMax; ++k) s_aslotLamp[k].fUsed = afTaken[k];
     static int s_clampPrinted = -1;
     if (clamp != s_clampPrinted && std::getenv("SLY2N_WSPRINT"))
     {
@@ -3003,14 +3105,50 @@ int CBuildLampMaps(const SCENE& scene, const glm::vec3& posCamera, const glm::ve
         }
     }
 
+    // which lamps' maps to draw: new in their slot; else changed (their casters' draws and matrices), one a frame
+    uint64_t akey[kcLampMax] = {};
+    bool afDraw[kcLampMax] = {};
+    static uint64_t s_cframeLs = 0;
+    ++s_cframeLs;
+    for (int l = 0; l < clamp; ++l)
+    {
+        uint64_t key = 1469598103934665603ull;
+        auto mix = [&key](const void* pv, size_t cb) {
+            const uint8_t* pb = static_cast<const uint8_t*>(pv);
+            for (size_t k = 0; k < cb; ++k) key = (key ^ pb[k]) * 1099511628211ull;
+        };
+        mix(&alamp[l].pos, sizeof(glm::vec3));
+        mix(&alamp[l].range, sizeof(float));
+        for (const LSDRAW& d : s_ad)
+        {
+            if (glm::distance(glm::vec3(d.sphere), alamp[l].pos) >= alamp[l].range + d.sphere.w) continue;
+            mix(&d.vao, sizeof(d.vao));
+            mix(&d.firstIndex, sizeof(d.firstIndex));
+            mix(&d.count, sizeof(d.count));
+            mix(d.pmat, sizeof(glm::mat4));
+            if (d.cbone > 0) mix(&s_cframeLs, sizeof(s_cframeLs));   // (skinned: its bones move; drawn in its turn)
+        }
+        akey[l] = key == 0 ? 1 : key;
+        afDraw[l] = s_aslotLamp[alamp[l].islot].key == 0;
+    }
+    for (int t = 0; t < kcLampMax; ++t)
+    {
+        const int k = (s_islotLampNext + t) % kcLampMax;
+        const int l = int(std::find_if(alamp, alamp + clamp, [k](const LAMP& m) { return m.islot == k; }) - alamp);
+        if (l < clamp && !afDraw[l] && akey[l] != s_aslotLamp[k].key)
+        {
+            afDraw[l] = true;
+            s_islotLampNext = (k + 1) % kcLampMax;
+            break;
+        }
+    }
+
     SMSAVE save;
-    // the cube maps: every lamp's six faces (one layered pass a lamp)
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboLs);
+    // the cube maps: each lamp's six faces drawn (one layered pass), into its slot's own layers
     glViewport(0, 0, kcLampFace, kcLampFace);
     glDisable(GL_SCISSOR_TEST);
     glDepthMask(GL_TRUE);
     glClearDepth(1.0);
-    glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_BLEND);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
@@ -3028,14 +3166,19 @@ int CBuildLampMaps(const SCENE& scene, const glm::vec3& posCamera, const glm::ve
     // (the cube map's faces: +X -X +Y -Y +Z -Z, each looking out with the GL cube map's own up)
     static const glm::vec3 s_adir[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     static const glm::vec3 s_aup[6] = {{0, -1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 0}};
+    BeginAddedGpuTimer(AGT_LampMaps);
     for (int l = 0; l < clamp; ++l)
     {
+        if (!afDraw[l]) continue;
         const LAMP& lamp = alamp[l];
+        LAMPSLOT& slot = s_aslotLamp[lamp.islot];
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, slot.fbo);
+        glClear(GL_DEPTH_BUFFER_BIT);
         const glm::mat4 matProj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, 2.0f, lamp.range);
         glm::mat4 amat[6];
         for (int f = 0; f < 6; ++f) amat[f] = matProj * glm::lookAt(lamp.pos, lamp.pos + s_adir[f], s_aup[f]);
         glUniformMatrix4fv(s_shLsDepth.Loc("amatFace"), 6, GL_FALSE, glm::value_ptr(amat[0]));
-        glUniform1i(s_shLsDepth.Loc("layerFirst"), 6 * l);
+        glUniform1i(s_shLsDepth.Loc("layerFirst"), 0);
         glUniform3f(s_shLsDepth.Loc("posLight"), lamp.pos.x, lamp.pos.y, lamp.pos.z);
         glUniform1f(s_shLsDepth.Loc("rcpRange"), 1.0f / lamp.range);
         GLuint vaoCur = 0;
@@ -3048,7 +3191,10 @@ int CBuildLampMaps(const SCENE& scene, const glm::vec3& posCamera, const glm::ve
             glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
             glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
         }
+        slot.key = akey[l];
+        ++s_cLampMapsDrawn;
     }
+    EndAddedGpuTimer(AGT_LampMaps);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
     s_clampFrame = clamp;
@@ -3062,7 +3208,7 @@ void SetLampUniforms(GLSHADER& sh)
     for (int l = 0; l < s_clampFrame; ++l)
     {
         avLamp[l] = glm::vec4(s_alampFrame[l].pos, s_alampFrame[l].range);
-        avAtt[l] = glm::vec4(s_alampFrame[l].off, s_alampFrame[l].scale, s_alampFrame[l].gWeight, 0.0f);
+        avAtt[l] = glm::vec4(s_alampFrame[l].off, s_alampFrame[l].scale, s_alampFrame[l].gWeight, float(s_alampFrame[l].islot));
     }
     glUniform1i(sh.Loc("lampCount"), s_clampFrame);
     if (s_clampFrame > 0)
@@ -3118,7 +3264,9 @@ void ApplyLampShadows(const glm::mat4& matWorldToClip, GLuint fbo, int dx, int d
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    BeginAddedGpuTimer(AGT_LampApply);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    EndAddedGpuTimer(AGT_LampApply);
     glActiveTexture(GL_TEXTURE4);   // (unit 4's cube map array and unit 5 put back: SMSAVE keeps unit 4's 2D)
     glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, GLuint(texCube4));
     glBindSampler(4, GLuint(sampler4));
@@ -3137,7 +3285,7 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     const glm::mat4& matLight = box.matLight;
     const float texel = box.texel;
 
-    struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; };
+    struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; bool fMoving; };
     static std::vector<WSDRAW> s_ad;
     static std::vector<glm::mat4> s_amatBoneWs;
     s_ad.clear();
@@ -3181,7 +3329,9 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
             for (const SUBGLOB& sub : pgeom->asubglob)
             {
                 if (WsWhySub(sub) != WSWHY_Casts) continue;
-                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone});
+                // (the actors' and the skinned: moving, drawn each frame; the rest kept in the still map)
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone,
+                                sgs.fActorTree || cbone > 0});
             }
         }
     }
@@ -3190,19 +3340,33 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
         std::printf("world shadows: %zu draws (%zu bones); left out: %d characters, %d sky-wide, %d faded, %d out of the box, %d not meshes\n",
                     s_cPrinted = s_ad.size(), s_amatBoneWs.size(), cActor, cSky, cFaded, cOut, cNotStrips);
 
+    // the still map's key: the box, and every still caster's draw and matrix (a door or a lift that is not an actor
+    // moves its matrix: drawn again)
+    uint64_t key = 1469598103934665603ull;
+    auto mix = [&key](const void* pv, size_t cb) {
+        const uint8_t* pb = static_cast<const uint8_t*>(pv);
+        for (size_t k = 0; k < cb; ++k) key = (key ^ pb[k]) * 1099511628211ull;
+    };
+    mix(&matLight, sizeof(glm::mat4));
+    size_t cMoving = 0;
+    for (const WSDRAW& d : s_ad)
+    {
+        if (d.fMoving) { ++cMoving; continue; }
+        mix(&d.vao, sizeof(d.vao));
+        mix(&d.firstIndex, sizeof(d.firstIndex));
+        mix(&d.count, sizeof(d.count));
+        mix(d.pmat, sizeof(glm::mat4));
+    }
+    if (key == 0) key = 1;
+
     SMSAVE save;
-    // the map
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
-    glViewport(0, 0, kcWsMap, kcWsMap);
     glDisable(GL_SCISSOR_TEST);
-    glDepthMask(GL_TRUE);
-    glClearDepth(1.0);
-    glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_BLEND);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);   // (both sides: the level's winding is not to be relied on)
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
@@ -3215,15 +3379,44 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBoneWs.size()) * sizeof(glm::mat4)),
                  s_amatBoneWs.empty() ? nullptr : s_amatBoneWs.data(), GL_STREAM_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboWs);
-    GLuint vaoCur = 0;
-    for (const WSDRAW& d : s_ad)
+    auto drawMap = [&](bool fMoving) {
+        GLuint vaoCur = 0;
+        for (const WSDRAW& d : s_ad)
+        {
+            if (d.fMoving != fMoving) continue;
+            if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+            glUniform1i(locCBone, GLint(d.cbone));
+            glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+            glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        }
+    };
+    BeginAddedGpuTimer(AGT_WsMap);
+    // the still casters' map, when what it was drawn from changed
+    if (key != s_keyWsStatic)
     {
-        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
-        glUniform1i(locCBone, GLint(d.cbone));
-        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
-        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
-        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWsStatic);
+        glViewport(0, 0, kcWsMap, kcWsMap);
+        glClearDepth(1.0);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        drawMap(false);
+        s_keyWsStatic = key;
+        ++s_cWsStaticDrawn;
     }
+    // the moving ones over a copy of it (none: the still map as it is)
+    GLuint texMap = s_texWsStatic;
+    if (cMoving > 0)
+    {
+        glCopyImageSubData(s_texWsStatic, GL_TEXTURE_2D, 0, 0, 0, 0, s_texWs, GL_TEXTURE_2D, 0, 0, 0, 0, kcWsMap, kcWsMap, 1);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
+        glViewport(0, 0, kcWsMap, kcWsMap);
+        drawMap(true);
+        texMap = s_texWs;
+    }
+    EndAddedGpuTimer(AGT_WsMap);
+    static size_t s_cMovingPrinted = size_t(-1);
+    if (std::getenv("SLY2N_WSPRINT") && cMoving != s_cMovingPrinted)
+        std::printf("world shadows: %zu moving draws; the still map drawn %d times so far\n", s_cMovingPrinted = cMoving, s_cWsStaticDrawn);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
@@ -3238,7 +3431,7 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBindTexture(GL_TEXTURE_2D, s_texShDS);
     glBindSampler(3, 0);
     glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, s_texWs);
+    glBindTexture(GL_TEXTURE_2D, texMap);
     glBindSampler(4, 0);
     GLint texUnit5 = 0, samplerUnit5 = 0;
     glActiveTexture(GL_TEXTURE5);
@@ -3279,7 +3472,9 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the colour darkened; the alpha kept)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    BeginAddedGpuTimer(AGT_WsApply);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    EndAddedGpuTimer(AGT_WsApply);
     glActiveTexture(GL_TEXTURE5);   // (units 5 and 6 put back: SMSAVE keeps units 3 and 4)
     glBindTexture(GL_TEXTURE_2D, GLuint(texUnit5));
     glBindSampler(5, GLuint(samplerUnit5));
@@ -5242,8 +5437,11 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     RenderPass(scene, pv, opts);
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
+    StepAddedGpuTimers();
+    BeginAddedGpuTimer(AGT_Masks);
     s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
+    EndAddedGpuTimer(AGT_Masks);
     // (PC TEST: the lamps' cube maps first, display.h lampShadows: where a lamp lights a surface the level's shadow
     // fades; then the lamps' own shadows)
     s_clampFrame = 0;
@@ -5552,6 +5750,31 @@ const char* PchzWsWhy(int why)
     case WSWHY_Glow: return "an additive glow";
     default: return "?";
     }
+}
+
+bool g_fAddedGpuTimes = false;
+
+std::string StrAddedGpuTimes()
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (!g_fAddedGpuTimes) return std::string();
+    static const char* const s_apchz[AGT_Max] = {"level map", "level", "lamp maps", "lamps", "masks"};
+    std::string str;
+    char ach[48];
+    double msAll = 0.0;
+    for (int k = 0; k < AGT_Max; ++k)
+    {
+        if (s_aagt[k].ms < 0.005) continue;
+        std::snprintf(ach, sizeof ach, "%s%s %.2f", str.empty() ? "" : "   ", s_apchz[k], s_aagt[k].ms);
+        str += ach;
+        msAll += s_aagt[k].ms;
+    }
+    if (str.empty()) return str;
+    std::snprintf(ach, sizeof ach, "added GPU ms %.2f:   ", msAll);
+    return ach + str;
+#else
+    return std::string();
+#endif
 }
 
 // (PC) the see-through surfaces' cover of this frame for post.cpp's outlines (0: none)

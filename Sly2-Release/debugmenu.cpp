@@ -929,6 +929,15 @@ void DrawPerf(const FONTBRX& font, const FONTBRX* picons)
     const float xRight = XCanvasPictureRight() - 10.0f, y = 430.0f;
     g_hud.FillScreenRect(xRight - w - 8.0f, y - 3.0f, xRight + 6.0f, y + size * 0.909f + 4.0f, glm::vec4(0, 0, 0, 72), DEPTH / 16777216.0f - 1e-4f);
     DrawLine(font, picons, ach, xRight - w, y, size, glm::vec4(110, 110, 110, 0));
+    // (the PC's added passes' GPU times, render.h StrAddedGpuTimes)
+    const std::string strGpu = StrAddedGpuTimes();
+    if (!strGpu.empty())
+    {
+        const float wGpu = DxLine(font, picons, strGpu, size);
+        const float yGpu = y - size - 6.0f;
+        g_hud.FillScreenRect(xRight - wGpu - 8.0f, yGpu - 3.0f, xRight + 6.0f, yGpu + size * 0.909f + 4.0f, glm::vec4(0, 0, 0, 72), DEPTH / 16777216.0f - 1e-4f);
+        DrawLine(font, picons, strGpu, xRight - wGpu, yGpu, size, glm::vec4(110, 110, 110, 0));
+    }
 }
 }  // namespace
 
@@ -1226,6 +1235,7 @@ void DrawDebugMenu()
 void DrawDebugOverlay(int width, int height)
 {
     // (PC Extras: Carmelita's aim mode crosshair, pccharacter.h)
+    g_fAddedGpuTimes = g_pcinput.fDebugKeys && s_fPerf;   // (render.h: measured while the Perf Display shows them)
     const bool fCross = g_pcinput.fDebugKeys && FPcCarmCrosshair();
     if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0)) return;
     g_hud.Begin();

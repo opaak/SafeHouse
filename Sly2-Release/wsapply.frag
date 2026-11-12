@@ -23,7 +23,7 @@ uniform float strength;            // 0..1: how dark the shadow is (x 0.5)
 uniform samplerCubeArrayShadow texLs;   // unit 6: their cube maps (distance over the reach, LEQUAL compare)
 uniform int lampCount;                  // 0..4
 uniform vec4 alamp[4];                  // xyz the lamp, w its reach
-uniform vec4 aatt[4];                   // x distanceOffset, y distanceScale, z the lamp's weight
+uniform vec4 aatt[4];                   // x distanceOffset, y distanceScale, z the lamp's weight, w its cube map's slot
 uniform float rcpFace;                  // one texel of a face (tan units)
 out vec4 FragColor;
 
@@ -51,7 +51,7 @@ float LampLight(vec3 P, vec3 N)
         if (att <= 0.0) continue;
         vec3 Po = P + N * dist * rcpFace * (1.5 + 2.0 * (1.0 - ndl));
         vec3 dirL = Po - alamp[i].xyz;
-        float vis = texture(texLs, vec4(dirL, float(i)), length(dirL) / range - 0.0015);
+        float vis = texture(texLs, vec4(dirL, aatt[i].w), length(dirL) / range - 0.0015);
         g = max(g, vis * facing * smoothstep(0.0, 0.6, att) * aatt[i].z);
     }
     return g;

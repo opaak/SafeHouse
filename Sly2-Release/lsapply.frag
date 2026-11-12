@@ -14,7 +14,7 @@ uniform mat4 matClipToWorld;
 uniform vec2 viewSize;
 uniform int lampCount;                      // the lamps this frame (0..4)
 uniform vec4 alamp[4];                    // xyz the lamp, w its reach
-uniform vec4 aatt[4];                     // x distanceOffset, y distanceScale, z the lamp's weight (0..1)
+uniform vec4 aatt[4];                     // x distanceOffset, y distanceScale, z the lamp's weight, w its cube map's slot (0..1)
 uniform float rcpFace;                    // one texel of a face (2 / resolution, in the face's tan units)
 uniform float strength;                   // 0..1: how dark (x 0.5)
 out vec4 FragColor;
@@ -70,10 +70,10 @@ void main()
         vec3 t = normalize(cross(dn, abs(dn.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
         vec3 b = cross(dn, t);
         float lit = 0.0;
-        lit += texture(texLs, vec4(dn + (t + b) * rcpFace * 0.5, float(i)), ref);
-        lit += texture(texLs, vec4(dn + (t - b) * rcpFace * 0.5, float(i)), ref);
-        lit += texture(texLs, vec4(dn + (-t + b) * rcpFace * 0.5, float(i)), ref);
-        lit += texture(texLs, vec4(dn + (-t - b) * rcpFace * 0.5, float(i)), ref);
+        lit += texture(texLs, vec4(dn + (t + b) * rcpFace * 0.5, aatt[i].w), ref);
+        lit += texture(texLs, vec4(dn + (t - b) * rcpFace * 0.5, aatt[i].w), ref);
+        lit += texture(texLs, vec4(dn + (-t + b) * rcpFace * 0.5, aatt[i].w), ref);
+        lit += texture(texLs, vec4(dn + (-t - b) * rcpFace * 0.5, aatt[i].w), ref);
         float sh = smoothstep(0.3, 0.7, 1.0 - lit * 0.25);
         sh *= facing * smoothstep(0.0, 0.35, att) * aatt[i].z;
         shAll = max(shAll, sh);

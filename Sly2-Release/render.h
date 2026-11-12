@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 // Rendering (adapted from Sly1-Release render.cpp's pass structure): draw records from the scene's globs, sorted by
 // the Sly 2 RPL kind (DrawRpl 0x157FA0: counting sort by the 26 kinds, far-to-near for 1, 2, 5, 6, 10, 25), each
@@ -119,6 +120,13 @@ struct WSPICK
     bool fSkinned = false;
 };
 const WSPICK& WspickCur();
+
+// (PC) The GPU time of the passes the PC added (the level's shadow map and its look-up, the lamps' maps and theirs, the
+// characters' and the see-through masks), measured while g_fAddedGpuTimes (the debug menu's Perf Display sets it):
+// one line, "" when off or nothing ran.
+enum AGT : int { AGT_WsMap, AGT_WsApply, AGT_LampMaps, AGT_LampApply, AGT_Masks, AGT_Max };
+extern bool g_fAddedGpuTimes;
+std::string StrAddedGpuTimes();
 
 struct GHOSTDRAW
 {
