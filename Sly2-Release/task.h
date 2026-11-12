@@ -135,6 +135,14 @@ int NTaskStateOid(OID oid, bool* pfDone);  // a task's state +0x54 (-2: none) an
 void RequestTaskStartByOid(SW* psw, const uint8_t* pchk, OID oidTask);  // orig 0x001651D8
 int NTasksPercentDone(SW* psw);              // orig 0x00161660
 void EndWorldTasks(SW* psw);
+// (PC QoL, settings v25) Back to the episode's safe house: its main world at the safe house's point (0x189), as the
+// episode menu takes the player in. Possible in an episode, with no job running, not in the safe house already. After a
+// job that the story does not carry straight on (no next task, no exit of its own), with the setting on
+// (pcinput.h fReturnToSafeHouse), it happens by itself once the game has been idle for 1.5 s (no scene, line, menu or
+// world change): UpdateReturnToSafeHouse every frame (game.cpp). The pause menu's Return to Safe House requests it.
+bool FCanReturnToSafeHouse(SW* psw);
+void RequestReturnToSafeHouse(SW* psw);
+void UpdateReturnToSafeHouse(SW* psw, float dtReal);
 void EndJob(SW* psw, JOB* pjob);             // orig 0x00162E38                 // orig 0x0020E068's part: the broadcast 1, an ended job restarted
 
 // (QoL Replay Jobs, replay.h) a job as a loaded world file names it, read without starting the world: its oid, its

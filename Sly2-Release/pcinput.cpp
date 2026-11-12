@@ -119,6 +119,7 @@ void PcInputFromSettings(const st::SystemSettings& s)
     o.promptStyle = s.promptStyle;
     o.fAlwaysOriginalPs = s.alwaysOriginalPsPrompts != 0;
     o.fInstantSkipCutscenes = s.instantSkipCutscenes != 0;
+    o.fReturnToSafeHouse = s.returnToSafeHouse != 0;
     o.fHackMouseAim = s.hackMouseAim != 0;
     // (fDebugKeys: not from the settings' v14 debugKeys, which is ignored and kept as is since 2026-11-04; the
     //  launcher's Settings > Advanced > Debug mode turns them on, read in main.cpp from Debug Mode.ini)
@@ -151,6 +152,7 @@ void PcInputToSettings(st::SystemSettings& s)
     s.promptStyle = o.promptStyle;
     s.alwaysOriginalPsPrompts = o.fAlwaysOriginalPs;
     s.instantSkipCutscenes = o.fInstantSkipCutscenes;
+    s.returnToSafeHouse = o.fReturnToSafeHouse;
     s.hackMouseAim = o.fHackMouseAim;
     s.controllerVibration = g_fControllerVibration;
 }

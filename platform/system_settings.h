@@ -6,7 +6,7 @@
 //
 // File: 20-byte header {char magic[8]="PCANESYS"; u32 version; u32 payloadSize;
 // u32 fnv1a32(payload)} followed by the raw little-endian payload. Every
-// historic version (1-24) still loads; a write produces kVersion. A
+// historic version (1-25) still loads; a write produces kVersion. A
 // file with a higher version (for example from a newer or forked build) is
 // reported as Newer and never overwritten.
 #include <algorithm>
@@ -21,7 +21,7 @@
 namespace cane::settings {
 namespace fs = std::filesystem;
 inline constexpr char kMagic[8] = { 'P', 'C', 'A', 'N', 'E', 'S', 'Y', 'S' };
-inline constexpr uint32_t kVersion = 24;
+inline constexpr uint32_t kVersion = 25;
 // Action order: Up, Down, Left, Right, Square, Circle, Cross, Triangle, Start,
 // Select, L1, R1, L2, R2, L3, R3 (Input.h JOY_BUTTON).
 inline constexpr int kBindingCount = 16;
@@ -233,9 +233,15 @@ struct V23 {
     int worldShadows;
     int worldShadowsEpisode[kWorldShadowsEpisodes];
 };
+// v24: + smoothChars, smoothStrength.
+struct V24 {
+    V23 base;
+    int smoothChars;
+    int smoothStrength;
+};
 } // namespace legacy
 
-// Current (v24) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
+// Current (v25) payload (Sly1-Release's VIDEOSAVESETTINGS); its first 196 bytes are the v8 layout, v9..v11 == ThiefRush's.
 // Append new fields only at the end, bump kVersion and add a legacy::V<n> snapshot plus a load branch.
 struct SystemSettings {
     int fogType;                  // 0 off, 1 PS2 (default), 2 PS3
@@ -339,6 +345,9 @@ struct SystemSettings {
     int smoothChars;              // default 0
     // smoothStrength: 0..100, how far toward the curved surface
     int smoothStrength;           // default 100
+    // v25, offset 424 (Sly 2, PC QoL; v24 files load with it on): returnToSafeHouse, back to the episode's safe house
+    // once a job is done (when the story does not go straight on to the next one), 0/1
+    int returnToSafeHouse;        // default 1
 };
 static_assert(sizeof(Header) == 20);
 static_assert(sizeof(legacy::V1) == 36 && sizeof(legacy::V2) == 40 && sizeof(legacy::V3) == 104);
@@ -348,8 +357,8 @@ static_assert(sizeof(legacy::V10) == 208 && sizeof(legacy::V11) == 284 && sizeof
 static_assert(sizeof(legacy::V13) == 292 && sizeof(legacy::V14) == 296 && sizeof(legacy::V15) == 300);
 static_assert(sizeof(legacy::V16) == 304 && sizeof(legacy::V17) == 328 && sizeof(legacy::V18) == 332);
 static_assert(sizeof(legacy::V19) == 340 && sizeof(legacy::V20) == 348 && sizeof(legacy::V21) == 364);
-static_assert(sizeof(legacy::V22) == 372 && sizeof(legacy::V23) == 416);
-static_assert(sizeof(SystemSettings) == 424);
+static_assert(sizeof(legacy::V22) == 372 && sizeof(legacy::V23) == 416 && sizeof(legacy::V24) == 424);
+static_assert(sizeof(SystemSettings) == 428);
 static_assert(offsetof(SystemSettings, guiStyle) == 40 && offsetof(SystemSettings, keyboardBindings) == 44);
 static_assert(offsetof(SystemSettings, gamepadBindings) == 108);
 static_assert(offsetof(SystemSettings, disableControllerInputWhenUnfocused) == 172);
@@ -369,6 +378,7 @@ static_assert(offsetof(SystemSettings, ambientOcclusion) == 364 && offsetof(Syst
 static_assert(offsetof(SystemSettings, shadowMaps) == 372 && offsetof(SystemSettings, worldShadows) == 376);
 static_assert(offsetof(SystemSettings, worldShadowsEpisode) == 380);
 static_assert(offsetof(SystemSettings, smoothChars) == 416 && offsetof(SystemSettings, smoothStrength) == 420);
+static_assert(offsetof(SystemSettings, returnToSafeHouse) == 424);
 
 inline uint32_t checksum(const void* data, size_t size) {
     const auto* bytes = static_cast<const uint8_t*>(data);
@@ -471,6 +481,7 @@ inline SystemSettings defaults() {
     for (int& v : s.worldShadowsEpisode) v = WorldShadows_Global;
     s.smoothChars = 0;
     s.smoothStrength = 100;
+    s.returnToSafeHouse = 1;
     return s;
 }
 // Sly 2's defaults: defaults() with Sly 2's keyboard / mouse layout. (A file that lacks the bindings still takes
@@ -524,6 +535,7 @@ inline SystemSettings upgrade(const legacy::V20& old) { return detail::fromPrefi
 inline SystemSettings upgrade(const legacy::V21& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V22& old) { return detail::fromPrefix(old); }
 inline SystemSettings upgrade(const legacy::V23& old) { return detail::fromPrefix(old); }
+inline SystemSettings upgrade(const legacy::V24& old) { return detail::fromPrefix(old); }
 
 // Ok: current version. Upgraded: an older version, converted in memory (the
 // file is untouched until save()). Missing: no file. Corrupt: unreadable,
@@ -586,6 +598,7 @@ inline LoadResult load(const fs::path& file, SystemSettings& out, uint32_t* vers
     case 21: result = detail::loadLegacy<legacy::V21>(stream, header, out); break;
     case 22: result = detail::loadLegacy<legacy::V22>(stream, header, out); break;
     case 23: result = detail::loadLegacy<legacy::V23>(stream, header, out); break;
+    case 24: result = detail::loadLegacy<legacy::V24>(stream, header, out); break;
     case kVersion: {
         SystemSettings current{};
         if (detail::readPayload(stream, header, current)) {
@@ -618,6 +631,7 @@ inline uint32_t payloadSize(uint32_t version) {
     case 21: return sizeof(legacy::V21);
     case 22: return sizeof(legacy::V22);
     case 23: return sizeof(legacy::V23);
+    case 24: return sizeof(legacy::V24);
     case kVersion: return sizeof(SystemSettings);
     default: return 0;
     }
@@ -731,6 +745,7 @@ inline void sanitizeStatic(SystemSettings& s, int monitorHeight, int maxSamples,
     s.worldShadows = std::clamp(s.worldShadows, 0, 100);
     for (int& v : s.worldShadowsEpisode) v = std::clamp(v, WorldShadows_Global, 100);
     s.smoothChars = s.smoothChars >= 2 ? std::min(s.smoothChars, kSmoothCharsMax) : 0;
+    s.returnToSafeHouse = s.returnToSafeHouse != 0 ? 1 : 0;
     s.smoothStrength = std::clamp(s.smoothStrength, 0, 100);
     for (int i = 0; i < kCameraKeyCount; ++i)
         if (!validCameraKey(s.cameraKeyBindings[i])) s.cameraKeyBindings[i] = kDefaultCameraKeys[i];

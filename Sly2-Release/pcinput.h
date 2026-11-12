@@ -49,6 +49,7 @@ struct PCINPUTOPT
     bool fAlwaysOriginalPs = false;            // "Original PlayStation Icons"
     // cutscenes (skipcut.h)
     bool fInstantSkipCutscenes = false;
+    bool fReturnToSafeHouse = true;   // (settings v25: back to the safe house after a job, task.cpp)
     // the hacking minigame (hackmouse.h): with the keyboard / mouse, a cursor; left click fires toward it
     bool fHackMouseAim = true;
     // the debug function keys and the debug menu (game.cpp, debugmenu.cpp): the launcher's Settings > Advanced >

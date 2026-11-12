@@ -75,6 +75,8 @@ enum NATIVEID : int
     NID_Pc2 = NID_Base + 0x100,
     NID_LongShadows = NID_Pc2, NID_InvertPage, NID_PadInvertX, NID_PadInvertY, NID_BinocInvertX, NID_BinocInvertY,
     NID_TurretInvertX, NID_TurretInvertY, NID_AutoCameraRotation,
+    // (PC QoL, settings v25: task.h) the pause menu's Return to Safe House; the controls page's Safe House After Jobs
+    NID_ReturnToSafeHouse, NID_SafeHouseAfterJobs,
     NID_AdvancedControls = NID_Base + 0x1000, NID_ActionDevices, NID_ActionKeyboard, NID_ActionController, NID_ResetActions,
     NID_ActionGroupFirst = NID_Base + 0x2000,
     NID_ActionBindingFirst = NID_Base + 0x3000,
@@ -88,6 +90,7 @@ constexpr uint32_t PFN_NativeKeyboardPage = 0xFFFF0006;
 constexpr uint32_t PFN_NativeKey = 0xFFFF0007;           // (a key row: the next key pressed binds)
 constexpr uint32_t PFN_NativeLanguage = 0xFFFF0008;      // (the title's language menu: the European build's 0x1DDCA8)
 constexpr uint32_t PFN_NativeInvertPage = 0xFFFF0009;    // (Invert Controls...)
+constexpr uint32_t PFN_NativeSafeHouse = 0xFFFF000A;     // (Return to Safe House: task.h RequestReturnToSafeHouse)
 // the native pages' tables (their identity: the invert page's rows show the controller's icons)
 constexpr uint32_t VA_NativeInvertPage = 0xFFFF0109;
 constexpr uint32_t PFN_ActionDevices = 0xFFFF0010, PFN_ActionGroups = 0xFFFF0011,
@@ -420,6 +423,8 @@ std::string StrNative(int id)
     case NID_DrawDistance: return StrPortValue(PTX_DrawDistance, StrPortDecimal(g_display.drawDistance, 2) + "x");
     case NID_LongShadows: return onOff(PTX_LongShadows, g_display.fLongShadows);
     case NID_ExitToDesktop: return StrPort(PTX_ExitToDesktop);
+    case NID_ReturnToSafeHouse: return StrPort(PTX_ReturnToSafeHouse);
+    case NID_SafeHouseAfterJobs: return onOff(PTX_SafeHouseAfterJobs, g_pcinput.fReturnToSafeHouse);
     case NID_DisplayPage: return StrPort(PTX_DisplayOptions);
     case NID_ControlsPage: return StrPort(PTX_ControlsAndPrompts);
     case NID_PromptStyle:
@@ -536,6 +541,7 @@ void CycleControls(MENUENT& e)
     case NID_InstantSkip: o.fInstantSkipCutscenes = !o.fInstantSkipCutscenes; break;
     case NID_MouseCamera: o.fMouseCamera = !o.fMouseCamera; break;
     case NID_AutoCameraRotation: o.fAutoCameraRotation = !o.fAutoCameraRotation; break;
+    case NID_SafeHouseAfterJobs: o.fReturnToSafeHouse = !o.fReturnToSafeHouse; break;
     case NID_MouseSens: o.mouseSensitivity = nextOf(o.mouseSensitivity, {25, 50, 75, 100, 150, 200, 300, 400, 500}); break;
     case NID_AimSens: o.mouseAimSensitivity = nextOf(o.mouseAimSensitivity, {25, 50, 75, 100, 150, 200, 300, 400, 500}); break;
     case NID_InvertX: o.fMouseInvertX = !o.fMouseInvertX; break;
@@ -794,6 +800,14 @@ std::vector<MENUENT> AentPause()
         }
         if (f) a.push_back(e);
     }
+    // (PC QoL, settings v25) Return to Safe House: in an episode, no job running, not in the safe house already
+    if (FCanReturnToSafeHouse(s_psw))
+    {
+        MENUENT sh;
+        sh.id = NID_ReturnToSafeHouse;
+        sh.pfnSelect = PFN_NativeSafeHouse;
+        a.push_back(sh);
+    }
     // (native) Exit to Desktop, as Sly1-Release's pause menu
     MENUENT ex;
     ex.id = NID_ExitToDesktop;
@@ -864,6 +878,10 @@ std::vector<MENUENT> AentControls()
             cameraRotation.id = NID_AutoCameraRotation;
             cameraRotation.pfnSelect = PFN_NativeControls;
             a.push_back(cameraRotation);
+            MENUENT safeHouse;   // (PC QoL, settings v25)
+            safeHouse.id = NID_SafeHouseAfterJobs;
+            safeHouse.pfnSelect = PFN_NativeControls;
+            a.push_back(safeHouse);
         }
     }
     return a;
@@ -1145,6 +1163,10 @@ void SelectEntry(MENUENT& e)
         break;
     case PFN_NativeExit:
         if (g_gl.window) glfwSetWindowShouldClose(g_gl.window, 1);
+        break;
+    case PFN_NativeSafeHouse:
+        CloseMenu();
+        RequestReturnToSafeHouse(s_psw);
         break;
     case PFN_NativeLanguage:
         // orig (Europe) 0x1DDCA8: the language chosen (it wins over a save's: ApplyGameSettings), then the title's world

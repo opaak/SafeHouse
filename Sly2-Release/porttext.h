@@ -27,7 +27,7 @@ enum PTX : int
     PTX_AspectRatio, PTX_FitToScreen, PTX_Resolution, PTX_Native, PTX_FrameRate, PTX_WindowMode, PTX_Windowed,
     PTX_Borderless, PTX_Fullscreen, PTX_VSync, PTX_DrawDistance,
     // the pause menu, the options' pages
-    PTX_ExitToDesktop, PTX_DisplayOptions, PTX_ControlsAndPrompts,
+    PTX_ExitToDesktop, PTX_ReturnToSafeHouse, PTX_SafeHouseAfterJobs, PTX_DisplayOptions, PTX_ControlsAndPrompts,
     // the controls options
     PTX_ButtonIcons, PTX_Auto, PTX_OriginalPsIcons, PTX_InstantSkip, PTX_MouseCamera, PTX_MouseSensitivity,
     PTX_MouseAimSensitivity, PTX_MouseWheelZoom, PTX_MouseInMenus,

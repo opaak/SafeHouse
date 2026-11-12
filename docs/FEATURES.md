@@ -82,6 +82,10 @@ can be turned off where it changes how the game looks or plays.
 
 ## Gameplay additions (Sly 2)
 
+- **Back to the safe house:** when a job is done and the story does not go straight on to the next one, you are taken
+  back to the episode's safe house once its last line or scene is over (Settings > Controls "Back to the safe house
+  after jobs", or the in-game Controls page's Safe House After Jobs; on by default). The pause menu's **Return to Safe
+  House** takes you there at any time in an episode while no job is running.
 - **Replay Jobs:** replay any finished job from the episode menu. Multi-part **operations** are listed as a whole and
   play their parts in sequence, as in the story; each part can also be played alone.
 - **30 save slots:** ten pages of three.

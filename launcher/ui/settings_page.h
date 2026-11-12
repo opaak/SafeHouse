@@ -628,6 +628,7 @@ private:
             s.disableControllerInputWhenUnfocused = d.disableControllerInputWhenUnfocused;
             s.alwaysOriginalPsPrompts = d.alwaysOriginalPsPrompts, s.promptStyle = d.promptStyle;
             s.instantSkipCutscenes = d.instantSkipCutscenes;
+            s.returnToSafeHouse = d.returnToSafeHouse;
             s.mouseCamera = d.mouseCamera, s.mouseSensitivity = d.mouseSensitivity, s.mouseAimSensitivity = d.mouseAimSensitivity;
             s.mouseInvertX = d.mouseInvertX, s.mouseInvertY = d.mouseInvertY, s.mouseRawInput = d.mouseRawInput;
             s.padInvertCameraX = d.padInvertCameraX, s.padInvertCameraY = d.padInvertCameraY;
@@ -1057,6 +1058,10 @@ private:
                 m_settings.autoCameraRotation = cameraRotation, commit();
             describe("Rotate the follow camera as you move.");
         }
+        // (settings v25; Sly2-Release task.cpp UpdateReturnToSafeHouse, the pause menu's Return to Safe House)
+        if (m_game == GameId::Sly2)
+            toggle("Back to the safe house after jobs", m_settings.returnToSafeHouse,
+                   "When a job is done and the story does not go straight on, you are taken back to the safe house. The pause menu can take you there too.");
         section("Controller");
         // (settings v17: Sly 2's controller camera inversion; off = the original's orbit camera)
         if (m_game == GameId::Sly2) {

@@ -1752,6 +1752,7 @@ int RunGame(const GAMEOPTS& go)
             const uint16_t grfSkip = s_fSkipPress ? g_joy.grfbtn : g_grfJoyWindow;
             UpdateSkipCut(dtSkip, grfSkip, uint16_t(grfSkip & ~s_grfSkipPrev));
             s_grfSkipPrev = grfSkip;
+            UpdateReturnToSafeHouse(psw.get(), dtSkip);   // (PC QoL, settings v25: task.h, back to the safe house after a job)
             // (the whole skip within this frame, up to 5 s of real time (a minute's scene takes about 1 s): the last
             // frame shown stays up meanwhile and the next one is the scene's end, with no blackout; the window's
             // events are polled meanwhile. Only a longer one (a stuck scene) goes on over more frames, behind

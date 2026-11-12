@@ -22,6 +22,10 @@ void ResumeGame(int grf);  // ai.cpp: orig 0x20F030
 #include "update.h"
 #include "frontend.h"
 #include "hudwidget.h"
+#include "menu.h"
+#include "pcinput.h"
+#include "skipcut.h"
+#include "sound.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -707,6 +711,10 @@ void JobEnd(JOB* p)
             RequestTransition(s_psw, pw->abRecord, 0x189, -1, 0, -1);
 }
 
+// (PC QoL, settings v25) back to the safe house once the game is idle after a job (UpdateReturnToSafeHouse)
+bool s_fReturnPending = false;
+float s_dtReturnIdle = 0.0f;
+const SW* s_pswReturn = nullptr;
 // orig 0x00162F60 / 0x00162FD0 / 0x00162F10: the job complete (the last task done)
 void JobCompleteClose(JOB* p)
 {
@@ -726,6 +734,15 @@ void JobCompleteNext(JOB* p)
         // safe house): updated on the real clock (+0x40 |= 0x100: its update entry's flags) and fired (0x2283D0)
         (pexit->iupd >= 0 ? s_psw->aupd[static_cast<size_t>(pexit->iupd)].grf : pexit->grfUpd) |= 0x100;
         TriggerExit(pexit);
+    }
+    else if (g_pcinput.fReturnToSafeHouse)
+    {
+        // (PC QoL, settings v25: the original leaves the player where the job ended) back to the safe house, once the
+        // job's own after-moments (a line, a scene) are over: task.h UpdateReturnToSafeHouse
+        s_fReturnPending = true;
+        s_dtReturnIdle = 0.0f;
+        s_pswReturn = s_psw;
+        if (std::getenv("SLY2N_TASKDEBUG")) std::printf("job %d: done; back to the safe house when idle\n", p->oid);
     }
 }
 void SetJobSeq(JOB* p, int n);
@@ -1214,6 +1231,39 @@ struct INITTASKUPDATES
         });
     }
 } s_inittaskupdates;
+}
+
+// ------------------------------------------------------------ PC QoL: back to the safe house (settings v25)
+bool FCanReturnToSafeHouse(SW* psw)
+{
+    if (!psw || IepisodeCur() <= 0 || !PwrecEpisodeMain(IepisodeCur())) return false;
+    if (psw->tasks.pjobCur || FTransitionBusy() || psw->ploExitPending) return false;
+    LO* ppo = PloPoCurrent(psw);
+    return ppo && !FIsLoDerivedFrom(ppo, 0x46);   // (not in the safe house already)
+}
+
+void RequestReturnToSafeHouse(SW* psw)
+{
+    s_fReturnPending = false;
+    if (!FCanReturnToSafeHouse(psw)) return;
+    std::printf("back to the safe house (episode %d)\n", IepisodeCur());
+    // (as the episode menu takes the player into an episode: its main world at the safe house's point 0x189, with the
+    // world's wipe 0x30A)
+    RequestTransition(psw, PwrecEpisodeMain(IepisodeCur())->abRecord, 0x189, -1, 0, 0x30A);
+}
+
+void UpdateReturnToSafeHouse(SW* psw, float dtReal)
+{
+    if (!s_fReturnPending) return;
+    // (another world, a new job, the setting turned off, or already in the safe house: not any more)
+    if (psw != s_pswReturn || !g_pcinput.fReturnToSafeHouse || (psw && psw->tasks.pjobCur)) { s_fReturnPending = false; return; }
+    std::string strLine;
+    uint32_t rgba = 0;
+    const bool fBusy = FCutsceneActive() || FMenuShown() || FMenuActive() || FTransitionBusy() || FDialogSubtitle(&strLine, &rgba);
+    s_dtReturnIdle = fBusy ? 0.0f : s_dtReturnIdle + dtReal;
+    if (s_dtReturnIdle < 1.5f) return;   // (a moment's calm first: the player sees the job is over)
+    if (FCanReturnToSafeHouse(psw)) RequestReturnToSafeHouse(psw);
+    s_fReturnPending = false;
 }
 
 void InitTasks(SW* psw)
