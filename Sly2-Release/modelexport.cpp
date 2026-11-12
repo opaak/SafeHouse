@@ -90,8 +90,8 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
     std::map<std::tuple<const void*, const void*, int>, int> mpmat;
 
     // the frame of reference: the first shown rigid group's matrix (the others relative to it)
-    glm::mat4 matRef(1.0f);
-    for (size_t i = 0; i < gs.aglob.size(); ++i)
+    glm::mat4 matRef = mx.matRef;
+    for (size_t i = 0; i < gs.aglob.size() && !mx.fRef; ++i)
         if (i < mx.afVisible.size() && mx.afVisible[i] && i < mx.amatGlob.size() && (i >= mx.aamatBone.size() || mx.aamatBone[i].empty()))
         {
             matRef = mx.amatGlob[i];

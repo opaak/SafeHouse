@@ -136,9 +136,11 @@ struct TEXPICK
 const TEXPICK& TexpickCur();
 // The picked texture written into Mods/Textures for editing (an existing file left alone); a line for the debug menu
 bool FCopyPickedTextureToMods(std::string* pstr);
-// The picked object's whole model (its shown groups, as posed this frame) written for Blender as Mods/Models/Export/
-// <name>_oid<oid>.glb (modelexport.h); a line for the debug menu
-bool FExportPickedModel(const std::string& name, std::string* pstr);
+// The picked object's model (its shown groups, as posed this frame) written for Blender as Mods/Models/Export/
+// <name>_oid<oid>[_g<group>[_r<metres>]].glb (modelexport.h); a line for the debug menu. sRadius: 0 the whole object;
+// < 0 the picked group alone; > 0 the groups whose middles are within sRadius (game units) of the picked group's
+// (a level built as one object). A part of an object is placed with the picked group's middle at the origin.
+bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr);
 // The mods folder's textures read again and every texture made again from them (the edits shown at once)
 void ReloadTextureMods();
 

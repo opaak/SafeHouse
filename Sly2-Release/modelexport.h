@@ -22,8 +22,11 @@ struct MODELEXPORT
     std::vector<glm::mat4> amatGlob;                // per group its matrix this frame
     std::vector<std::vector<glm::mat4>> aamatBone;  // per skinned group its bones this frame
     std::vector<uint8_t> afVisible;                 // per group whether the frame showed it
-    std::vector<int> aiframe;                       // (unused: the parts' animation frames are their own)
     int oid = -1;
+    // (optional) the frame of reference: the file's origin (the group picked, at its middle); else the first shown
+    // rigid group's matrix
+    bool fRef = false;
+    glm::mat4 matRef{1.0f};
 };
 
 // The model written to path (the folders made); false with *perr on failure, else *pstrInfo a short summary

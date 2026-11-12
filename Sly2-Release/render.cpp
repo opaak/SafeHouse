@@ -6114,7 +6114,7 @@ bool FCopyPickedTextureToMods(std::string* pstr)
 #endif
 }
 
-bool FExportPickedModel(const std::string& name, std::string* pstr)
+bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr)
 {
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     if (!s_texpick.fValid || !s_mxPick.pglobset) { *pstr = "nothing under the crosshair"; return false; }
@@ -6122,16 +6122,45 @@ bool FExportPickedModel(const std::string& name, std::string* pstr)
     std::string stem = name;
     for (char& ch : stem)
         if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ch = '_';
-    char ach[64];
-    std::snprintf(ach, sizeof ach, "_oid%d.glb", s_mxPick.oid);
+    char ach[96];
+    MODELEXPORT mx = s_mxPick;
+    const GLOBSET& gs = *mx.pglobset;
+    const size_t iPick = size_t(s_texpick.iglob);
+    if (sRadius != 0.0f && iPick < gs.aglob.size() && iPick < mx.amatGlob.size())
+    {
+        // a part of the object: the picked group, and with a radius the groups whose middles are near its middle
+        auto middle = [&](size_t i) {
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            const glm::vec4 sphere = pgeom ? SphereOfGlob(*pgeom) : glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+            const glm::vec3 c = sphere.w >= 0.0f ? glm::vec3(sphere) : glm::vec3(0.0f);
+            return glm::vec3(mx.amatGlob[i] * glm::vec4(c, 1.0f));
+        };
+        const glm::vec3 cPick = middle(iPick);
+        size_t cKept = 0;
+        for (size_t i = 0; i < mx.afVisible.size(); ++i)
+        {
+            if (!mx.afVisible[i]) continue;
+            const bool fKeep = i == iPick || (sRadius > 0.0f && i < mx.amatGlob.size() && glm::length(middle(i) - cPick) <= sRadius);
+            mx.afVisible[i] = fKeep ? 1 : 0;
+            cKept += fKeep ? 1 : 0;
+        }
+        // the origin at the picked group's middle, the axes the world's (a level's groups are often in its space)
+        mx.fRef = true;
+        mx.matRef = glm::translate(glm::mat4(1.0f), cPick);
+        if (sRadius > 0.0f) std::snprintf(ach, sizeof ach, "_oid%d_g%d_r%dm.glb", mx.oid, int(iPick), int(std::lround(sRadius / 100.0f)));
+        else std::snprintf(ach, sizeof ach, "_oid%d_g%d.glb", mx.oid, int(iPick));
+        (void)cKept;
+    }
+    else std::snprintf(ach, sizeof ach, "_oid%d.glb", s_mxPick.oid);
     const std::string path = cane::utf8(cane::path(g_disc.DirMods()) / "Models" / "Export" / cane::path(stem + ach));
     std::string info, err;
-    if (!FExportModelGlb(s_mxPick, stem, path, &info, &err)) { *pstr = "not written: " + err; return false; }
+    if (!FExportModelGlb(mx, stem, path, &info, &err)) { *pstr = "not written: " + err; return false; }
     std::printf("model export: %s (%s)\n", path.c_str(), info.c_str());
     *pstr = "Models/Export/" + stem + ach + ": " + info;
     return true;
 #else
     (void)name;
+    (void)sRadius;
     *pstr = "not on this platform";
     return false;
 #endif

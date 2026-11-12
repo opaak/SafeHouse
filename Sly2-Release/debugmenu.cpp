@@ -72,6 +72,7 @@ extern std::unordered_map<int, int> g_mpoidiwrecTask;   // autoplay.cpp / brx.cp
 
 namespace
 {
+int s_iExportScope = 0;   // (the texture picker's model export: the picked group, within 5 / 15 / 40 m, the whole object)
 // ------------------------------------------------------------ state
 enum PAGEK { PK_Root, PK_Episodes, PK_Worlds, PK_Character, PK_Teleport, PK_Jobs, PK_JobList, PK_Player, PK_Speed, PK_Display, PK_Graphics,
              PK_Extras, PK_ExtrasChars, PK_ExtrasSly, PK_ExtrasCarm, PK_ExtrasGuardEps, PK_ExtrasGuards, PK_ExtrasBosses };
@@ -814,12 +815,15 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 FCopyPickedTextureToMods(&str);
                 Status(str);
             }, TexpickCur().fTextured ? TexpickCur().name : std::string("(none)"));
+            // (what to export: a level is often one object of thousands of groups)
+            cycle("Export what", &s_iExportScope, {0, 1, 2, 3, 4}, {"The picked group", "Within 5 m", "Within 15 m", "Within 40 m", "The whole object"});
             item("Export the picked model (glTF)", [] {
                 std::string name = "object";
                 if (LO* plo = s_psw && TexpickCur().oid >= 0 ? PloFindSwObjectByOid(s_psw, OID(TexpickCur().oid)) : nullptr)
                     name = StrClassName(plo->Cid());
+                static const float s_asRadius[5] = {-1.0f, 500.0f, 1500.0f, 4000.0f, 0.0f};
                 std::string str;
-                FExportPickedModel(name, &str);
+                FExportPickedModel(name, s_asRadius[std::clamp(s_iExportScope, 0, 4)], &str);
                 Status(str);
             }, "for Blender: Mods/Models/Export");
             item("Reload texture mods", [] {

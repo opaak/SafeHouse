@@ -139,8 +139,11 @@ comes in a later step.
 
 1. With the debug keys on, open the debug menu's Display > Graphics, turn on **Texture picker**, and aim the crosshair
    at the centre of the picture at the object (the free camera helps).
-2. **Export the picked model (glTF)** writes `Mods/Models/Export/<class>_oid<oid>.glb`.
-3. In Blender: File > Import > glTF 2.0.
+2. Choose **Export what**: the picked group alone, the groups within 5, 15 or 40 m of it, or the whole object. A level is
+   often built as one object of thousands of groups (Paris's oid 1), so the whole object can be the whole level. A
+   part of an object is placed with the picked group's middle at the origin.
+3. **Export the picked model (glTF)** writes `Mods/Models/Export/<class>_oid<oid>[_g<group>[_r<metres>m]].glb`.
+4. In Blender: File > Import > glTF 2.0.
 
 - Each group the game showed is its own object (`glob_<n>`, the group's number), its parts with their textures and
   their blending (glass and glows blend; cut-outs use the alpha mask).
