@@ -2737,7 +2737,15 @@ WSBOX BoxWorldShadows(const glm::vec3& posCamera, const glm::vec3& dirCamera)
 // Why a whole object casts no level shadow (WSWHY_Casts: its groups are looked at one by one)
 WSWHY WsWhySet(const SCENEGLOBSET& sgs, const WSBOX& box)
 {
-    if (sgs.fActorTree) return WSWHY_Character;   // (the characters: their own shadows)
+    // (the characters: their own shadows. An actor's tree that has a character's groups, the FBA kinds: Sly, the gang,
+    // a guard, their canes and hats with them; not every actor's, the lanterns on their wires, the swinging signs and
+    // the other moving props are actors too, and cast)
+    if (sgs.fActorTree)
+    {
+        const GLOBSET& gs = *sgs.pglobset;
+        for (const GLOB& glob : gs.aglob)
+            if (FCharacterGlob(glob)) return WSWHY_Character;
+    }
     if (sgs.gAlpha < 0.5f) return WSWHY_Faded;
     // (an object wider than the sky's radius is looked at group by group, WsWhyGlob: the sky, but also a world whose
     // whole level is one object, Paris's, oid 1, about 43000 wide)
@@ -2751,26 +2759,22 @@ WSWHY WsWhySet(const SCENEGLOBSET& sgs, const WSBOX& box)
     return WSWHY_Casts;
 }
 
-// A group's sphere in its own space: its draw record's, else its sphere set's, else its vertices' (found once)
-glm::vec4 SphereOfGlob(const GLOB& glob, const GLOB& geom)
+// A group's sphere in the space its triangles are drawn from (the vertices' own, under its matrix): its vertices'
+// bounds, found once. The records' spheres (the draw record's, the sphere sets') are not in that space for the level's
+// own groups (they called groups beside the camera out of the box), so they are not used; no vertices: unknown.
+glm::vec4 SphereOfGlob(const GLOB& geom)
 {
-    if (glob.fDraw && glob.sRadius > 0.0f) return glm::vec4(glob.posCenter, glob.sRadius);
-    if (glob.fSphere && glob.sRadiusSphere > 0.0f) return glm::vec4(glob.posSphere, glob.sRadiusSphere);
-    if (geom.fDraw && geom.sRadius > 0.0f) return glm::vec4(geom.posCenter, geom.sRadius);
-    if (geom.fSphere && geom.sRadiusSphere > 0.0f) return glm::vec4(geom.posSphere, geom.sRadiusSphere);
-    static std::unordered_map<const GLOB*, glm::vec4> s_mpsphere;
-    if (s_mpsphere.size() > 200000) s_mpsphere.clear();   // (the old worlds' groups)
-    const auto it = s_mpsphere.find(&geom);
-    if (it != s_mpsphere.end()) return it->second;
-    glm::vec4 sphere(0.0f, 0.0f, 0.0f, -1.0f);   // (no vertices: unknown)
-    if (!geom.avtx.empty())
-    {
-        glm::vec3 lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
-        for (const VTXGLOB& v : geom.avtx) lo = glm::min(lo, v.pos), hi = glm::max(hi, v.pos);
-        sphere = glm::vec4((lo + hi) * 0.5f, glm::length(hi - lo) * 0.5f);
-    }
-    s_mpsphere[&geom] = sphere;
-    return sphere;
+    // (kept with the vertices it was found from: a later world's group at the same address finds its own)
+    struct SPHEREREC { glm::vec4 sphere; const VTXGLOB* pvtx; size_t cvtx; };
+    static std::unordered_map<const GLOB*, SPHEREREC> s_mpsphere;
+    if (geom.avtx.empty()) return glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+    if (s_mpsphere.size() > 200000) s_mpsphere.clear();
+    SPHEREREC& rec = s_mpsphere[&geom];
+    if (rec.pvtx == geom.avtx.data() && rec.cvtx == geom.avtx.size()) return rec.sphere;
+    glm::vec3 lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
+    for (const VTXGLOB& v : geom.avtx) lo = glm::min(lo, v.pos), hi = glm::max(hi, v.pos);
+    rec = {glm::vec4((lo + hi) * 0.5f, glm::length(hi - lo) * 0.5f), geom.avtx.data(), geom.avtx.size()};
+    return rec.sphere;
 }
 
 // Why a group casts no level shadow: a character's (the FBA kinds); and in an object too wide to be judged whole
@@ -2780,7 +2784,7 @@ WSWHY WsWhyGlob(const SCENEGLOBSET& sgs, const GLOB& glob, const GLOB& geom, con
 {
     if (FCharacterGlob(glob)) return WSWHY_Character;
     if (!sgs.fBounds || sgs.sBoundsRadius <= kcWsSkyRadius) return WSWHY_Casts;
-    const glm::vec4 sphere = SphereOfGlob(glob, geom);
+    const glm::vec4 sphere = SphereOfGlob(geom);
     if (sphere.w < 0.0f) return WSWHY_Casts;
     const float rScale = std::max({glm::length(glm::vec3(mat[0])), glm::length(glm::vec3(mat[1])), glm::length(glm::vec3(mat[2]))});
     const float r = sphere.w * rScale;
