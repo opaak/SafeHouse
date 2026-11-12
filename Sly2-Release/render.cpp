@@ -5776,12 +5776,11 @@ void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector
     if (apart.empty() || !g_gl.window) return;
     static GLSHADER s_shMask, s_shGlow;
     static int s_state = 0;
-    static GLuint s_tex = 0, s_fbo = 0, s_ssbo = 0;
+    static GLuint s_tex = 0, s_fbo = 0;
     static int s_dx = 0, s_dy = 0;
     if (s_state == 0)
     {
         s_state = s_shMask.FInit("smdepth.vert", "wsdebug.frag", "") && s_shGlow.FInit("shadowcombine.vert", "xrayglow.frag", "") ? 1 : -1;
-        if (s_state > 0) glGenBuffers(1, &s_ssbo);
         std::printf("glowing edges: %s\n", s_state > 0 ? "built" : "did not build: none drawn");
     }
     if (s_state < 0) return;
@@ -5818,41 +5817,28 @@ void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector
     // the draws, and the screen's rectangle they and their glow cover (the glow pass only there)
     struct XDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; float g; };
     static std::vector<XDRAW> s_ad;
-    static std::vector<glm::mat4> s_amatBone;
     s_ad.clear();
-    s_amatBone.clear();
     float x0 = float(dx), y0 = float(dy), x1 = 0.0f, y1 = 0.0f;
     for (const XRAYPART& part : apart)
     {
         const SCENEGLOBSET* psgs = part.psgs;
-        if (!psgs || !psgs->pglobset) continue;
-        const GLOBSET& gs = *psgs->pglobset;
+        if (!psgs || !psgs->pglobset || part.iglob >= psgs->pglobset->aglob.size()) continue;
+        const GLOB* pgeom = PglobGeometry(*psgs->pglobset, part.iglob);
+        if (!pgeom) continue;
         bool fAny = false;
-        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        for (const SUBGLOB& sub : pgeom->asubglob)
         {
-            if (i >= psgs->afVisible.size() || !psgs->afVisible[i] || i >= psgs->amatGlob.size()) continue;
-            const GLOB* pgeom = PglobGeometry(gs, i);
-            if (!pgeom) continue;
-            const GLGLOB* pgl = i < psgs->apglInst.size() && psgs->apglInst[i] && psgs->apglInst[i]->vao ? psgs->apglInst[i] : pgeom->pgl;
-            uint32_t iboneFirst = 0, cbone = 0;
-            if (i < psgs->aamatBone.size() && !psgs->aamatBone[i].empty())
-            {
-                iboneFirst = uint32_t(s_amatBone.size());
-                cbone = uint32_t(psgs->aamatBone[i].size());
-                s_amatBone.insert(s_amatBone.end(), psgs->aamatBone[i].begin(), psgs->aamatBone[i].end());
-            }
-            for (const SUBGLOB& sub : pgeom->asubglob)
-            {
-                const WSWHY why = WsWhySub(sub);
-                if (why == WSWHY_Empty || why == WSWHY_LightVolume || why == WSWHY_Ps2Shadow) continue;   // (its body; its glow too)
-                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &psgs->amatGlob[i], iboneFirst, cbone, part.g});
-                fAny = true;
-            }
+            const WSWHY why = WsWhySub(sub);
+            if (why == WSWHY_Empty || why == WSWHY_LightVolume || why == WSWHY_Ps2Shadow) continue;   // (its body; its glow too)
+            s_ad.push_back({pgeom->pgl->vao, pgeom->pgl->baseVertex, pgeom->pgl->firstIndex + sub.firstIndex, sub.indexCount, &part.mat, 0, 0, part.g});
+            fAny = true;
         }
         if (!fAny) continue;
         // its sphere on the screen (the whole screen when it reaches behind the camera)
-        const glm::vec3 c = psgs->fBounds ? psgs->posBounds : glm::vec3(psgs->amatGlob.empty() ? glm::vec4(0.0f) : psgs->amatGlob[0][3]);
-        const float r = psgs->fBounds ? psgs->sBoundsRadius : 200.0f;
+        const glm::vec4 sphere = SphereOfGlob(*pgeom);
+        const float rScale = std::max({glm::length(glm::vec3(part.mat[0])), glm::length(glm::vec3(part.mat[1])), glm::length(glm::vec3(part.mat[2]))});
+        const glm::vec3 c = glm::vec3(part.mat * glm::vec4(sphere.w >= 0.0f ? glm::vec3(sphere) : glm::vec3(0.0f), 1.0f));
+        const float r = sphere.w >= 0.0f ? sphere.w * rScale : 300.0f;
         const glm::vec4 pc = matWorldToClip * glm::vec4(c, 1.0f);
         if (pc.w <= r + 1.0f) { x0 = y0 = 0.0f; x1 = float(dx); y1 = float(dy); continue; }
         const glm::vec2 ps = (glm::vec2(pc) / pc.w * 0.5f + 0.5f) * glm::vec2(float(dx), float(dy));
@@ -5888,12 +5874,6 @@ void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector
     s_shMask.Use();
     glUniformMatrix4fv(s_shMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
     const GLint locModel = s_shMask.Loc("matModel"), locCBone = s_shMask.Loc("cbone"), locBoneFirst = s_shMask.Loc("iboneFirst"), locRgba = s_shMask.Loc("rgba");
-    GLint ssboPrev = 0;
-    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
-                 s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssbo);
     GLuint vaoCur = 0;
     for (const XDRAW& d : s_ad)
     {
@@ -5905,7 +5885,6 @@ void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector
         glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
         glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
     }
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
     // the glow, added over the frame (the alpha kept: the game's)
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_gl.FboScene());
     glViewport(0, 0, dx, dy);

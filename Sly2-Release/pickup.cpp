@@ -557,6 +557,16 @@ void AposCluesLeft(std::vector<glm::vec3>& apos)
     }
 }
 
+void AploCluesLeft(std::vector<LO*>& aplo)
+{
+    if (!g_psw) return;
+    for (const auto& [pproxy, n] : s_mpclue)
+    {
+        (void)n;
+        if (pproxy && !pproxy->fRemoved) aplo.push_back(const_cast<LO*>(pproxy));
+    }
+}
+
 int CollectAllCluesInWorld(SW* psw)
 {
     if (!psw) return 0;

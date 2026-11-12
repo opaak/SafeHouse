@@ -175,6 +175,23 @@ void AppendTree(const SCENE& scene, ALO* palo, bool fRoot, const glm::mat4& matR
 }
 }  // namespace
 
+bool FAppendProxyGroupDraws(const SCENE& scene, const LO* pproxy, std::vector<EXTRADRAW>& aextra)
+{
+    SW* psw = g_psw;
+    if (!psw || !pproxy) return false;
+    const auto it = psw->mpproxy.find(const_cast<LO*>(pproxy));
+    if (it == psw->mpproxy.end() || it->second.iwe < 0 || it->second.iwe >= static_cast<int>(psw->awe.size())) return false;
+    const TEMPLATE t = TemplateOf(psw, it->second.iwe);
+    if (!t.palo) return false;
+    bool fGlobs = false;
+    if (!FGhostableTree(t.palo, &fGlobs) || !fGlobs) return false;
+    const LOX* plox = static_cast<const LOX*>(pproxy);
+    const glm::mat4 matProxy = FStaticProxy(pproxy) ? plox->mat : plox->pxf ? plox->pxf->matWorld : plox->mat;
+    const size_t c = aextra.size();
+    AppendTree(scene, t.palo, true, matProxy * InverseAffineMatrix4(t.matPlace), 1e10f, aextra);
+    return aextra.size() > c;
+}
+
 bool FDrawDistanceGhostedInstance(const LO* plo)
 {
     if (!g_psw || FOff()) return false;

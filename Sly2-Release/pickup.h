@@ -30,6 +30,8 @@ int CollectAllCluesInWorld(SW* psw);
 // (PC, ancestors.h Treasure Sense) the clue bottles of the current world not collected yet: their places
 #include <vector>
 void AposCluesLeft(std::vector<glm::vec3>& apos);
+// (PC, ancestors.h Treasure Sense) the same bottles' proxies
+void AploCluesLeft(std::vector<LO*>& aplo);
 // orig: 0x001A58D0(p, 0, 0) (vt slot 10 with no parent: out of its parent, the root record unrotated / unscaled at its
 // world position, as the reference leaves it)
 void SetLoParentNoneRoot(LO* plo);

@@ -21,6 +21,10 @@ void CollectDrawDistanceGhosts(const SCENE& scene, std::vector<EXTRADRAW>& aextr
 // plo is an instance of a streaming group that the ghosts draw animated (the clue bottles): an inactive one is not
 // drawn frozen (activate.cpp NDrawDistanceRoot).
 bool FDrawDistanceGhostedInstance(const LO* plo);
+// (PC, ancestors.h Treasure Sense) A streaming proxy's group drawn at the proxy, whatever the draw distance and
+// whether an instance is placed there: one of the group's instances' tree (its live pose) as extra draws, rigid
+// groups only (the clue bottles). False when the proxy has no such group.
+bool FAppendProxyGroupDraws(const SCENE& scene, const LO* pproxy, std::vector<struct EXTRADRAW>& aextra);
 // Around UpdateSceneFromSw's placement (scenesw.cpp): the inactive drawn trees' records posed, then restored.
 void BeginDrawDistancePoses(const SW* psw, const std::vector<ALO*>& apalo);
 void EndDrawDistancePoses();
