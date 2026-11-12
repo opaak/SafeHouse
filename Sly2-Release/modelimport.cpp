@@ -3,12 +3,15 @@
 #include "modelimport.h"
 #include "disc.h"
 #include "glob.h"
+#include "shd.h"
+#include "texmod.h"
 #include "transition.h"
 #include "../platform/platform.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <nlohmann/json.hpp>
+#include <stb/stb_image.h>
 
 #include <algorithm>
 #include <cmath>
@@ -27,6 +30,15 @@ using json = nlohmann::json;
 
 namespace
 {
+// a material's picture as the game's texels (rows bottom-up, alpha in the PS2's 0..0x80) and their texture-mod name
+struct IMAGEIN
+{
+    int dx = 0, dy = 0;
+    std::shared_ptr<const std::vector<uint8_t>> pab;
+    std::string name;
+    bool fClampS = false, fClampT = false;
+    bool fPlain = false;   // a plain colour (no picture in the material)
+};
 // one mesh's triangles for a group: positions and normals in the group's own space, the UVs as the game's, a material
 struct PRIMIN
 {
@@ -34,7 +46,13 @@ struct PRIMIN
     std::vector<glm::vec2> auv;
     std::vector<uint32_t> aidx;
     int iglobSrc = -1, isubSrc = -1;   // the material's part (-1: the group's first)
+    std::shared_ptr<IMAGEIN> pimg;      // its picture (a texture, or a plain colour), null: none
 };
+// The textures and shaders made for the mods' own pictures: kept for the world (the renderer's caches key on them;
+// the texture cache is reset with each world load), freed when the world changes.
+std::vector<std::unique_ptr<BMP>> s_apbmpMade;
+std::vector<std::unique_ptr<SHD>> s_apshdMade;
+std::map<std::pair<const BMP*, const CLUT*>, std::string> s_mpnameTex;   // (the world's textures' mod names, found once)
 struct MODELMOD
 {
     std::string path;
@@ -214,6 +232,72 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
 
     // each mesh node: its group (its notes or name, a parent's, else the home group) and its triangles in that
     // group's own space (the node's place at the export, sly2_matrix, undone; without it the node as it is now)
+    // the materials' pictures (once each): the base colour texture's image, else a plain base colour
+    std::map<size_t, std::shared_ptr<IMAGEIN>> mpimgMat;
+    auto imageOfMaterial = [&](size_t imat) -> std::shared_ptr<IMAGEIN> {
+        if (const auto it = mpimgMat.find(imat); it != mpimgMat.end()) return it->second;
+        std::shared_ptr<IMAGEIN> pimg;
+        const json& mat = j["materials"][imat];
+        const json pbr = mat.value("pbrMetallicRoughness", json::object());
+        if (pbr.contains("baseColorTexture") && j.contains("textures"))
+        {
+            const size_t itex = pbr["baseColorTexture"].value("index", size_t(0));
+            if (itex < j["textures"].size() && j["textures"][itex].contains("source") && j.contains("images"))
+            {
+                const json& img = j["images"][j["textures"][itex]["source"].get<size_t>()];
+                std::vector<uint8_t> abFile;
+                if (img.contains("bufferView"))
+                {
+                    const json& bv = j["bufferViews"][img["bufferView"].get<size_t>()];
+                    const size_t ibuf = bv.value("buffer", size_t(0)), off = bv.value("byteOffset", size_t(0)), cb = bv["byteLength"].get<size_t>();
+                    if (ibuf < abuf.size() && off + cb <= abuf[ibuf].size()) abFile.assign(abuf[ibuf].begin() + std::ptrdiff_t(off), abuf[ibuf].begin() + std::ptrdiff_t(off + cb));
+                }
+                else if (img.contains("uri") && img["uri"].get<std::string>().rfind("data:", 0) != 0)
+                {
+                    std::ifstream ini(path.parent_path() / cane::path(img["uri"].get<std::string>()), std::ios::binary);
+                    abFile.assign((std::istreambuf_iterator<char>(ini)), std::istreambuf_iterator<char>());
+                }
+                int dx = 0, dy = 0, cn = 0;
+                if (stbi_uc* p = abFile.empty() ? nullptr : stbi_load_from_memory(abFile.data(), int(abFile.size()), &dx, &dy, &cn, 4))
+                {
+                    // (the export's PNG back to the game's texels: rows bottom-up, alpha halved)
+                    auto pab = std::make_shared<std::vector<uint8_t>>(size_t(dx) * dy * 4);
+                    for (int y = 0; y < dy; ++y)
+                        for (int x = 0; x < dx; ++x)
+                            for (int c = 0; c < 4; ++c)
+                            {
+                                const uint8_t v = p[(size_t(dy - 1 - y) * dx + x) * 4 + c];
+                                (*pab)[(size_t(y) * dx + x) * 4 + c] = c < 3 ? v : uint8_t(v == 255 ? 128 : (v + 1) / 2);
+                            }
+                    stbi_image_free(p);
+                    pimg = std::make_shared<IMAGEIN>();
+                    pimg->dx = dx, pimg->dy = dy, pimg->pab = pab;
+                    pimg->name = SzTextureModName(*pab, dx, dy);
+                    if (j["textures"][itex].contains("sampler") && j.contains("samplers"))
+                    {
+                        const json& smp = j["samplers"][j["textures"][itex]["sampler"].get<size_t>()];
+                        pimg->fClampS = smp.value("wrapS", 10497) == 33071;
+                        pimg->fClampT = smp.value("wrapT", 10497) == 33071;
+                    }
+                }
+            }
+        }
+        else if (pbr.contains("baseColorFactor"))
+        {
+            // a plain colour (a Blender material without a picture): one texel (glTF's linear colour to sRGB-ish)
+            const json& f = pbr["baseColorFactor"];
+            auto pab = std::make_shared<std::vector<uint8_t>>(4);
+            for (int c = 0; c < 3; ++c) (*pab)[size_t(c)] = uint8_t(std::clamp(std::pow(f[size_t(c)].get<double>(), 1.0 / 2.2), 0.0, 1.0) * 255.0 + 0.5);
+            (*pab)[3] = uint8_t(std::clamp(f[3].get<double>(), 0.0, 1.0) * 128.0 + 0.5);
+            pimg = std::make_shared<IMAGEIN>();
+            pimg->dx = pimg->dy = 1, pimg->pab = pab;
+            pimg->name = SzTextureModName(*pab, 1, 1);
+            pimg->fPlain = true;
+        }
+        mpimgMat[imat] = pimg;
+        return pimg;
+    };
+
     bool fNotes = false;
     for (size_t k = 0; k < anode.size(); ++k)
     {
@@ -280,6 +364,7 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
             pi.aidx = std::move(aidx);
             if (prim.contains("material"))
             {
+                pi.pimg = imageOfMaterial(prim["material"].get<size_t>());
                 const json& mat = j["materials"][prim["material"].get<size_t>()];
                 std::smatch mm;
                 const std::string nameMat = mat.value("name", "");
@@ -302,6 +387,13 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
 void ReadModelMods()
 {
     s_amod.clear();
+    if (s_iwrecRead != g_transition.iwrecCur)
+    {
+        // (another world: its textures and shaders are no one's any more; the same world's stay, its groups may use them)
+        s_apbmpMade.clear();
+        s_apshdMade.clear();
+        s_mpnameTex.clear();
+    }
     s_iwrecRead = g_transition.iwrecCur;
     if (g_disc.DirMods().empty()) return;
     const fs::path dir = cane::path(g_disc.DirMods()) / "Models";
@@ -330,6 +422,26 @@ const GLOB* PglobGeom(const GLOBSET& gs, int i)
     const GLOB& g = gs.aglob[size_t(i)];
     if (g.avtx.empty() && g.iglobTemplate >= 0 && size_t(g.iglobTemplate) < gs.aglob.size()) return &gs.aglob[size_t(g.iglobTemplate)];
     return &g;
+}
+
+// a part's texture's mod name as shown (its first textured pass, the animation's frame): "" untextured
+std::string StrTextureNameOfShd(const SHD* pshd, const SAA* psaa)
+{
+    if (!pshd) return std::string();
+    for (const SHDPASS& ps : pshd->apass)
+    {
+        if (!ps.fTextured) continue;
+        const TEXSEL sel = TexselFromShd(pshd, psaa ? psaa->iframe : 0, ps.itexPass);
+        if (!sel.pbmp) return std::string();
+        const auto key = std::make_pair(static_cast<const BMP*>(sel.pbmp), static_cast<const CLUT*>(sel.pclut));
+        if (const auto it = s_mpnameTex.find(key); it != s_mpnameTex.end()) return it->second;
+        std::vector<uint8_t> rgba;
+        std::string err;
+        std::string name = FDecodeTexture(sel.pbmp, sel.pclut, rgba, err) ? SzTextureModName(rgba, sel.pbmp->dx, sel.pbmp->dy) : std::string();
+        s_mpnameTex[key] = name;
+        return name;
+    }
+    return std::string();
 }
 
 glm::vec4 SphereOfVerts(const std::vector<VTXGLOB>& av)
@@ -375,7 +487,10 @@ void ApplyModelMods(GLOBSET& gs, int oid)
         for (int i = 0; i < int(gs.aglob.size()); ++i)
             if (const GLOB* pg = PglobGeom(gs, i))
                 for (int s = 0; s < int(pg->asubglob.size()); ++s) mpsubSrc[{i, s}] = pg->asubglob[size_t(s)];
-        int cRepl = 0, cGone = 0, cKept = 0, cCel = 0;
+        int cRepl = 0, cGone = 0, cKept = 0, cCel = 0, cTex = 0;
+        // (each picture made once, and each picture's shader once per source shader)
+        std::map<const IMAGEIN*, BMP*> mpbmp;
+        std::map<std::pair<const IMAGEIN*, const SHD*>, SHD*> mpshd;
         std::vector<glm::vec4> asphereOld;
         for (int iglob : mod.aiglobExported)
         {
@@ -402,6 +517,51 @@ void ApplyModelMods(GLOBSET& gs, int oid)
                     else if (!avtxOld.empty() && mpsubSrc.count({iglob, 0})) sub = mpsubSrc[{iglob, 0}];
                     sub.pgpu = nullptr;
                     sub.grf &= ~0x20u;   // (no colours from the index table: the vertices' own)
+                    // (a part's own material as exported, untextured: Blender gives it a plain colour; the part kept)
+                    const bool fOwnPlain = pi.pimg && pi.pimg->fPlain && its != mpsubSrc.end();
+                    if (pi.pimg && pi.pimg->pab && !fOwnPlain && pi.pimg->name != StrTextureNameOfShd(sub.pshd, sub.psaa))
+                    {
+                        // a picture of its own (not the part's texture as exported): its texture (32-bit texels, as the
+                        // game's own PSMCT32), and the part's shader copied with it as its only frame (no animation)
+                        BMP*& pbmpMade = mpbmp[pi.pimg.get()];
+                        if (!pbmpMade)
+                        {
+                            auto pbmp = std::make_unique<BMP>();
+                            pbmp->dx = uint16_t(pi.pimg->dx), pbmp->dy = uint16_t(pi.pimg->dy);
+                            pbmp->psm = 0;
+                            pbmp->cb = uint32_t(pi.pimg->pab->size());
+                            pbmp->pab = pi.pimg->pab;
+                            pbmpMade = pbmp.get();
+                            s_apbmpMade.push_back(std::move(pbmp));
+                        }
+                        SHD*& pshdMade = mpshd[{pi.pimg.get(), sub.pshd}];
+                        if (pshdMade)
+                        {
+                            sub.pshd = pshdMade;
+                            sub.psaa = nullptr;
+                            ++cTex;
+                        }
+                        else
+                        {
+                        auto pshd = std::make_unique<SHD>(sub.pshd ? *sub.pshd : SHD{});
+                        if (pshd->apass.empty()) pshd->apass.push_back(SHDPASS{});
+                        bool fTextured = false;
+                        for (const SHDPASS& ps : pshd->apass) fTextured = fTextured || ps.fTextured;
+                        if (!fTextured) pshd->apass[0].fTextured = true, pshd->apass[0].itexPass = 0;
+                        TEX tex;
+                        tex.grftex = uint16_t((pi.pimg->fClampS ? 1 : 0) | (pi.pimg->fClampT ? 2 : 0));
+                        tex.pshd = pshd.get();
+                        tex.apbmp.push_back(pbmpMade);
+                        pshd->atex.assign(1, tex);
+                        pshd->cframe = 1;
+                        pshd->psaa = nullptr;
+                        sub.pshd = pshd.get();
+                        sub.psaa = nullptr;
+                        pshdMade = pshd.get();
+                        s_apshdMade.push_back(std::move(pshd));
+                        ++cTex;
+                        }
+                    }
                     sub.ivtxFirst = uint32_t(avtx.size());
                     sub.cvtx = uint32_t(pi.apos.size());
                     sub.firstIndex = uint32_t(aindex.size());
@@ -465,7 +625,7 @@ void ApplyModelMods(GLOBSET& gs, int oid)
                     break;
                 }
         }
-        std::printf("model mod: object %d: %d groups replaced, %d gone, %d left as they were (skinned, instanced, warped), %d cel borders gone\n", oid, cRepl,
-                    cGone, cKept, cCel);
+        std::printf("model mod: object %d: %d groups replaced, %d gone, %d left as they were (skinned, instanced, warped), %d cel borders gone, "
+                    "%d parts with their own pictures\n", oid, cRepl, cGone, cKept, cCel, cTex);
     }
 }

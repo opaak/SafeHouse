@@ -163,8 +163,11 @@ The game can write any object's model out for Blender, and take the edited file 
   not in the file is left as it was.
 - Any other mesh object joins the group the crosshair was on at the export, where it stands in Blender.
 - A mesh keeps the look of the part its material is named after (`sly2_g<n>_s<m>`: its texture, blending and
-  animation). A mesh with another material takes its group's first part's look. To change a texture, use
-  `Mods/Textures` (the texture picker names it).
+  animation). A mesh with another material takes its group's first part's look.
+- **Pictures of your own:** give the material a Base Color image (any size; transparency comes from its alpha) and
+  the mesh draws with it, in the named part's way of drawing (its blending), without that part's animation. A material
+  with no image but a Base Color takes that plain colour. A part whose image is still the exported one stays as it
+  was (and keeps its animation). To change a texture everywhere it is used, `Mods/Textures` still does that.
 - The light (the vertex colours) comes from the nearest original vertex, so the model sits in the level's light.
 - Without the custom properties the names still work, but a moved `glob_<n>` object counts as not moved (apply its
   transform with Ctrl+A first) and a deleted one stays.
