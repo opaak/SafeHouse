@@ -33,7 +33,7 @@ alone. Back up your saves before experimenting.
 | **Jobs** | **Complete Current Job [save]** (as F9), or **start** one of this world's jobs the way the game does. |
 | **Player** | Infinite health and power (F7), a refill, unlock all gadgets / 9999 coins / all characters (F6) **[save]**, Save Game Now (F5) **[save]**. |
 | **Speed** | The game's speed, from 0.1x to 2x. |
-| **Display** | Hide the HUD (F11), a performance line (frame rate, world, position), the free camera (F1), and **Graphics...**: the PC's looks changed live (cross steps each on: ambient occlusion, shadow edges, character shadows, level shadows and this episode's own, outlines, bloom, colour grade, vignette), character smoothing and its strength for the next start, and **Save to the launcher's settings**. |
+| **Display** | Hide the HUD (F11), a performance line (frame rate, world, position), the free camera (F1), and **Graphics...**: the PC's looks changed live (cross steps each on: ambient occlusion, shadow edges, character shadows, level shadows and this episode's own, outlines, bloom, colour grade, vignette), character smoothing and its strength for the next start, and **Save to the launcher's settings**. **Shadow casters (debug)** colours what the level's shadows are cast by (green: casts; red: left out; blue: characters, which have their own shadows; orange: a part left out, a glow or a light's volume) and shows the group under the crosshair at the centre of the picture: its class, oid, group, render kind and why it casts or not. With the free camera it can be aimed anywhere. |
 | **Reset World** | Reloads the current world at its entrance. |
 
 ## Noclip

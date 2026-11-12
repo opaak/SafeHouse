@@ -92,6 +92,9 @@ struct DISPLAY
     // aWorldShadowsEpisode: per episode (0 the prologue .. 8) its own strength in place of worldShadows (-1: worldShadows).
     int worldShadows = 0;
     int aWorldShadowsEpisode[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    // (PC debug menu only, not saved) the level shadows' casters coloured over the picture, with a picker at its
+    // centre (render.h WSWHY / WSPICK): 0 off, 1 on.
+    int shadowOverlay = 0;
     // PC character smoothing (settings v24 smoothChars / smoothStrength, the launcher's "Character smoothing"; over them
     // --smooth-chars / SLY2N_SMOOTH, --smooth-strength / SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel

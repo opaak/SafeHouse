@@ -92,6 +92,30 @@ struct GHOSTPART
 // level's shadows are on; 0 when not built (render.cpp FBuildCharacterMask).
 unsigned TexCharacterMaskFrame();
 
+// (PC debug: the debug menu's Display > Graphics > "Shadow casters") The level's shadows' casters coloured over the
+// picture, each group as DrawWorldShadows sorts it (green: casts; red: left out; blue: a character, its own shadows;
+// orange: a part left out, a glow or a light's volume), and the group under the centre of the picture picked
+// (g_display.shadowOverlay; OpenGL on Windows and Linux only).
+enum WSWHY : int
+{
+    WSWHY_Casts, WSWHY_Character, WSWHY_Faded, WSWHY_Sky, WSWHY_Out, WSWHY_NotMesh,
+    WSWHY_Empty, WSWHY_LightVolume, WSWHY_Ps2Shadow, WSWHY_Glow,
+};
+const char* PchzWsWhy(int why);
+struct WSPICK
+{
+    bool fValid = false;      // a group under the crosshair
+    int oid = -1;             // its object (SCENEGLOBSET oid: -1 unknown)
+    size_t ib = 0;            // its glob set's place in the stream (told apart when the oid is not known)
+    int iglob = 0, cglob = 0; // the group, of the set's
+    int why = WSWHY_Casts;    // the object's or the group's reason (WSWHY_Casts: the group casts)
+    int csubCast = 0, csubLeft = 0, whySub = WSWHY_Casts;   // its parts: casting, left out (and the first one's reason)
+    int kind = 0;             // its render kind (rp & 0x1F)
+    float sRadius = 0.0f;     // the object's bounding radius (0: none known)
+    bool fSkinned = false;
+};
+const WSPICK& WspickCur();
+
 struct GHOSTDRAW
 {
     const std::vector<GHOSTPART>* papart = nullptr;

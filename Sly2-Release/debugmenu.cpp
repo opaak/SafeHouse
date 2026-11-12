@@ -804,6 +804,7 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 cycle("Level shadows here (" + StrEpisodeName(iep) + ")", &g_display.aWorldShadowsEpisode[iep], {-1, 0, 30, 60, 100},
                       {"Global", "Off", "30%", "60%", "100%"});
         }
+        cycle("Shadow casters (debug)", &g_display.shadowOverlay, {0, 1}, {"Off", "Shown"});
         cycle("Outlines", &g_display.outlines, {0, 1, 2}, {"Original", "Silhouettes", "Creases"});
         cycle("Bloom", &g_display.bloom, {0, 25, 50, 100}, {"Off", "25%", "50%", "100%"});
         cycle("Colour grade", &g_display.colorGrade, {0, 1, 2}, {"Original", "Vivid", "LUT"});
@@ -845,6 +846,60 @@ void DrawLine(const FONTBRX& font, const FONTBRX* picons, const std::string& tex
 float DxLine(const FONTBRX& font, const FONTBRX* picons, const std::string& text, float size)
 {
     return DxTextUi(font, picons, text, size / 51.2f);
+}
+
+// (PC debug) the shadow casters' overlay (display.h shadowOverlay; render.h WSPICK): a crosshair at the centre of the
+// picture, the colours' key and the group under the crosshair, at the picture's bottom left.
+void DrawShadowCasterInfo(const FONTBRX& font, const FONTBRX* picons)
+{
+    const float xL = XCanvasPictureLeft(), xR = XCanvasPictureRight();
+    const float xC = 0.5f * (xL + xR), yC = ((-g_display.uiOffset.y) / g_display.uiScale.y + 1.0f) * 224.0f;
+    const float z = DEPTH / 16777216.0f - 1e-4f;
+    const WSPICK& pick = WspickCur();
+    const glm::vec4 rgbaCross = pick.fValid ? glm::vec4(255, 255, 90, 128) : glm::vec4(220, 220, 220, 110);
+    g_hud.FillScreenRect(xC - 9.0f, yC - 0.75f, xC - 3.0f, yC + 0.75f, rgbaCross, z);
+    g_hud.FillScreenRect(xC + 3.0f, yC - 0.75f, xC + 9.0f, yC + 0.75f, rgbaCross, z);
+    g_hud.FillScreenRect(xC - 0.75f, yC - 9.0f, xC + 0.75f, yC - 3.0f, rgbaCross, z);
+    g_hud.FillScreenRect(xC - 0.75f, yC + 3.0f, xC + 0.75f, yC + 9.0f, rgbaCross, z);
+
+    std::vector<std::pair<std::string, glm::vec4>> alines;
+    const glm::vec4 offKey(90, 90, 90, 0), offInfo(100, 100, 100, 0), offYes(30, 110, 40, 0), offNo(128, 40, 30, 0), offChar(40, 70, 128, 0);
+    alines.push_back({"Shadow casters:  green casts   red left out   blue characters   orange parts left out", offKey});
+    if (!pick.fValid) alines.push_back({"(nothing under the crosshair)", offInfo});
+    else
+    {
+        std::string strName = "object";
+        if (LO* plo = s_psw && pick.oid >= 0 ? PloFindSwObjectByOid(s_psw, OID(pick.oid)) : nullptr) strName = StrClassName(plo->Cid());
+        char ach[256];
+        std::snprintf(ach, sizeof ach, "%s  oid %d  group %d / %d  kind %d%s", strName.c_str(), pick.oid, pick.iglob, pick.cglob, pick.kind,
+                      pick.fSkinned ? "  skinned" : "");
+        std::string strInfo = ach;
+        if (pick.sRadius > 0.0f)
+        {
+            std::snprintf(ach, sizeof ach, "  radius %.0f", pick.sRadius);
+            strInfo += ach;
+        }
+        if (pick.oid < 0)
+        {
+            std::snprintf(ach, sizeof ach, "  (stream %zu)", pick.ib);
+            strInfo += ach;
+        }
+        alines.push_back({strInfo, offInfo});
+        if (pick.why == WSWHY_Casts && pick.csubLeft == 0)
+            std::snprintf(ach, sizeof ach, "Level shadow: yes (%d part%s)", pick.csubCast, pick.csubCast == 1 ? "" : "s");
+        else if (pick.why == WSWHY_Casts)
+            std::snprintf(ach, sizeof ach, "Level shadow: yes, %d of %d parts (left out: %s)", pick.csubCast, pick.csubCast + pick.csubLeft, PchzWsWhy(pick.whySub));
+        else
+            std::snprintf(ach, sizeof ach, "Level shadow: no - %s", PchzWsWhy(pick.why));
+        alines.push_back({ach, pick.why == WSWHY_Casts ? offYes : pick.why == WSWHY_Character ? offChar : offNo});
+    }
+    const float size = 14.0f, dyLine = 17.0f;
+    float w = 0.0f;
+    for (const auto& l : alines) w = std::max(w, DxLine(font, picons, l.first, size));
+    const float x0 = std::max(xL, -1000.0f) + 14.0f;
+    const float y0 = 412.0f - dyLine * float(alines.size());
+    g_hud.FillScreenRect(x0, y0 - 4.0f, x0 + w + 20.0f, y0 + dyLine * float(alines.size()) + 2.0f, glm::vec4(0, 0, 0, 80), z);
+    for (size_t i = 0; i < alines.size(); ++i) DrawLine(font, picons, alines[i].first, x0 + 10.0f, y0 + dyLine * float(i), size, alines[i].second);
 }
 
 void DrawPerf(const FONTBRX& font, const FONTBRX* picons)
@@ -1100,6 +1155,7 @@ void DrawDebugMenu()
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
     if (s_fPerf) DrawPerf(*pfont, picons);
+    if (g_display.shadowOverlay > 0) DrawShadowCasterInfo(*pfont, picons);
     if (!s_fOpen || s_apage.empty()) return;
     const PAGE& page = s_apage.back();
     std::string strTitle;
@@ -1170,7 +1226,7 @@ void DrawDebugOverlay(int width, int height)
 {
     // (PC Extras: Carmelita's aim mode crosshair, pccharacter.h)
     const bool fCross = g_pcinput.fDebugKeys && FPcCarmCrosshair();
-    if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross)) return;
+    if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0)) return;
     g_hud.Begin();
     if (fCross) DrawPcCarmCrosshair();
     DrawDebugMenu();

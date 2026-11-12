@@ -2297,6 +2297,7 @@ void DrawShadowMaps(const glm::mat4& matWorldToClip)
 // into render targets or over the HUD, faded-out objects and the sky (anything wider than kcWsSkyRadius).
 constexpr int kcWsMap = 4096;
 constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000.0f;
+struct WSBOX { glm::vec3 L{0.0f, 0.0f, -1.0f}, cWorld{0.0f}; glm::mat4 matLight{1.0f}; float texel = 1.0f; };
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
 GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
@@ -2515,6 +2516,63 @@ glm::vec3 DirWorldShadowLight()
     return s_dir;
 }
 
+// The box the level's shadows are drawn in: round the point ahead of the camera, its centre snapped to the map's texels
+// in the light's frame (no shimmer as the camera moves).
+WSBOX BoxWorldShadows(const glm::vec3& posCamera, const glm::vec3& dirCamera)
+{
+    WSBOX box;
+    box.L = DirWorldShadowLight();
+    const glm::vec3 L = box.L;
+    const glm::vec3 up = std::fabs(L.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+    const glm::mat4 matRot = glm::lookAt(glm::vec3(0.0f), L, up);
+    const glm::vec3 posFocus = posCamera + glm::normalize(glm::vec3(dirCamera.x, dirCamera.y, 0.0f) + glm::vec3(1e-4f, 0.0f, 0.0f)) * (kcWsRadius * 0.45f);
+    glm::vec3 c = glm::vec3(matRot * glm::vec4(posFocus, 1.0f));
+    box.texel = 2.0f * kcWsRadius / float(kcWsMap);
+    c.x = std::floor(c.x / box.texel) * box.texel;
+    c.y = std::floor(c.y / box.texel) * box.texel;
+    const glm::mat4 matView = glm::translate(glm::mat4(1.0f), glm::vec3(-c.x, -c.y, -c.z - kcWsDepth * 0.5f)) * matRot;
+    box.matLight = glm::orthoRH_ZO(-kcWsRadius, kcWsRadius, -kcWsRadius, kcWsRadius, 1.0f, kcWsDepth) * matView;
+    box.cWorld = glm::vec3(glm::inverse(matRot) * glm::vec4(c, 1.0f));
+    return box;
+}
+
+// Why a whole object casts no level shadow (WSWHY_Casts: its groups are looked at one by one)
+WSWHY WsWhySet(const SCENEGLOBSET& sgs, const WSBOX& box)
+{
+    if (sgs.fActorTree) return WSWHY_Character;   // (the characters: their own shadows)
+    if (sgs.gAlpha < 0.5f) return WSWHY_Faded;
+    if (sgs.fBounds)
+    {
+        if (sgs.sBoundsRadius > kcWsSkyRadius) return WSWHY_Sky;
+        // (out of the box across the light: no shadow in it)
+        const glm::vec3 d = sgs.posBounds - box.cWorld;
+        const glm::vec3 dAcross = d - box.L * glm::dot(d, box.L);
+        if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) return WSWHY_Out;
+    }
+    return WSWHY_Casts;
+}
+
+// A group's triangles (an instance's are its template's), null when it has none to draw (not strips)
+const GLOB* PglobGeometry(const GLOBSET& gs, size_t i)
+{
+    const GLOB& glob = gs.aglob[i];
+    const GLOB* pgeom = &glob;
+    if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
+    return pgeom->meshk == MESHK_Strips && pgeom->pgl ? pgeom : nullptr;
+}
+
+// Why a part of a group casts no level shadow: no shader or triangles, the volumes of light (kind 3), the PS2's own
+// shadow shapes (kind 2), the additive glows
+WSWHY WsWhySub(const SUBGLOB& sub)
+{
+    if (!sub.pshd || sub.indexCount == 0 || sub.pshd->apass.empty()) return WSWHY_Empty;
+    if (sub.pshd->shdk == 3) return WSWHY_LightVolume;
+    if (sub.pshd->shdk == 2) return WSWHY_Ps2Shadow;
+    const SHDPASS& ps = sub.pshd->apass[0];
+    if (ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1) return WSWHY_Glow;
+    return WSWHY_Casts;
+}
+
 // The level's shadows' strength (0..100) in the current episode: its own setting, else the global one.
 int NWorldShadowsNow()
 {
@@ -2527,18 +2585,10 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
                       GLuint fbo, int dx, int dy)
 {
     if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy)) return;
-    const glm::vec3 L = DirWorldShadowLight();
-    // the box: round the point ahead of the camera, its centre snapped to the map's texels in the light's frame
-    const glm::vec3 up = std::fabs(L.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-    const glm::mat4 matRot = glm::lookAt(glm::vec3(0.0f), L, up);
-    const glm::vec3 posFocus = posCamera + glm::normalize(glm::vec3(dirCamera.x, dirCamera.y, 0.0f) + glm::vec3(1e-4f, 0.0f, 0.0f)) * (kcWsRadius * 0.45f);
-    glm::vec3 c = glm::vec3(matRot * glm::vec4(posFocus, 1.0f));
-    const float texel = 2.0f * kcWsRadius / float(kcWsMap);
-    c.x = std::floor(c.x / texel) * texel;
-    c.y = std::floor(c.y / texel) * texel;
-    const glm::mat4 matView = glm::translate(glm::mat4(1.0f), glm::vec3(-c.x, -c.y, -c.z - kcWsDepth * 0.5f)) * matRot;
-    const glm::mat4 matLight = glm::orthoRH_ZO(-kcWsRadius, kcWsRadius, -kcWsRadius, kcWsRadius, 1.0f, kcWsDepth) * matView;
-    const glm::vec3 cWorld = glm::vec3(glm::inverse(matRot) * glm::vec4(c, 1.0f));
+    const WSBOX box = BoxWorldShadows(posCamera, dirCamera);
+    const glm::vec3 L = box.L;
+    const glm::mat4& matLight = box.matLight;
+    const float texel = box.texel;
 
     struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; };
     static std::vector<WSDRAW> s_ad;
@@ -2550,15 +2600,13 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     for (const SCENEGLOBSET& sgs : scene.aglobset)
     {
         if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
-        if (sgs.fActorTree) { ++cActor; continue; }   // (the characters: their own shadows)
-        if (sgs.gAlpha < 0.5f) { ++cFaded; continue; }
-        if (sgs.fBounds)
+        switch (WsWhySet(sgs, box))
         {
-            if (sgs.sBoundsRadius > kcWsSkyRadius) { ++cSky; continue; }
-            // (out of the box across the light: no shadow in it)
-            const glm::vec3 d = sgs.posBounds - cWorld;
-            const glm::vec3 dAcross = d - L * glm::dot(d, L);
-            if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) { ++cOut; continue; }
+        case WSWHY_Character: ++cActor; continue;
+        case WSWHY_Faded: ++cFaded; continue;
+        case WSWHY_Sky: ++cSky; continue;
+        case WSWHY_Out: ++cOut; continue;
+        default: break;
         }
         const GLOBSET& gs = *sgs.pglobset;
         for (size_t i = 0; i < gs.aglob.size(); ++i)
@@ -2566,9 +2614,8 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
             if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
             const GLOB& glob = gs.aglob[i];
             if (FCharacterGlob(glob)) { ++cActor; continue; }   // (the characters' groups: their own shadows)
-            const GLOB* pgeom = &glob;
-            if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
-            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) { ++cNotStrips; continue; }
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) { ++cNotStrips; continue; }
             const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
             // (skinned props, an awning's or a sign's, with their bones; the characters were left out above)
             uint32_t iboneFirst = 0, cbone = 0;
@@ -2580,10 +2627,7 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
             }
             for (const SUBGLOB& sub : pgeom->asubglob)
             {
-                // (not the volumes of light, kind 3, nor the PS2's own shadow shapes, kind 2)
-                if (!sub.pshd || sub.indexCount == 0 || sub.pshd->shdk == 3 || sub.pshd->shdk == 2 || sub.pshd->apass.empty()) continue;
-                const SHDPASS& ps = sub.pshd->apass[0];
-                if (ps.fBlend && ((ps.alpha >> 2) & 3) == 2 && ((ps.alpha >> 6) & 3) == 1) continue;   // (glows)
+                if (WsWhySub(sub) != WSWHY_Casts) continue;
                 s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone});
             }
         }
@@ -2677,6 +2721,210 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBindTexture(GL_TEXTURE_2D, GLuint(texUnit5));
     glBindSampler(5, GLuint(samplerUnit5));
     glActiveTexture(GL_TEXTURE0);
+}
+
+// ------------------------------------------------------------ PC debug: the level shadows' casters shown
+// Every group the frame drew (not into render targets, not over the HUD) drawn again over the picture in a colour
+// that tells how DrawWorldShadows sorts it, where it is the frame's surface (GEQUAL against the frame's depth, a little
+// nearer: as the Shadow Cloak's silhouette); the group under the centre of the picture drawn brighter. The picker: the
+// same groups, numbered, into an RGBA8 target against a copy of the frame's depth, only its centre pixel (a scissor),
+// read back at once (a stall of one pixel, the debug overlay only).
+GLSHADER s_shWsDebug;
+int s_stateWsDebug = 0;   // 0 not yet, 1 built, -1 failed
+GLuint s_fboPick = 0, s_texPick = 0, s_ssboWsDebug = 0, s_texDSPick = 0;
+int s_dxPick = 0, s_dyPick = 0;
+WSPICK s_wspick;
+
+bool FEnsureWsDebug(int dx, int dy)
+{
+    if (s_stateWsDebug == 0)
+    {
+        s_stateWsDebug = -1;
+        if (s_shWsDebug.FInit("smdepth.vert", "wsdebug.frag", "")) s_stateWsDebug = 1, glGenBuffers(1, &s_ssboWsDebug);
+        std::printf("shadow casters overlay: %s\n", s_stateWsDebug > 0 ? "built" : "did not build");
+    }
+    if (s_stateWsDebug < 0 || !FEnsureDsCopy(dx, dy)) return false;
+    if (s_fboPick && dx == s_dxPick && dy == s_dyPick && s_texDSPick == s_texShDS) return true;
+    if (s_fboPick) glDeleteFramebuffers(1, &s_fboPick), s_fboPick = 0;
+    if (s_texPick) glDeleteTextures(1, &s_texPick), s_texPick = 0;
+    GLint activePrev = 0, texPrev = 0, fboPrev = 0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
+    glActiveTexture(GL_TEXTURE5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+    glGenTextures(1, &s_texPick);
+    glBindTexture(GL_TEXTURE_2D, s_texPick);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, dx, dy);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+    glActiveTexture(GLenum(activePrev));
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+    glGenFramebuffers(1, &s_fboPick);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboPick);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texPick, 0);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s_texShDS, 0);
+    const GLenum buf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &buf);
+    const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+    if (!fOk)
+    {
+        std::printf("shadow casters overlay: the picker's framebuffer is not usable here\n");
+        s_stateWsDebug = -1;
+        return false;
+    }
+    s_dxPick = dx;
+    s_dyPick = dy;
+    s_texDSPick = s_texShDS;
+    return true;
+}
+
+void DrawShadowCasterOverlay(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
+                             GLuint fbo, int dx, int dy)
+{
+    s_wspick = WSPICK{};
+    if (!FEnsureWsDebug(dx, dy)) return;
+    const WSBOX box = BoxWorldShadows(posCamera, dirCamera);
+    struct DBGDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; int why; uint32_t ipick; };
+    static std::vector<DBGDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBoneDbg;
+    static std::vector<WSPICK> s_apick;
+    s_ad.clear();
+    s_amatBoneDbg.clear();
+    s_apick.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
+        const WSWHY whySet = WsWhySet(sgs, box);
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
+            const GLOB& glob = gs.aglob[i];
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) continue;   // (nothing to show)
+            WSPICK pick;
+            pick.fValid = true;
+            pick.oid = sgs.oid;
+            pick.ib = sgs.ib;
+            pick.iglob = int(i);
+            pick.cglob = int(gs.aglob.size());
+            pick.kind = glob.rp & 0x1F;
+            pick.sRadius = sgs.fBounds ? sgs.sBoundsRadius : 0.0f;
+            pick.why = whySet != WSWHY_Casts ? whySet : FCharacterGlob(glob) ? WSWHY_Character : WSWHY_Casts;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBoneDbg.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBoneDbg.insert(s_amatBoneDbg.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+                pick.fSkinned = true;
+            }
+            const uint32_t ipick = uint32_t(s_apick.size());
+            for (const SUBGLOB& sub : pgeom->asubglob)
+            {
+                if (!sub.indexCount) continue;
+                const WSWHY whySub = WsWhySub(sub);
+                if (whySub == WSWHY_Casts) ++pick.csubCast;
+                else
+                {
+                    if (pick.csubLeft++ == 0) pick.whySub = whySub;
+                    if (whySub == WSWHY_Empty) continue;   // (no shader: not drawn by the frame either)
+                }
+                const int why = pick.why != WSWHY_Casts ? pick.why : whySub;
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone, why, ipick});
+            }
+            if (pick.why == WSWHY_Casts && pick.csubCast == 0) pick.why = pick.whySub;   // (all its parts left out)
+            s_apick.push_back(pick);
+        }
+    }
+
+    SMSAVE save;
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_GEQUAL);   // (reversed Z: where the group is the frame's surface)
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.0f, 64.0f);
+    s_shWsDebug.Use();
+    glUniformMatrix4fv(s_shWsDebug.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+    const GLint locModel = s_shWsDebug.Loc("matModel"), locCBone = s_shWsDebug.Loc("cbone"), locBoneFirst = s_shWsDebug.Loc("iboneFirst"),
+                locRgba = s_shWsDebug.Loc("rgba");
+    GLint ssboPrev = 0;
+    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboWsDebug);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBoneDbg.size()) * sizeof(glm::mat4)),
+                 s_amatBoneDbg.empty() ? nullptr : s_amatBoneDbg.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboWsDebug);
+    auto draw = [&](const DBGDRAW& d, GLuint& vaoCur) {
+        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        glUniform1i(locCBone, GLint(d.cbone));
+        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+    };
+
+    // the picker: the centre pixel's group (its number + 1 in the colour; 0 none)
+    int ipickHit = -1;
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboPick);
+        glViewport(0, 0, dx, dy);
+        const int xC = dx / 2, yC = dy / 2;
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(xC, yC, 1, 1);
+        glDisable(GL_BLEND);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        GLuint vaoCur = 0;
+        for (const DBGDRAW& d : s_ad)
+        {
+            const uint32_t n = d.ipick + 1;
+            glUniform4f(locRgba, float(n & 0xFF) / 255.0f, float((n >> 8) & 0xFF) / 255.0f, float((n >> 16) & 0xFF) / 255.0f, 1.0f);
+            draw(d, vaoCur);
+        }
+        uint8_t ab[4] = {};
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, s_fboPick);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(xC, yC, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ab);
+        const uint32_t n = uint32_t(ab[0]) | (uint32_t(ab[1]) << 8) | (uint32_t(ab[2]) << 16);
+        if (n > 0 && n <= s_apick.size()) ipickHit = int(n - 1), s_wspick = s_apick[n - 1];
+        glDisable(GL_SCISSOR_TEST);
+    }
+
+    // the colours over the frame
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, dx, dy);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);   // (the alpha kept)
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    static uint32_t s_cframePulse = 0;
+    const float tPulse = 0.5f + 0.5f * std::sin(float(++s_cframePulse) * 0.2f);
+    GLuint vaoCur = 0;
+    for (const DBGDRAW& d : s_ad)
+    {
+        glm::vec4 rgba;
+        switch (d.why)
+        {
+        case WSWHY_Casts: rgba = glm::vec4(0.15f, 0.95f, 0.25f, 0.35f); break;
+        case WSWHY_Character: rgba = glm::vec4(0.25f, 0.45f, 1.0f, 0.35f); break;
+        case WSWHY_LightVolume: case WSWHY_Ps2Shadow: case WSWHY_Glow: rgba = glm::vec4(1.0f, 0.6f, 0.1f, 0.40f); break;
+        default: rgba = glm::vec4(1.0f, 0.15f, 0.15f, 0.40f); break;
+        }
+        if (int(d.ipick) == ipickHit) rgba = glm::mix(rgba, glm::vec4(1.0f, 1.0f, 0.3f, 0.75f), 0.35f + 0.4f * tPulse);
+        glUniform4fv(locRgba, 1, glm::value_ptr(rgba));
+        draw(d, vaoCur);
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
 }
 #endif
 }  // namespace
@@ -4430,6 +4678,9 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
     s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
+    // (PC debug: the casters shown, display.h shadowOverlay)
+    if (g_display.shadowOverlay > 0) DrawShadowCasterOverlay(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
+    else s_wspick = WSPICK{};
 #endif
 }
 
@@ -4694,6 +4945,35 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     set(GL_CULL_FACE, fCull);
     set(GL_SCISSOR_TEST, fScissor);
 #endif
+}
+
+// (PC debug) the group under the crosshair of the casters' overlay, as of the last frame
+const WSPICK& WspickCur()
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    return s_wspick;
+#else
+    static const WSPICK s_none;
+    return s_none;
+#endif
+}
+
+const char* PchzWsWhy(int why)
+{
+    switch (why)
+    {
+    case WSWHY_Casts: return "casts";
+    case WSWHY_Character: return "a character (its own shadows)";
+    case WSWHY_Faded: return "faded out";
+    case WSWHY_Sky: return "sky-wide";
+    case WSWHY_Out: return "out of the shadow box";
+    case WSWHY_NotMesh: return "not a mesh";
+    case WSWHY_Empty: return "no shader";
+    case WSWHY_LightVolume: return "a light's volume";
+    case WSWHY_Ps2Shadow: return "the PS2's own shadow shape";
+    case WSWHY_Glow: return "an additive glow";
+    default: return "?";
+    }
 }
 
 // (PC) the characters' mask of this frame for post.cpp's ambient occlusion (0: none)
