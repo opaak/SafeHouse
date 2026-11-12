@@ -2297,6 +2297,8 @@ void DrawShadowMaps(const glm::mat4& matWorldToClip)
 // into render targets or over the HUD, faded-out objects and the sky (anything wider than kcWsSkyRadius).
 constexpr int kcWsMap = 4096;
 constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000.0f;
+// (one group of an object wider than kcWsSkyRadius wider than this: the sky's dome, its clouds' ring)
+constexpr float kcWsSkyGlobRadius = 12000.0f;
 struct WSBOX { glm::vec3 L{0.0f, 0.0f, -1.0f}, cWorld{0.0f}; glm::mat4 matLight{1.0f}; float texel = 1.0f; };
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
@@ -2737,14 +2739,55 @@ WSWHY WsWhySet(const SCENEGLOBSET& sgs, const WSBOX& box)
 {
     if (sgs.fActorTree) return WSWHY_Character;   // (the characters: their own shadows)
     if (sgs.gAlpha < 0.5f) return WSWHY_Faded;
-    if (sgs.fBounds)
+    // (an object wider than the sky's radius is looked at group by group, WsWhyGlob: the sky, but also a world whose
+    // whole level is one object, Paris's, oid 1, about 43000 wide)
+    if (sgs.fBounds && sgs.sBoundsRadius <= kcWsSkyRadius)
     {
-        if (sgs.sBoundsRadius > kcWsSkyRadius) return WSWHY_Sky;
         // (out of the box across the light: no shadow in it)
         const glm::vec3 d = sgs.posBounds - box.cWorld;
         const glm::vec3 dAcross = d - box.L * glm::dot(d, box.L);
         if (glm::length(dAcross) > kcWsRadius * 1.42f + sgs.sBoundsRadius) return WSWHY_Out;
     }
+    return WSWHY_Casts;
+}
+
+// A group's sphere in its own space: its draw record's, else its sphere set's, else its vertices' (found once)
+glm::vec4 SphereOfGlob(const GLOB& glob, const GLOB& geom)
+{
+    if (glob.fDraw && glob.sRadius > 0.0f) return glm::vec4(glob.posCenter, glob.sRadius);
+    if (glob.fSphere && glob.sRadiusSphere > 0.0f) return glm::vec4(glob.posSphere, glob.sRadiusSphere);
+    if (geom.fDraw && geom.sRadius > 0.0f) return glm::vec4(geom.posCenter, geom.sRadius);
+    if (geom.fSphere && geom.sRadiusSphere > 0.0f) return glm::vec4(geom.posSphere, geom.sRadiusSphere);
+    static std::unordered_map<const GLOB*, glm::vec4> s_mpsphere;
+    if (s_mpsphere.size() > 200000) s_mpsphere.clear();   // (the old worlds' groups)
+    const auto it = s_mpsphere.find(&geom);
+    if (it != s_mpsphere.end()) return it->second;
+    glm::vec4 sphere(0.0f, 0.0f, 0.0f, -1.0f);   // (no vertices: unknown)
+    if (!geom.avtx.empty())
+    {
+        glm::vec3 lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
+        for (const VTXGLOB& v : geom.avtx) lo = glm::min(lo, v.pos), hi = glm::max(hi, v.pos);
+        sphere = glm::vec4((lo + hi) * 0.5f, glm::length(hi - lo) * 0.5f);
+    }
+    s_mpsphere[&geom] = sphere;
+    return sphere;
+}
+
+// Why a group casts no level shadow: a character's (the FBA kinds); and in an object too wide to be judged whole
+// (WsWhySet: the sky's, or a world whose whole level is one object, as Paris's oid 1, about 43000 wide) a sky-wide
+// group, or one out of the box
+WSWHY WsWhyGlob(const SCENEGLOBSET& sgs, const GLOB& glob, const GLOB& geom, const glm::mat4& mat, const WSBOX& box)
+{
+    if (FCharacterGlob(glob)) return WSWHY_Character;
+    if (!sgs.fBounds || sgs.sBoundsRadius <= kcWsSkyRadius) return WSWHY_Casts;
+    const glm::vec4 sphere = SphereOfGlob(glob, geom);
+    if (sphere.w < 0.0f) return WSWHY_Casts;
+    const float rScale = std::max({glm::length(glm::vec3(mat[0])), glm::length(glm::vec3(mat[1])), glm::length(glm::vec3(mat[2]))});
+    const float r = sphere.w * rScale;
+    if (r > kcWsSkyGlobRadius) return WSWHY_Sky;
+    const glm::vec3 d = glm::vec3(mat * glm::vec4(glm::vec3(sphere), 1.0f)) - box.cWorld;
+    const glm::vec3 dAcross = d - box.L * glm::dot(d, box.L);
+    if (glm::length(dAcross) > kcWsRadius * 1.42f + r) return WSWHY_Out;
     return WSWHY_Casts;
 }
 
@@ -2809,9 +2852,15 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
         {
             if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
             const GLOB& glob = gs.aglob[i];
-            if (FCharacterGlob(glob)) { ++cActor; continue; }   // (the characters' groups: their own shadows)
             const GLOB* pgeom = PglobGeometry(gs, i);
-            if (!pgeom) { ++cNotStrips; continue; }
+            if (!pgeom) { if (FCharacterGlob(glob)) ++cActor; else ++cNotStrips; continue; }
+            switch (WsWhyGlob(sgs, glob, *pgeom, sgs.amatGlob[i], box))
+            {
+            case WSWHY_Character: ++cActor; continue;   // (the characters' groups: their own shadows)
+            case WSWHY_Sky: ++cSky; continue;
+            case WSWHY_Out: ++cOut; continue;
+            default: break;
+            }
             const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
             // (skinned props, an awning's or a sign's, with their bones; the characters were left out above)
             uint32_t iboneFirst = 0, cbone = 0;
@@ -3007,7 +3056,7 @@ void DrawShadowCasterOverlay(const SCENE& scene, const glm::mat4& matWorldToClip
             pick.cglob = int(gs.aglob.size());
             pick.kind = glob.rp & 0x1F;
             pick.sRadius = sgs.fBounds ? sgs.sBoundsRadius : 0.0f;
-            pick.why = whySet != WSWHY_Casts ? whySet : FCharacterGlob(glob) ? WSWHY_Character : WSWHY_Casts;
+            pick.why = whySet != WSWHY_Casts ? whySet : WsWhyGlob(sgs, glob, *pgeom, sgs.amatGlob[i], box);
             const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
             uint32_t iboneFirst = 0, cbone = 0;
             if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
