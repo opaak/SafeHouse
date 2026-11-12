@@ -726,6 +726,13 @@ int RunGame(const GAMEOPTS& go)
             CaneSwitch::LoadingBoost boost;   // (the CPU's loading profile while the world loads and its scene builds)
 #endif
             psw = PswUpdateTransition(std::move(psw));
+            // (the free camera is the old world's: off with it, else the new one (the episode menu too) shows from
+            // that place, often nothing, and the game gets no input while it is on)
+            if (fFreeCam)
+            {
+                fFreeCam = false;
+                std::printf("debug menu: free camera off (a new world)\n");
+            }
             scene = SCENE{};
             apalo.clear();
             ResetStepSnapshots();
