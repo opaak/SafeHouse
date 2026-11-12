@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 
 struct ALO;
+struct LO;
 struct SCENE;
 struct CAMERA;
 
@@ -38,6 +39,8 @@ void NoteSkillFxFeather(ALO* palo);
 // hidden from the scene
 struct SCENEGLOBSET;
 void NoteSkillFxPlaced(ALO* palo, SCENEGLOBSET& sgs);
+// (emitter.cpp) the Bentley whose Scorching Hover Pack is on (null: none): the particles of emitters under him drawn red
+const LO* PloScorchingHover();
 
 // game.cpp: once a game step (the particles); the afterimages taken before RenderScene and drawn after it; the rest
 // over the 3D picture before the HUD

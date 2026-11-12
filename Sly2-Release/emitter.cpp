@@ -5,6 +5,7 @@
 // IEEE float.
 
 #include "emitter.h"
+#include "skillfx.h"
 #include "worldglobals.h"
 #include "texmod.h"
 #include "animfind.h"
@@ -38,6 +39,7 @@ glm::vec3 VelWaterAtPoint(ALO* pw, const glm::vec3& pos);  // water.cpp (0x228C1
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -2119,9 +2121,24 @@ float Curve(const float c[3], float age) { return c[0] + c[1] * age + c[2] * (ag
 float Unit(float x) { return std::clamp(x, 0.0f, 1.0f); }
 
 // The VU1 programs (native_blip_geometry.cpp's reconstruction): per particle a quad in clip space.
+// (PC: skillfx.h) the hovering Bentley with the Scorching Hover Pack, for this frame's drawing: the particles of his
+// emitters (the pack's jet) drawn red; and how many systems were
+const LO* s_ploRedJet = nullptr;
+std::atomic<int> s_cpsysRed{0};   // (the expansion may run on the pass helpers)
+bool FPsysUnder(const PSYS* pp, const LO* proot)
+{
+    if (!proot || !pp->pemitterPar) return false;
+    const LO* plo = pp->pemitterPar->plo ? pp->pemitterPar->plo : pp->pemitterPar->ploMember;
+    for (const LO* p = plo; p; p = p->paloParent)
+        if (p == proot) return true;
+    return false;
+}
+
 void ExpandParticles(const PSYS* pp, const glm::mat4& matModel, const glm::mat4& matWorldToClip, std::vector<PVTX>& av)
 {
     const float t = g_clock.t;
+    const bool fRed = FPsysUnder(pp, s_ploRedJet);
+    s_cpsysRed += fRed ? 1 : 0;
     const glm::vec4 forward(matWorldToClip[0][3], matWorldToClip[1][3], matWorldToClip[2][3], 0.0f);
     // the projection's x / y scales (CM +0x100 / +0x114): the clip offsets of a unit corner (the clip matrix's x / y
     // rows are the view's axes times them)
@@ -2157,6 +2174,14 @@ void ExpandParticles(const PSYS* pp, const glm::mat4& matModel, const glm::mat4&
                 for (int l = 0; l < 4; ++l)
                     rgba[l] = float(uint8_t(float(pp->argba[first][size_t(l)]) * (1 - color) + float(pp->argba[first - 1][size_t(l)]) * color));
             rgba.a = float(uint8_t(rgba.a * alpha));
+            if (fRed)
+            {
+                // (the Scorching Hover Pack: the jet's colour red-orange, as bright as it was)
+                const float l = std::max({rgba.r, rgba.g, rgba.b});
+                rgba.r = l;
+                rgba.g = l * 0.3f;
+                rgba.b = l * 0.08f;
+            }
             const glm::vec3 world = glm::vec3(matModel * glm::vec4(glm::vec3(pc), 1.0f));
             glm::vec4 clip[4];
             if (pp->kDraw == 1)
@@ -2603,6 +2628,13 @@ void StepParticles(SW* psw, int cframe, float dt)
 
 void DrawParticles(const glm::mat4& matWorldToClip, const glm::vec3& posCamera, float aspect)
 {
+    s_ploRedJet = PloScorchingHover();
+    {
+        // (SLY2N_SKILLFXPRINT: how many particle systems were drawn red, when that changes)
+        static int s_cPrinted = -1;
+        if (std::getenv("SLY2N_SKILLFXPRINT") && s_cpsysRed.load() != s_cPrinted) std::printf("skillfx: hover jet particle systems drawn red: %d\n", s_cPrinted = s_cpsysRed.load());
+        s_cpsysRed = 0;
+    }
     (void)aspect;
     s_posCamera = posCamera;
     if (s_apsys.empty()) return;

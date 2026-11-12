@@ -6,6 +6,8 @@
 uniform sampler2D tex;        // the picture
 uniform sampler2D texAo;      // unit 1: ao.frag's openness (r)
 uniform sampler2D texDepth;   // unit 2: the scene's depth
+uniform sampler2D texMask;    // unit 3: the characters' own pixels (render.cpp FBuildCharacterMask)
+uniform int fMask;
 uniform float sNear;
 uniform float strength;       // 0..1
 in vec2 vUv;
@@ -17,9 +19,8 @@ void main()
     ivec2 lim = textureSize(tex, 0) - 1;
     vec4 c = texelFetch(tex, p, 0);
     float d0 = texelFetch(texDepth, p, 0).r;
-    // (the characters' own pixels, the frame alpha's bit 7 as the shadows' DATE: their low-poly creases would step into
-    // dark triangles; they have their own cel shading)
-    if (d0 <= 0.0 || int(round(c.a * 128.0)) >= 128)
+    // (the characters' own pixels: their low-poly creases would step into dark triangles; they have their own cel shading)
+    if (d0 <= 0.0 || (fMask != 0 && texelFetch(texMask, p, 0).r > 0.5))
     {
         FragColor = c;
         return;

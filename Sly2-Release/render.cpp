@@ -2300,34 +2300,136 @@ constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000
 GLSHADER s_shWsDepth, s_shWsApply;
 int s_stateWs = 0;   // 0 not yet, 1 built, -1 failed (no world shadows)
 GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
-// (the frame's colour copied for its alpha: the characters' pixels left alone)
-GLuint s_fboWsCol = 0, s_texWsCol = 0;
-int s_dxWsCol = 0, s_dyWsCol = 0;
-bool FEnsureWsColor(int dx, int dy)
+// (PC) The characters' own pixels this frame (render kinds 4 / 6, the FBA kinds the original's shadows keep off: Sly,
+// the gang, the guards), drawn into an R8 mask from the camera against a copy of the frame's depth: the world shadows
+// and the ambient occlusion leave them alone. Built after the frame pass when either is on (RenderScene).
+GLSHADER s_shCharMask;
+int s_stateCharMask = 0;   // 0 not yet, 1 built, -1 failed (no mask: they draw over the characters as before)
+GLuint s_fboCharMask = 0, s_texCharMask = 0, s_ssboCharMask = 0, s_texDSMasked = 0;
+int s_dxCharMask = 0, s_dyCharMask = 0;
+bool s_fCharMaskFrame = false;
+
+bool FEnsureCharMask(int dx, int dy)
 {
-    if (s_fboWsCol && dx == s_dxWsCol && dy == s_dyWsCol) return true;
-    if (s_fboWsCol) glDeleteFramebuffers(1, &s_fboWsCol), s_fboWsCol = 0;
-    if (s_texWsCol) glDeleteTextures(1, &s_texWsCol), s_texWsCol = 0;
+    if (s_stateCharMask == 0)
+    {
+        s_stateCharMask = -1;
+        // (smdepth.vert, and a fragment program that marks)
+        if (s_shCharMask.FInit("smdepth.vert", "charmask.frag", "")) s_stateCharMask = 1, glGenBuffers(1, &s_ssboCharMask);
+        std::printf("character mask: %s\n", s_stateCharMask > 0 ? "built" : "did not build: AO and the level's shadows draw over the characters");
+    }
+    if (s_stateCharMask < 0 || !FEnsureDsCopy(dx, dy)) return false;
+    if (s_fboCharMask && dx == s_dxCharMask && dy == s_dyCharMask && s_texDSMasked == s_texShDS) return true;
+    if (s_fboCharMask) glDeleteFramebuffers(1, &s_fboCharMask), s_fboCharMask = 0;
+    if (s_texCharMask) glDeleteTextures(1, &s_texCharMask), s_texCharMask = 0;
     GLint activePrev = 0, texPrev = 0, fboPrev = 0;
     glGetIntegerv(GL_ACTIVE_TEXTURE, &activePrev);
     glActiveTexture(GL_TEXTURE5);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
-    glGenTextures(1, &s_texWsCol);
-    glBindTexture(GL_TEXTURE_2D, s_texWsCol);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, dx, dy);
+    glGenTextures(1, &s_texCharMask);
+    glBindTexture(GL_TEXTURE_2D, s_texCharMask);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, dx, dy);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
     glActiveTexture(GLenum(activePrev));
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
-    glGenFramebuffers(1, &s_fboWsCol);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWsCol);
-    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texWsCol, 0);
+    glGenFramebuffers(1, &s_fboCharMask);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboCharMask);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_texCharMask, 0);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s_texShDS, 0);
+    const GLenum buf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &buf);
     const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
-    if (!fOk) return false;
-    s_dxWsCol = dx;
-    s_dyWsCol = dy;
+    if (!fOk)
+    {
+        std::printf("character mask: its framebuffer is not usable here\n");
+        s_stateCharMask = -1;
+        return false;
+    }
+    s_dxCharMask = dx;
+    s_dyCharMask = dy;
+    s_texDSMasked = s_texShDS;
+    return true;
+}
+
+// the render kinds of the characters' groups (the FBA kinds: 4, faded 6)
+bool FCharacterGlob(const GLOB& glob) { const int kind = glob.rp & 0x1F; return kind == 4 || kind == 6; }
+
+bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
+{
+    if (!FEnsureCharMask(dx, dy)) return false;
+    struct MDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; };
+    static std::vector<MDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBone;
+    s_ad.clear();
+    s_amatBone.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size() || !FCharacterGlob(gs.aglob[i])) continue;
+            const GLOB& glob = gs.aglob[i];
+            const GLOB* pgeom = !glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size() ? &gs.aglob[size_t(glob.iglobTemplate)] : &glob;
+            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
+            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBone.size());
+                cbone = uint32_t(sgs.aamatBone[i].size());
+                s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
+            }
+            for (const SUBGLOB& sub : pgeom->asubglob)
+                if (sub.pshd && sub.indexCount && sub.pshd->shdk != 2 && sub.pshd->shdk != 3)
+                    s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone});
+        }
+    }
+    SMSAVE save;
+    // the frame's depth, then the characters drawn where they are the frame's surface (equal depths, a little nearer)
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboCharMask);
+    glViewport(0, 0, dx, dy);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (!s_ad.empty())
+    {
+        glDisable(GL_BLEND);
+        glDisable(GL_STENCIL_TEST);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_GEQUAL);   // (reversed Z)
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 64.0f);
+        s_shCharMask.Use();
+        glUniformMatrix4fv(s_shCharMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+        const GLint locModel = s_shCharMask.Loc("matModel"), locCBone = s_shCharMask.Loc("cbone"), locBoneFirst = s_shCharMask.Loc("iboneFirst");
+        GLint ssboPrev = 0;
+        glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssboCharMask);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                     s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssboCharMask);
+        GLuint vaoCur = 0;
+        for (const MDRAW& d : s_ad)
+        {
+            if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+            glUniform1i(locCBone, GLint(d.cbone));
+            glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+            glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+        }
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
+    }
     return true;
 }
 
@@ -2424,7 +2526,7 @@ int NWorldShadowsNow()
 void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posCamera, const glm::vec3& dirCamera,
                       GLuint fbo, int dx, int dy)
 {
-    if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy) || !FEnsureWsColor(dx, dy)) return;
+    if (!FWorldShadowsReady() || !FEnsureDsCopy(dx, dy)) return;
     const glm::vec3 L = DirWorldShadowLight();
     // the box: round the point ahead of the camera, its centre snapped to the map's texels in the light's frame
     const glm::vec3 up = std::fabs(L.z) < 0.95f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
@@ -2463,6 +2565,7 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
         {
             if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
             const GLOB& glob = gs.aglob[i];
+            if (FCharacterGlob(glob)) { ++cActor; continue; }   // (the characters' groups: their own shadows)
             const GLOB* pgeom = &glob;
             if (!glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
             if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) { ++cNotStrips; continue; }
@@ -2532,8 +2635,6 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
     glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWsCol);
-    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, dx, dy);
     glActiveTexture(GL_TEXTURE3);
@@ -2546,13 +2647,14 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
     glActiveTexture(GL_TEXTURE5);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit5);
     glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit5);
-    glBindTexture(GL_TEXTURE_2D, s_texWsCol);
+    glBindTexture(GL_TEXTURE_2D, s_fCharMaskFrame ? s_texCharMask : 0);
     glBindSampler(5, 0);
     glActiveTexture(GL_TEXTURE0);
     s_shWsApply.Use();
     glUniform1i(s_shWsApply.Loc("texDepth"), 3);
     glUniform1i(s_shWsApply.Loc("texWs"), 4);
-    glUniform1i(s_shWsApply.Loc("texColor"), 5);
+    glUniform1i(s_shWsApply.Loc("texMask"), 5);
+    glUniform1i(s_shWsApply.Loc("fMask"), s_fCharMaskFrame ? 1 : 0);
     const glm::mat4 matClipToWorld = glm::inverse(matWorldToClip);
     glUniformMatrix4fv(s_shWsApply.Loc("matClipToWorld"), 1, GL_FALSE, glm::value_ptr(matClipToWorld));
     glUniformMatrix4fv(s_shWsApply.Loc("matLight"), 1, GL_FALSE, glm::value_ptr(matLight));
@@ -4326,6 +4428,7 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     RenderPass(scene, pv, opts);
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
+    s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
 #endif
 }
@@ -4590,5 +4693,15 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     set(GL_STENCIL_TEST, fStencil);
     set(GL_CULL_FACE, fCull);
     set(GL_SCISSOR_TEST, fScissor);
+#endif
+}
+
+// (PC) the characters' mask of this frame for post.cpp's ambient occlusion (0: none)
+unsigned TexCharacterMaskFrame()
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    return s_fCharMaskFrame ? s_texCharMask : 0u;
+#else
+    return 0u;
 #endif
 }

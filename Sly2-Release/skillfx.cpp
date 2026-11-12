@@ -297,6 +297,12 @@ void SkillFxMagnet(const glm::vec3& pos, ALO* paloTo, bool fClue)
 
 void NoteSkillFxHover(ALO* palo) { s_paloHoverNoted = palo; }
 
+const LO* PloScorchingHover()
+{
+    std::lock_guard<std::mutex> lock(s_mtxHover);
+    return s_paloHoverRed;
+}
+
 void NoteSkillFxPlaced(ALO* palo, SCENEGLOBSET& sgs)
 {
     if (!s_paloHoverRed || !palo) return;   // (the common case, without the lock)

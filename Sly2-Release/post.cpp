@@ -455,6 +455,16 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
         glUniform1i(s_aoApply.sh.Loc("texDepth"), 2);
         glUniform1f(s_aoApply.sh.Loc("sNear"), cam.sNear);
         glUniform1f(s_aoApply.sh.Loc("strength"), float(std::clamp(d.ambientOcclusion, 0, 100)) / 100.0f);
+        // (the characters' mask, unit 3: put back after the pass)
+        const GLuint texMask = TexCharacterMaskFrame();
+        GLint texUnit3 = 0, samplerUnit3 = 0;
+        glActiveTexture(GL_TEXTURE3);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit3);
+        glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit3);
+        glBindTexture(GL_TEXTURE_2D, texMask);
+        glBindSampler(3, 0);
+        glUniform1i(s_aoApply.sh.Loc("texMask"), 3);
+        glUniform1i(s_aoApply.sh.Loc("fMask"), texMask ? 1 : 0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, s_texAo);
         glBindSampler(1, 0);
@@ -463,6 +473,10 @@ void PostProcessScene(const CAMERA& cam, uint32_t rgbaCel)
         glBindSampler(2, 0);
         glActiveTexture(GL_TEXTURE0);
         next();
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texUnit3));
+        glBindSampler(3, GLuint(samplerUnit3));
+        glActiveTexture(GL_TEXTURE0);
     }
     if (fOutline)
     {

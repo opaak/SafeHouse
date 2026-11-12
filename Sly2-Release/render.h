@@ -88,6 +88,10 @@ struct GHOSTPART
     std::vector<uint8_t> afVisible;
     std::vector<std::vector<glm::mat4>> aamatBone;
 };
+// (PC) The characters' own pixels this frame (an R8 mask, the frame pass's size), when the ambient occlusion or the
+// level's shadows are on; 0 when not built (render.cpp FBuildCharacterMask).
+unsigned TexCharacterMaskFrame();
+
 struct GHOSTDRAW
 {
     const std::vector<GHOSTPART>* papart = nullptr;
