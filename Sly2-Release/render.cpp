@@ -5108,6 +5108,8 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     const glm::mat4 matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
     glUniformMatrix4fv(s_locClip, 1, GL_FALSE, glm::value_ptr(matWorldToClip));
     glUniform1i(s_locTex, 0);
+    glUniform3f(s_sh.Loc("posEye"), cam.pos.x, cam.pos.y, cam.pos.z);
+    const GLint locTowardEye = s_sh.Loc("sTowardEye");
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
                  s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
@@ -5133,16 +5135,20 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
             glStencilMask(1);
         }
         // (over its own surfaces: equal depths pass, pulled a little nearer so the two skinnings never fight)
+        // (and toward the camera: a smoothed character, glob.geom's PN triangles, bulges up to a few units out of the
+        // triangles the silhouette is drawn from, where it was hidden in patches; a little, unsmoothed)
         if (adraw[ipose].fOver)
         {
             glDepthFunc(GL_GEQUAL);
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(1.0f, 64.0f);   // (reversed Z: a greater depth is nearer)
+            glUniform1f(locTowardEye, g_cSmoothGlob > 0 ? 6.0f : 1.5f);
         }
         else
         {
             glDepthFunc(GL_GREATER);
             glDisable(GL_POLYGON_OFFSET_FILL);
+            glUniform1f(locTowardEye, 0.0f);
         }
         const glm::vec4& c = adraw[ipose].rgba;
         glUniform4f(s_locRgba, c.r, c.g, c.b, c.a);

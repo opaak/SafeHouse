@@ -12,6 +12,8 @@ uniform mat4 matWorldToClip;
 uniform mat4 matModel;
 uniform int iboneFirst;
 uniform int cbone;        // 0: not skinned (matModel)
+uniform vec3 posEye;      // (over its own surfaces, GHOSTDRAW fOver) the camera, and how far toward it the surface
+uniform float sTowardEye; // is drawn: the frame drew a smoothed character bulging out of these triangles (0: in place)
 out vec2 vUv;
 out vec4 vColor;
 void main()
@@ -26,6 +28,12 @@ void main()
         posWorld.w = 1.0;
     }
     else posWorld = matModel * p;
+    if (sTowardEye > 0.0)
+    {
+        vec3 d = posEye - posWorld.xyz;
+        float l = length(d);
+        if (l > 1e-3) posWorld.xyz += d * (min(sTowardEye, 0.5 * l) / l);
+    }
     gl_Position = matWorldToClip * posWorld;
     vUv = aUv;
     vColor = aRgbaA / 128.0;
