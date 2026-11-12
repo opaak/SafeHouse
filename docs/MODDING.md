@@ -132,6 +132,24 @@ animated (multi-frame) textures and in particles.
 - **Converting by hand:** `Sly2-Release --disc "Sly 2.iso" --convert sly2-files` writes the `Textures` folder too;
   `--no-export-textures` leaves it out.
 
+### Models (export for Blender)
+
+The first step toward model mods: the game can write any object's model out for Blender. Replacing a model in the game
+comes in a later step.
+
+1. With the debug keys on, open the debug menu's Display > Graphics, turn on **Texture picker**, and aim the crosshair
+   at the centre of the picture at the object (the free camera helps).
+2. **Export the picked model (glTF)** writes `Mods/Models/Export/<class>_oid<oid>.glb`.
+3. In Blender: File > Import > glTF 2.0.
+
+- Each group the game showed is its own object (`glob_<n>`, the group's number), its parts with their textures and
+  their blending (glass and glows blend; cut-outs use the alpha mask).
+- The root turns the game's Z-up units (1 unit = 1 cm) into metres, so the model is life-sized.
+- The vertex colours (the game's baked light) come in as the `Col` colour attribute.
+- A skinned group (one with bones) comes out in the pose it had when you exported it.
+- The nodes' custom properties (`sly2_glob`, `sly2_posed`, and the root's `sly2_oid`) are what the import will use
+  to put your edits back. Keep the object names.
+
 ### Technique icons
 
 The Thievius Raccoonus techniques (ThiefNet's Thievius Raccoonus page, their training and messages, the gadget menu's

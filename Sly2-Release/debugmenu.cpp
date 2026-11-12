@@ -814,6 +814,14 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 FCopyPickedTextureToMods(&str);
                 Status(str);
             }, TexpickCur().fTextured ? TexpickCur().name : std::string("(none)"));
+            item("Export the picked model (glTF)", [] {
+                std::string name = "object";
+                if (LO* plo = s_psw && TexpickCur().oid >= 0 ? PloFindSwObjectByOid(s_psw, OID(TexpickCur().oid)) : nullptr)
+                    name = StrClassName(plo->Cid());
+                std::string str;
+                FExportPickedModel(name, &str);
+                Status(str);
+            }, "for Blender: Mods/Models/Export");
             item("Reload texture mods", [] {
                 ReloadTextureMods();
                 Status("texture mods read again");

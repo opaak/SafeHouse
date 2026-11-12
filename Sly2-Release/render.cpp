@@ -1,6 +1,8 @@
 // See render.h.
 
 #include "texmod.h"
+#include "modelexport.h"
+#include "../platform/platform.h"
 #include "render.h"
 #include "simdmat.h"
 #include "drawdist.h"
@@ -3733,10 +3735,12 @@ void DrawShadowCasterOverlay(const SCENE& scene, const glm::mat4& matWorldToClip
 TEXPICK s_texpick;
 const BMP* s_pbmpPick = nullptr;
 const CLUT* s_pclutPick = nullptr;
+MODELEXPORT s_mxPick;   // (the picked object's model and its pose this frame: "Export the picked model")
 
 void DrawTexturePicker(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
 {
     s_texpick = TEXPICK{};
+    s_mxPick = MODELEXPORT{};
     if (!FEnsureWsDebug(dx, dy)) return;
     struct TPDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone;
                     const SCENEGLOBSET* psgs; const SUBGLOB* psub; int iglob, isub, csub; };
@@ -3841,6 +3845,11 @@ void DrawTexturePicker(const SCENE& scene, const glm::mat4& matWorldToClip, GLui
         p.cglob = int(d.psgs->pglobset->aglob.size());
         p.isub = d.isub;
         p.csub = d.csub;
+        s_mxPick.pglobset = d.psgs->pglobset;
+        s_mxPick.amatGlob = d.psgs->amatGlob;
+        s_mxPick.aamatBone = d.psgs->aamatBone;
+        s_mxPick.afVisible = d.psgs->afVisible;
+        s_mxPick.oid = d.psgs->oid;
         // its first textured pass's texture (the one the frame shows: its animation's frame)
         const SHD* pshd = d.psub->pshd;
         for (const SHDPASS& ps : pshd->apass)
@@ -6100,6 +6109,29 @@ bool FCopyPickedTextureToMods(std::string* pstr)
     *pstr = (fExisted ? "already there: " : "copied: ") + s_texpick.name;
     return true;
 #else
+    *pstr = "not on this platform";
+    return false;
+#endif
+}
+
+bool FExportPickedModel(const std::string& name, std::string* pstr)
+{
+#if !defined(__SWITCH__) && !defined(__APPLE__)
+    if (!s_texpick.fValid || !s_mxPick.pglobset) { *pstr = "nothing under the crosshair"; return false; }
+    if (g_disc.DirMods().empty()) { *pstr = "no mods folder"; return false; }
+    std::string stem = name;
+    for (char& ch : stem)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ch = '_';
+    char ach[64];
+    std::snprintf(ach, sizeof ach, "_oid%d.glb", s_mxPick.oid);
+    const std::string path = cane::utf8(cane::path(g_disc.DirMods()) / "Models" / "Export" / cane::path(stem + ach));
+    std::string info, err;
+    if (!FExportModelGlb(s_mxPick, stem, path, &info, &err)) { *pstr = "not written: " + err; return false; }
+    std::printf("model export: %s (%s)\n", path.c_str(), info.c_str());
+    *pstr = "Models/Export/" + stem + ach + ": " + info;
+    return true;
+#else
+    (void)name;
     *pstr = "not on this platform";
     return false;
 #endif
