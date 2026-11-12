@@ -15,7 +15,35 @@
 // groups are left as they are. Applied when the world's groups are first made for the GPU (render.cpp
 // BuildSceneGpu): change a file, then enter the world again.
 
+#include <glm/glm.hpp>
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
 struct GLOBSET;
+
+// (props.h) A glTF file's triangles as the game's: every mesh of its scene placed where it is (Y-up metres turned into
+// the game's Z-up centimetres), its UVs as the game's, its material's picture (game texels, as model mods take them)
+// and blending. fGameExport: the file was exported from the game (its root has sly2_oid).
+struct GLTFIMAGE
+{
+    int dx = 0, dy = 0;
+    std::shared_ptr<const std::vector<uint8_t>> pab;   // RGBA, rows bottom-up, alpha 0..0x80
+    std::string name;                                  // its texture-mod name
+    bool fClampS = false, fClampT = false;
+    bool fPlain = false;                               // a plain colour (one texel)
+};
+struct GLTFPRIM
+{
+    std::vector<glm::vec3> apos, anrm;
+    std::vector<glm::vec2> auv;
+    std::vector<uint32_t> aidx;
+    std::shared_ptr<GLTFIMAGE> pimg;   // null: no material picture (white)
+    int alphaMode = 0;                 // 0 opaque, 1 mask (cut-out), 2 blend
+};
+bool FReadGltfPrims(const std::string& path, std::vector<GLTFPRIM>& aprim, bool* pfGameExport, std::string& err);
 
 // Before a build of the world's groups: the files read again when the world or the folder changed (a file edited and
 // the world entered again shows the edit)

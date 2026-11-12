@@ -3,6 +3,7 @@
 #include "texmod.h"
 #include "modelexport.h"
 #include "modelimport.h"
+#include "props.h"
 #include "../platform/platform.h"
 #include "render.h"
 #include "simdmat.h"
@@ -4026,6 +4027,30 @@ glm::mat4 CAMERA::MatWorldToClip(float aspect) const
     return proj * view;
 }
 
+void BuildGlobsetGpu(GLOBSET& gs)
+{
+    InitCommon();
+    GLint vaoPrev = 0, vboPrev = 0, eboPrev = 0;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vaoPrev);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &vboPrev);
+    for (GLOB& glob : gs.aglob) BuildGlobGpu(glob);
+    FlushArena();
+    glBindVertexArray(GLuint(vaoPrev));
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &eboPrev);
+    glBindBuffer(GL_ARRAY_BUFFER, GLuint(vboPrev));
+}
+
+bool g_fCrosshairHit = false;
+static bool s_fHit = false;
+static glm::vec3 s_posHit{0.0f}, s_nrmHit{0.0f, 0.0f, 1.0f};
+bool FCrosshairHit(glm::vec3* ppos, glm::vec3* pnrm)
+{
+    if (!g_fCrosshairHit || !s_fHit) return false;
+    *ppos = s_posHit;
+    *pnrm = s_nrmHit;
+    return true;
+}
+
 void BuildSceneGpu(SCENE& scene)
 {
     InitCommon();
@@ -4686,6 +4711,7 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
         CollectLaserDraws(scene, cam.pos, s_aextra);
         CollectPocketDraws(scene, s_aextra);
         CollectHackSwarmDraws(scene, s_aextra);
+        CollectPropDraws(scene, s_aextra);   // (PC modding: Mods/Props, props.h)
         // (PC: the frame's draws kept out of the depth outlines, for FBuildTranslucentMask)
         s_aextraNoOutline.clear();
         for (const EXTRADRAW& x : s_aextra)
@@ -5665,6 +5691,39 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     // (PC debug: the casters shown, display.h shadowOverlay)
     if (g_display.shadowOverlay > 0) DrawShadowCasterOverlay(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     else s_wspick = WSPICK{};
+    // (PC, props.h: the point under the crosshair, from the frame's depth: three pixels for the normal)
+    s_fHit = false;
+    if (g_fCrosshairHit && FEnsureDsCopy(pv.dx, pv.dy))
+    {
+        SMSAVE save;
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, pv.fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, pv.dx, pv.dy, 0, 0, pv.dx, pv.dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, s_fboShDS);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        const int xC = pv.dx / 2, yC = pv.dy / 2;
+        float ad[3] = {};
+        glReadPixels(xC, yC, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &ad[0]);
+        glReadPixels(xC + 2, yC, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &ad[1]);
+        glReadPixels(xC, yC + 2, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &ad[2]);
+        const glm::mat4 inv = glm::inverse(pv.matWorldToClip);
+        auto world = [&](int x, int y, float d) {
+            const glm::vec4 w = inv * glm::vec4((float(x) + 0.5f) / float(pv.dx) * 2.0f - 1.0f, (float(y) + 0.5f) / float(pv.dy) * 2.0f - 1.0f, d, 1.0f);
+            return glm::vec3(w) / w.w;
+        };
+        if (ad[0] > 0.0f)   // (reversed Z: 0 is the sky)
+        {
+            s_posHit = world(xC, yC, ad[0]);
+            s_nrmHit = glm::vec3(0.0f, 0.0f, 1.0f);
+            if (ad[1] > 0.0f && ad[2] > 0.0f)
+            {
+                glm::vec3 n = glm::cross(world(xC + 2, yC, ad[1]) - s_posHit, world(xC, yC + 2, ad[2]) - s_posHit);
+                if (glm::dot(n, cam.pos - s_posHit) < 0.0f) n = -n;
+                if (glm::length(n) > 1e-6f) s_nrmHit = glm::normalize(n);
+            }
+            s_fHit = true;
+        }
+    }
     // (PC debug: the texture under the crosshair, display.h texturePicker)
     if (g_display.texturePicker > 0) DrawTexturePicker(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     else s_texpick = TEXPICK{};

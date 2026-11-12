@@ -42,6 +42,12 @@ struct RENDEROPTS
 };
 
 void BuildSceneGpu(SCENE& scene);
+// (PC, props.h) a model of the PC's own (not in the scene) made for the GPU (its groups' triangles; the GL bindings kept)
+void BuildGlobsetGpu(GLOBSET& gs);
+// (PC, props.h) the 3D point under the centre of the picture and the surface's normal there, from the last frame's depth
+// (false: the sky, or not measured); measured while g_fCrosshairHit
+extern bool g_fCrosshairHit;
+bool FCrosshairHit(glm::vec3* ppos, glm::vec3* pnrm);
 // A glob's vertex colours changed (run-time lighting): its colours again into its arena (the colour buffer only).
 void UpdateGlobColorsGpu(const GLOB& glob);
 // A glob's vertices moved (trails, ropes): its whole vertices (and colours) again into its arena.

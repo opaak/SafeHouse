@@ -31,14 +31,7 @@ using json = nlohmann::json;
 namespace
 {
 // a material's picture as the game's texels (rows bottom-up, alpha in the PS2's 0..0x80) and their texture-mod name
-struct IMAGEIN
-{
-    int dx = 0, dy = 0;
-    std::shared_ptr<const std::vector<uint8_t>> pab;
-    std::string name;
-    bool fClampS = false, fClampT = false;
-    bool fPlain = false;   // a plain colour (no picture in the material)
-};
+using IMAGEIN = GLTFIMAGE;
 // one mesh's triangles for a group: positions and normals in the group's own space, the UVs as the game's, a material
 struct PRIMIN
 {
@@ -130,12 +123,11 @@ bool FReadAccessor(const json& j, const std::vector<std::vector<uint8_t>>& abuf,
     return true;
 }
 
-bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
+// A glTF file's JSON and buffers (GLB, or .gltf with its buffers in files beside it)
+bool FLoadGltf(const fs::path& path, json& j, std::vector<std::vector<uint8_t>>& abuf, std::string& err)
 {
     std::ifstream in(path, std::ios::binary);
     std::vector<uint8_t> ab((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    json j;
-    std::vector<std::vector<uint8_t>> abuf;
     try
     {
         if (ab.size() >= 20 && std::memcmp(ab.data(), "glTF", 4) == 0)
@@ -165,6 +157,81 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
         }
     }
     catch (const std::exception& e) { err = std::string("not glTF: ") + e.what(); return false; }
+    return true;
+}
+
+// A material's picture (once each, in mpimgMat): the base colour texture's image, else a plain base colour
+std::shared_ptr<IMAGEIN> PimgOfMaterial(const json& j, const std::vector<std::vector<uint8_t>>& abuf, const fs::path& path, size_t imat,
+                                        std::map<size_t, std::shared_ptr<IMAGEIN>>& mpimgMat)
+{
+        if (const auto it = mpimgMat.find(imat); it != mpimgMat.end()) return it->second;
+        std::shared_ptr<IMAGEIN> pimg;
+        const json& mat = j["materials"][imat];
+        const json pbr = mat.value("pbrMetallicRoughness", json::object());
+        if (pbr.contains("baseColorTexture") && j.contains("textures"))
+        {
+            const size_t itex = pbr["baseColorTexture"].value("index", size_t(0));
+            if (itex < j["textures"].size() && j["textures"][itex].contains("source") && j.contains("images"))
+            {
+                const json& img = j["images"][j["textures"][itex]["source"].get<size_t>()];
+                std::vector<uint8_t> abFile;
+                if (img.contains("bufferView"))
+                {
+                    const json& bv = j["bufferViews"][img["bufferView"].get<size_t>()];
+                    const size_t ibuf = bv.value("buffer", size_t(0)), off = bv.value("byteOffset", size_t(0)), cb = bv["byteLength"].get<size_t>();
+                    if (ibuf < abuf.size() && off + cb <= abuf[ibuf].size()) abFile.assign(abuf[ibuf].begin() + std::ptrdiff_t(off), abuf[ibuf].begin() + std::ptrdiff_t(off + cb));
+                }
+                else if (img.contains("uri") && img["uri"].get<std::string>().rfind("data:", 0) != 0)
+                {
+                    std::ifstream ini(path.parent_path() / cane::path(img["uri"].get<std::string>()), std::ios::binary);
+                    abFile.assign((std::istreambuf_iterator<char>(ini)), std::istreambuf_iterator<char>());
+                }
+                int dx = 0, dy = 0, cn = 0;
+                if (stbi_uc* p = abFile.empty() ? nullptr : stbi_load_from_memory(abFile.data(), int(abFile.size()), &dx, &dy, &cn, 4))
+                {
+                    // (the export's PNG back to the game's texels: rows bottom-up, alpha halved)
+                    auto pab = std::make_shared<std::vector<uint8_t>>(size_t(dx) * dy * 4);
+                    for (int y = 0; y < dy; ++y)
+                        for (int x = 0; x < dx; ++x)
+                            for (int c = 0; c < 4; ++c)
+                            {
+                                const uint8_t v = p[(size_t(dy - 1 - y) * dx + x) * 4 + c];
+                                (*pab)[(size_t(y) * dx + x) * 4 + c] = c < 3 ? v : uint8_t(v == 255 ? 128 : (v + 1) / 2);
+                            }
+                    stbi_image_free(p);
+                    pimg = std::make_shared<IMAGEIN>();
+                    pimg->dx = dx, pimg->dy = dy, pimg->pab = pab;
+                    pimg->name = SzTextureModName(*pab, dx, dy);
+                    if (j["textures"][itex].contains("sampler") && j.contains("samplers"))
+                    {
+                        const json& smp = j["samplers"][j["textures"][itex]["sampler"].get<size_t>()];
+                        pimg->fClampS = smp.value("wrapS", 10497) == 33071;
+                        pimg->fClampT = smp.value("wrapT", 10497) == 33071;
+                    }
+                }
+            }
+        }
+        else if (pbr.contains("baseColorFactor"))
+        {
+            // a plain colour (a Blender material without a picture): one texel (glTF's linear colour to sRGB-ish)
+            const json& f = pbr["baseColorFactor"];
+            auto pab = std::make_shared<std::vector<uint8_t>>(4);
+            for (int c = 0; c < 3; ++c) (*pab)[size_t(c)] = uint8_t(std::clamp(std::pow(f[size_t(c)].get<double>(), 1.0 / 2.2), 0.0, 1.0) * 255.0 + 0.5);
+            (*pab)[3] = uint8_t(std::clamp(f[3].get<double>(), 0.0, 1.0) * 128.0 + 0.5);
+            pimg = std::make_shared<IMAGEIN>();
+            pimg->dx = pimg->dy = 1, pimg->pab = pab;
+            pimg->name = SzTextureModName(*pab, 1, 1);
+            pimg->fPlain = true;
+        }
+        mpimgMat[imat] = pimg;
+        return pimg;
+}
+
+bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
+{
+    json j;
+    std::vector<std::vector<uint8_t>> abuf;
+    if (!FLoadGltf(path, j, abuf, err)) return false;
     if (!j.contains("nodes") || !j.contains("meshes")) { err = "no nodes or meshes"; return false; }
     const json& anode = j["nodes"];
 
@@ -232,71 +299,8 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
 
     // each mesh node: its group (its notes or name, a parent's, else the home group) and its triangles in that
     // group's own space (the node's place at the export, sly2_matrix, undone; without it the node as it is now)
-    // the materials' pictures (once each): the base colour texture's image, else a plain base colour
     std::map<size_t, std::shared_ptr<IMAGEIN>> mpimgMat;
-    auto imageOfMaterial = [&](size_t imat) -> std::shared_ptr<IMAGEIN> {
-        if (const auto it = mpimgMat.find(imat); it != mpimgMat.end()) return it->second;
-        std::shared_ptr<IMAGEIN> pimg;
-        const json& mat = j["materials"][imat];
-        const json pbr = mat.value("pbrMetallicRoughness", json::object());
-        if (pbr.contains("baseColorTexture") && j.contains("textures"))
-        {
-            const size_t itex = pbr["baseColorTexture"].value("index", size_t(0));
-            if (itex < j["textures"].size() && j["textures"][itex].contains("source") && j.contains("images"))
-            {
-                const json& img = j["images"][j["textures"][itex]["source"].get<size_t>()];
-                std::vector<uint8_t> abFile;
-                if (img.contains("bufferView"))
-                {
-                    const json& bv = j["bufferViews"][img["bufferView"].get<size_t>()];
-                    const size_t ibuf = bv.value("buffer", size_t(0)), off = bv.value("byteOffset", size_t(0)), cb = bv["byteLength"].get<size_t>();
-                    if (ibuf < abuf.size() && off + cb <= abuf[ibuf].size()) abFile.assign(abuf[ibuf].begin() + std::ptrdiff_t(off), abuf[ibuf].begin() + std::ptrdiff_t(off + cb));
-                }
-                else if (img.contains("uri") && img["uri"].get<std::string>().rfind("data:", 0) != 0)
-                {
-                    std::ifstream ini(path.parent_path() / cane::path(img["uri"].get<std::string>()), std::ios::binary);
-                    abFile.assign((std::istreambuf_iterator<char>(ini)), std::istreambuf_iterator<char>());
-                }
-                int dx = 0, dy = 0, cn = 0;
-                if (stbi_uc* p = abFile.empty() ? nullptr : stbi_load_from_memory(abFile.data(), int(abFile.size()), &dx, &dy, &cn, 4))
-                {
-                    // (the export's PNG back to the game's texels: rows bottom-up, alpha halved)
-                    auto pab = std::make_shared<std::vector<uint8_t>>(size_t(dx) * dy * 4);
-                    for (int y = 0; y < dy; ++y)
-                        for (int x = 0; x < dx; ++x)
-                            for (int c = 0; c < 4; ++c)
-                            {
-                                const uint8_t v = p[(size_t(dy - 1 - y) * dx + x) * 4 + c];
-                                (*pab)[(size_t(y) * dx + x) * 4 + c] = c < 3 ? v : uint8_t(v == 255 ? 128 : (v + 1) / 2);
-                            }
-                    stbi_image_free(p);
-                    pimg = std::make_shared<IMAGEIN>();
-                    pimg->dx = dx, pimg->dy = dy, pimg->pab = pab;
-                    pimg->name = SzTextureModName(*pab, dx, dy);
-                    if (j["textures"][itex].contains("sampler") && j.contains("samplers"))
-                    {
-                        const json& smp = j["samplers"][j["textures"][itex]["sampler"].get<size_t>()];
-                        pimg->fClampS = smp.value("wrapS", 10497) == 33071;
-                        pimg->fClampT = smp.value("wrapT", 10497) == 33071;
-                    }
-                }
-            }
-        }
-        else if (pbr.contains("baseColorFactor"))
-        {
-            // a plain colour (a Blender material without a picture): one texel (glTF's linear colour to sRGB-ish)
-            const json& f = pbr["baseColorFactor"];
-            auto pab = std::make_shared<std::vector<uint8_t>>(4);
-            for (int c = 0; c < 3; ++c) (*pab)[size_t(c)] = uint8_t(std::clamp(std::pow(f[size_t(c)].get<double>(), 1.0 / 2.2), 0.0, 1.0) * 255.0 + 0.5);
-            (*pab)[3] = uint8_t(std::clamp(f[3].get<double>(), 0.0, 1.0) * 128.0 + 0.5);
-            pimg = std::make_shared<IMAGEIN>();
-            pimg->dx = pimg->dy = 1, pimg->pab = pab;
-            pimg->name = SzTextureModName(*pab, 1, 1);
-            pimg->fPlain = true;
-        }
-        mpimgMat[imat] = pimg;
-        return pimg;
-    };
+    auto imageOfMaterial = [&](size_t imat) { return PimgOfMaterial(j, abuf, path, imat, mpimgMat); };
 
     bool fNotes = false;
     for (size_t k = 0; k < anode.size(); ++k)
@@ -628,4 +632,74 @@ void ApplyModelMods(GLOBSET& gs, int oid)
         std::printf("model mod: object %d: %d groups replaced, %d gone, %d left as they were (skinned, instanced, warped), %d cel borders gone, "
                     "%d parts with their own pictures\n", oid, cRepl, cGone, cKept, cCel, cTex);
     }
+}
+
+bool FReadGltfPrims(const std::string& pathStr, std::vector<GLTFPRIM>& aprim, bool* pfGameExport, std::string& err)
+{
+    const fs::path path = cane::path(pathStr);
+    json j;
+    std::vector<std::vector<uint8_t>> abuf;
+    if (!FLoadGltf(path, j, abuf, err)) return false;
+    if (!j.contains("nodes") || !j.contains("meshes")) { err = "no nodes or meshes"; return false; }
+    const json& anode = j["nodes"];
+    *pfGameExport = false;
+    for (const json& n : anode)
+        if (n.contains("extras") && n["extras"].contains("sly2_oid")) *pfGameExport = true;
+    // glTF's Y-up metres as the game's Z-up centimetres (the export's root undone)
+    glm::mat4 matConv(0.0f);
+    matConv[0] = glm::vec4(100.0f, 0, 0, 0), matConv[1] = glm::vec4(0, 0, 100.0f, 0), matConv[2] = glm::vec4(0, -100.0f, 0, 0), matConv[3] = glm::vec4(0, 0, 0, 1);
+    std::map<size_t, std::shared_ptr<IMAGEIN>> mpimg;
+    // the scene's nodes, walked from its roots with their world matrices
+    std::vector<std::pair<size_t, glm::mat4>> astack;
+    const json ascene = j.value("scenes", json::array());
+    const size_t iscene = j.value("scene", size_t(0));
+    if (iscene < ascene.size())
+        for (const json& r : ascene[iscene].value("nodes", json::array())) astack.push_back({r.get<size_t>(), glm::mat4(1.0f)});
+    std::set<size_t> setSeen;
+    while (!astack.empty())
+    {
+        const auto [k, matParent] = astack.back();
+        astack.pop_back();
+        if (k >= anode.size() || !setSeen.insert(k).second) continue;
+        const json& n = anode[k];
+        const glm::mat4 matWorld = matParent * MatOfNode(n);
+        for (const json& c : n.value("children", json::array())) astack.push_back({c.get<size_t>(), matWorld});
+        if (!n.contains("mesh")) continue;
+        const glm::mat4 mat = matConv * matWorld;
+        const glm::mat3 matNrm = glm::transpose(glm::inverse(glm::mat3(mat)));
+        for (const json& prim : j["meshes"][n["mesh"].get<size_t>()].value("primitives", json::array()))
+        {
+            if (prim.value("mode", 4) != 4 || !prim.contains("attributes") || !prim["attributes"].contains("POSITION")) continue;
+            const json& attr = prim["attributes"];
+            std::vector<float> afPos, afNrm, afUv;
+            std::vector<uint32_t> aidx;
+            if (!FReadAccessor(j, abuf, attr["POSITION"].get<int>(), 3, &afPos, nullptr)) continue;
+            const size_t cv = afPos.size() / 3;
+            if (attr.contains("NORMAL")) FReadAccessor(j, abuf, attr["NORMAL"].get<int>(), 3, &afNrm, nullptr);
+            if (attr.contains("TEXCOORD_0")) FReadAccessor(j, abuf, attr["TEXCOORD_0"].get<int>(), 2, &afUv, nullptr);
+            if (prim.contains("indices")) FReadAccessor(j, abuf, prim["indices"].get<int>(), 1, nullptr, &aidx);
+            else for (uint32_t v = 0; v < cv; ++v) aidx.push_back(v);
+            if (aidx.size() % 3 || std::any_of(aidx.begin(), aidx.end(), [cv](uint32_t v) { return v >= cv; })) continue;
+            GLTFPRIM gp;
+            for (size_t v = 0; v < cv; ++v)
+            {
+                gp.apos.push_back(glm::vec3(mat * glm::vec4(afPos[v * 3], afPos[v * 3 + 1], afPos[v * 3 + 2], 1.0f)));
+                glm::vec3 nn = afNrm.size() == cv * 3 ? matNrm * glm::vec3(afNrm[v * 3], afNrm[v * 3 + 1], afNrm[v * 3 + 2]) : glm::vec3(0.0f, 0.0f, 1.0f);
+                const float l = glm::length(nn);
+                gp.anrm.push_back(l > 1e-6f ? nn / l : glm::vec3(0.0f, 0.0f, 1.0f));
+                gp.auv.push_back(afUv.size() == cv * 2 ? glm::vec2(afUv[v * 2], 1.0f - afUv[v * 2 + 1]) : glm::vec2(0.0f));
+            }
+            gp.aidx = std::move(aidx);
+            if (prim.contains("material"))
+            {
+                const size_t imat = prim["material"].get<size_t>();
+                gp.pimg = PimgOfMaterial(j, abuf, path, imat, mpimg);
+                const std::string mode = j["materials"][imat].value("alphaMode", "OPAQUE");
+                gp.alphaMode = mode == "BLEND" ? 2 : mode == "MASK" ? 1 : 0;
+            }
+            aprim.push_back(std::move(gp));
+        }
+    }
+    if (aprim.empty()) { err = "no triangles"; return false; }
+    return true;
 }

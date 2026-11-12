@@ -174,6 +174,33 @@ The game can write any object's model out for Blender, and take the edited file 
 - Not replaced: skinned groups (with bones), instanced copies of a shared group, and warped groups. The log names
   how many were left.
 
+### Props (your own models placed in a world)
+
+Props are models of your own placed in a world: trophies in the safe house, signs, decorations. They are drawn with the
+game's look (cel shading, outlines, ambient occlusion) and lit by the level's light where they stand. They are not solid
+(Sly passes through them) and do not cast the level's shadows.
+
+1. Put the models into `Mods/Props/Models/` as glTF (`.glb`, or `.gltf` with its files). Made in Blender: real size
+   (metres), the origin where the model stands (its base). A model exported from the game (`Mods/Models/Export`) also
+   works: it is stood on its base by itself. Materials: a Base Color image (any size, alpha for transparency; Blender's
+   Blend Mode / alpha mode picks cut-out or blended) or a plain Base Color.
+2. With the debug keys on: the debug menu's Display > Graphics > **Props (placement)** On. A crosshair shows the point
+   at the centre of the picture (the free camera helps).
+3. **Model** chooses the file, **Place it at the crosshair** puts it there. **Selected** / **Select the nearest to the
+   crosshair** choose a prop (it pulses), then **Move it to the crosshair**, **Turn ±15**, **Bigger** / **Smaller**,
+   **Up** / **Down** (10 cm), **Shown** (always, or once an episode is complete: a trophy after its boss), **Delete it**.
+4. **Save this world's props** writes `Mods/Props/w<world>.txt`. **Read the models again** picks up an edited model.
+
+The file is plain text, one prop a line, and can be edited by hand:
+
+```
+# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>]
+trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2
+```
+
+The game's units are centimetres with Z up; turn is about Z in degrees; `after 2` shows it once episode 2 (the palace)
+is complete.
+
 ### Technique icons
 
 The Thievius Raccoonus techniques (ThiefNet's Thievius Raccoonus page, their training and messages, the gadget menu's

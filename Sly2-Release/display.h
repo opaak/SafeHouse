@@ -100,6 +100,8 @@ struct DISPLAY
     int shadowOverlay = 0;
     // (PC debug menu only, not saved) the texture under the centre of the picture named (render.h TEXPICK): 0 off, 1 on
     int texturePicker = 0;
+    // (PC debug menu only, not saved) the props' placement tool (props.h): 0 off, 1 on
+    int propTool = 0;
     // PC character smoothing (settings v24 smoothChars / smoothStrength, the launcher's "Character smoothing"; over them
     // --smooth-chars / SLY2N_SMOOTH, --smooth-strength / SLY2N_SMOOTHSTRENGTH). The skinned meshes (the characters) drawn as PN triangles: each triangle split into
     // smoothChars x smoothChars and bent along the averaged normals of its corners (glob.geom SMOOTH), and their cel

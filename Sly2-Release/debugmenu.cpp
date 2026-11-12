@@ -25,6 +25,7 @@
 #include "pcloader.h"
 #include "promptglyph.h"
 #include "render.h"
+#include "props.h"
 #include "po.h"
 #include "savedata.h"
 #include "screenrt.h"
@@ -72,7 +73,8 @@ extern std::unordered_map<int, int> g_mpoidiwrecTask;   // autoplay.cpp / brx.cp
 
 namespace
 {
-int s_iExportScope = 0;   // (the texture picker's model export: the picked group, within 5 / 15 / 40 m, the whole object)
+int s_iExportScope = 0;
+int s_imodelProp = 0;     // (the props' placement tool: the model to place, props.h)   // (the texture picker's model export: the picked group, within 5 / 15 / 40 m, the whole object)
 // ------------------------------------------------------------ state
 enum PAGEK { PK_Root, PK_Episodes, PK_Worlds, PK_Character, PK_Teleport, PK_Jobs, PK_JobList, PK_Player, PK_Speed, PK_Display, PK_Graphics,
              PK_Extras, PK_ExtrasChars, PK_ExtrasSly, PK_ExtrasCarm, PK_ExtrasGuardEps, PK_ExtrasGuards, PK_ExtrasBosses };
@@ -808,6 +810,44 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
         cycle("Lamp shadows (with the level's)", &g_display.lampShadows, {0, 1, 2, 4}, {"Off", "1 lamp", "2 lamps", "4 lamps"});
         cycle("Shadow casters (debug)", &g_display.shadowOverlay, {0, 1}, {"Off", "Shown"});
         cycle("Texture picker (debug)", &g_display.texturePicker, {0, 1}, {"Off", "Shown"});
+        cycle("Props (placement)", &g_display.propTool, {0, 1}, {"Off", "On"});
+        if (g_display.propTool > 0)
+        {
+            const int cmodel = CPropModels();
+            item("Model", [] { if (CPropModels()) s_imodelProp = (s_imodelProp + 1) % CPropModels(); },
+                 cmodel ? StrPropModel(s_imodelProp % cmodel) : std::string("(Mods/Props/Models is empty)"));
+            item("Place it at the crosshair", [] {
+                glm::vec3 pos, nrm;
+                if (!CPropModels()) { Status("no models in Mods/Props/Models"); return; }
+                if (!FCrosshairHit(&pos, &nrm)) { Status("nothing under the crosshair"); return; }
+                FPlaceProp(s_imodelProp % CPropModels(), pos, 0.0f);
+                Status("placed (not saved yet)");
+            }, "");
+            item("Selected", [] { SelectProp(IpropSelected() + 1); }, StrPropSelected());
+            item("Select the nearest to the crosshair", [] {
+                glm::vec3 pos, nrm;
+                if (FCrosshairHit(&pos, &nrm)) SelectPropNearest(pos);
+            }, "");
+            item("Move it to the crosshair", [] {
+                glm::vec3 pos, nrm;
+                if (FCrosshairHit(&pos, &nrm)) MovePropSelected(pos);
+                else Status("nothing under the crosshair");
+            }, "");
+            item("Turn +15", [] { TurnPropSelected(15.0f); }, "");
+            item("Turn -15", [] { TurnPropSelected(-15.0f); }, "");
+            item("Bigger", [] { ScalePropSelected(1.1f); }, "x 1.1");
+            item("Smaller", [] { ScalePropSelected(1.0f / 1.1f); }, "/ 1.1");
+            item("Up", [] { RaisePropSelected(10.0f); }, "10 cm");
+            item("Down", [] { RaisePropSelected(-10.0f); }, "10 cm");
+            item("Shown", [] { CyclePropSelectedAfter(); }, "always / after an episode");
+            item("Delete it", [] { DeletePropSelected(); Status("deleted (not saved yet)"); }, "");
+            item("Save this world's props", [] {
+                std::string str;
+                FSaveProps(&str);
+                Status(str);
+            }, "Mods/Props/w<world>.txt");
+            item("Read the models again", [] { RescanPropModels(); Status("models read again"); }, "");
+        }
         if (g_display.texturePicker > 0)
         {
             item("Copy the picked texture to Mods", [] {
@@ -1233,6 +1273,23 @@ void DrawDebugMenu()
     if (!pfont) return;
     if (s_fPerf) DrawPerf(*pfont, picons);
     s_yInfoBottom = 412.0f;
+    if (g_display.propTool > 0)
+    {
+        if (g_display.texturePicker <= 0 && g_display.shadowOverlay <= 0)
+        {
+            glm::vec3 pos, nrm;
+            DrawPickerCrosshair(FCrosshairHit(&pos, &nrm));
+        }
+        std::vector<std::pair<std::string, glm::vec4>> alines;
+        alines.push_back({"Props: Display > Graphics places, turns and saves them (Mods/Props)", glm::vec4(90, 90, 90, 0)});
+        glm::vec3 pos, nrm;
+        char ach[160];
+        if (FCrosshairHit(&pos, &nrm)) std::snprintf(ach, sizeof ach, "crosshair at %.0f %.0f %.0f", pos.x, pos.y, pos.z);
+        else std::snprintf(ach, sizeof ach, "crosshair: nothing under it");
+        alines.push_back({ach, glm::vec4(100, 100, 100, 0)});
+        alines.push_back({"selected: " + StrPropSelected(), glm::vec4(30, 110, 40, 0)});
+        s_yInfoBottom = DrawInfoBox(*pfont, picons, alines, s_yInfoBottom);
+    }
     if (g_display.texturePicker > 0) s_yInfoBottom = DrawTexturePickerInfo(*pfont, picons, s_yInfoBottom);
     if (g_display.shadowOverlay > 0) DrawShadowCasterInfo(*pfont, picons);
     if (!s_fOpen || s_apage.empty()) return;
@@ -1305,8 +1362,11 @@ void DrawDebugOverlay(int width, int height)
 {
     // (PC Extras: Carmelita's aim mode crosshair, pccharacter.h)
     g_fAddedGpuTimes = g_pcinput.fDebugKeys && s_fPerf;   // (render.h: measured while the Perf Display shows them)
+    g_fCrosshairHit = g_pcinput.fDebugKeys && g_display.propTool > 0;   // (render.h: the props' tool's point)
     const bool fCross = g_pcinput.fDebugKeys && FPcCarmCrosshair();
-    if (!g_pcinput.fDebugKeys || !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0 || g_display.texturePicker > 0)) return;
+    if (!g_pcinput.fDebugKeys ||
+        !(s_fOpen || s_fPerf || fCross || g_display.shadowOverlay > 0 || g_display.texturePicker > 0 || g_display.propTool > 0))
+        return;
     g_hud.Begin();
     if (fCross) DrawPcCarmCrosshair();
     DrawDebugMenu();
