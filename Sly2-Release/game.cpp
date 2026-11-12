@@ -2010,9 +2010,9 @@ int RunGame(const GAMEOPTS& go)
                 DrawSkillFxGhosts(scene, cam);
                 DrawLeapDragonAura(scene, cam);   // (PC: Leaping Dragon's red aura, leapdragon.h)
                 PostProcessScene(cam, opts.rgbaCel);   // (image quality over the 3D picture, before the HUD: post.h)
+                DrawTreasureSense(scene, cam);   // (PC: Treasure Sense's bottles glowing through walls, ancestors.h)
                 DrawRailSprintLines(g_gl.renderWidth, g_gl.renderHeight);   // (PC: Rail Sprint's speed lines, ninjamoves.h)
                 DrawSkillFx(g_gl.renderWidth, g_gl.renderHeight);           // (PC: the extra powerups' effects, skillfx.h)
-                DrawAncestorHud(g_gl.renderWidth, g_gl.renderHeight);       // (PC: Treasure Sense's markers, ancestors.h)
                 const double tHud = s_fFpsLog ? now() : 0.0;
                 DrawHud(psw.get(), g_gl.renderWidth, g_gl.renderHeight);
                 if (s_fFpsLog) g_msHudFpsLog += now() - tHud;

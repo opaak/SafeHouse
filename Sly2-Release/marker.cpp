@@ -213,6 +213,8 @@ void MarkerAlphas(LO* plo, const MARKER& m, float* pgMarker, float* pgLabel)
     const float t = g_clock.t;
     float g = GCurveUnit(t - std::max(s_tL3 + 10.0f, s_tBinoc + 10.0f), 1.0f, -0.5f, 0.0f);  // D_002C4494.., D_002C44A0
     float gLabel = GCurveUnit(t - (s_tBinoc + 0.1f), 1.0f, -1.0f, 0.0f);                    // D_002C449C, D_002C44B0
+    // (PC: the job names with L3 too, as long as its markers, not only in the binocucom's view)
+    gLabel = std::max(gLabel, GCurveUnit(t - (s_tL3 + 10.0f), 1.0f, -0.5f, 0.0f));
     if (g == 0.0f && gLabel == 0.0f)
     {
         // (both faded out: hidden or not, the same; the progress lookups below are skipped, they cost a frame's draw)
@@ -316,6 +318,7 @@ void CollectMarkerDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra)
             if (static const char* const sz = std::getenv("SLY2N_MARKERPART"); sz && std::atoi(sz) != palo->oid) return;
             const size_t c = aextra.size();
             AppendAloExtraDraws(scene, palo, mat, g, aextra);
+            for (size_t k = c; k < aextra.size(); ++k) aextra[k].fNoOutline = true;   // (PC: no depth outlines on the markers)
             static int s_cprint = 0;
             if (FPrint() && s_cprint < 12)
             {

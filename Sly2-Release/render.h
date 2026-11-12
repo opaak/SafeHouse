@@ -139,6 +139,12 @@ struct GHOSTDRAW
                                   // only where it is in front of the scene
 };
 void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<GHOSTDRAW>& adraw);
+// (PC) A glowing outer edge round objects, seen through walls (ancestors.cpp Treasure Sense: the clue bottles): each
+// globset's visible groups drawn as it is placed this frame into a mask with no depth test, at its brightness g
+// (0..1), then a glow of rgb round the mask's shapes, radius about 7 pixels at 1080 lines, added over the 3D picture
+// (xrayglow.frag). OpenGL on Windows and Linux only.
+struct XRAYPART { const SCENEGLOBSET* psgs = nullptr; float g = 1.0f; };
+void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector<XRAYPART>& apart, const glm::vec3& rgb);
 
 // More instances of loaded globs to draw this frame (RIPs' models: the glob iglob of an entry at mat, faded by
 // alpha); the particles fill them through the hook.
@@ -151,6 +157,7 @@ struct EXTRADRAW
     bool fBounds = false;
     glm::vec3 posBounds{0.0f};
     float sBoundsRadius = 0.0f, sMRD = 1e10f;
+    bool fNoOutline = false;   // (PC) kept out of the depth outlines (the job markers, marker.cpp: post.cpp outline.frag)
 };
 using PFNEXTRADRAWS = void (*)(const SCENE& scene, std::vector<EXTRADRAW>& aextra);
 extern PFNEXTRADRAWS g_pfnExtraDraws;

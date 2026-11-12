@@ -39,6 +39,9 @@ void CollectHackSwarmDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra); 
 
 RENDERSTATS g_renderstats;
 constinit PFNEXTRADRAWS g_pfnExtraDraws = nullptr;
+// (PC) the frame's extra draws kept out of the depth outlines (EXTRADRAW fNoOutline: the job markers), drawn into the
+// see-through cover at full cover where they are the frame's surface (FBuildTranslucentMask)
+static std::vector<EXTRADRAW> s_aextraNoOutline;
 
 struct GLGLOB
 {
@@ -2679,6 +2682,42 @@ bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, 
         glBindSampler(0, GLuint(samplerPrev));
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
     }
+    // (the draws kept out of the outlines, the job markers: full cover where they are the frame's surface)
+    if (!s_aextraNoOutline.empty())
+    {
+        glDisable(GL_BLEND);
+        glDisable(GL_STENCIL_TEST);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_GEQUAL);   // (reversed Z: where they are the surface, a little nearer)
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 64.0f);
+        s_shTransMask.Use();
+        glUniformMatrix4fv(s_shTransMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+        glUniform1i(s_shTransMask.Loc("fTextured"), 0);
+        glUniform1i(s_shTransMask.Loc("icolor"), 2);
+        glUniform1f(s_shTransMask.Loc("aConst"), 128.0f);
+        glUniform1f(s_shTransMask.Loc("rAlpha"), 1.0f);
+        glUniform1i(s_shTransMask.Loc("cbone"), 0);
+        const GLint locModel = s_shTransMask.Loc("matModel");
+        GLuint vaoCur = 0;
+        for (const EXTRADRAW& x : s_aextraNoOutline)
+        {
+            if (!x.psgs || !x.psgs->pglobset) continue;
+            const GLOBSET& gs = *x.psgs->pglobset;
+            if (x.iglob >= gs.aglob.size()) continue;
+            const GLOB* pgeom = PglobGeometry(gs, x.iglob);
+            if (!pgeom) continue;
+            if (pgeom->pgl->vao != vaoCur) glBindVertexArray(vaoCur = pgeom->pgl->vao);
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(x.mat));
+            for (const SUBGLOB& sub : pgeom->asubglob)
+                if (sub.indexCount)
+                    glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(sub.indexCount), GL_UNSIGNED_INT,
+                                             reinterpret_cast<void*>(size_t(pgeom->pgl->firstIndex + sub.firstIndex) * 4), pgeom->pgl->baseVertex);
+        }
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
     static size_t s_cPrinted = size_t(-1);
     if (std::getenv("SLY2N_WSPRINT") && s_ad.size() != s_cPrinted) std::printf("see-through cover: %zu parts\n", s_cPrinted = s_ad.size());
     return true;
@@ -4476,6 +4515,10 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
         CollectLaserDraws(scene, cam.pos, s_aextra);
         CollectPocketDraws(scene, s_aextra);
         CollectHackSwarmDraws(scene, s_aextra);
+        // (PC: the frame's draws kept out of the depth outlines, for FBuildTranslucentMask)
+        s_aextraNoOutline.clear();
+        for (const EXTRADRAW& x : s_aextra)
+            if (x.fNoOutline) s_aextraNoOutline.push_back(x);
         if (static const bool s_fList = std::getenv("SLY2N_EXTRALIST") != nullptr; s_fList)
             for (const EXTRADRAW& x : s_aextra)
                 std::fprintf(stderr, "extradraw sgs %d glob %d at %.0f %.0f %.0f\n", x.psgs ? x.psgs->oid : -1, x.iglob, x.mat[3].x, x.mat[3].y, x.mat[3].z);
@@ -5720,6 +5763,167 @@ void RenderGhostPoses(const SCENE& scene, const CAMERA& cam, const std::vector<G
     set(GL_STENCIL_TEST, fStencil);
     set(GL_CULL_FACE, fCull);
     set(GL_SCISSOR_TEST, fScissor);
+#endif
+}
+
+// ------------------------------------------------------------ PC: glowing edges through walls (render.h RenderXrayOutlines)
+void RenderXrayOutlines(const SCENE& scene, const CAMERA& cam, const std::vector<XRAYPART>& apart, const glm::vec3& rgb)
+{
+#if defined(__SWITCH__) || defined(__APPLE__)
+    (void)scene; (void)cam; (void)apart; (void)rgb;
+#else
+    (void)scene;
+    if (apart.empty() || !g_gl.window) return;
+    static GLSHADER s_shMask, s_shGlow;
+    static int s_state = 0;
+    static GLuint s_tex = 0, s_fbo = 0, s_ssbo = 0;
+    static int s_dx = 0, s_dy = 0;
+    if (s_state == 0)
+    {
+        s_state = s_shMask.FInit("smdepth.vert", "wsdebug.frag", "") && s_shGlow.FInit("shadowcombine.vert", "xrayglow.frag", "") ? 1 : -1;
+        if (s_state > 0) glGenBuffers(1, &s_ssbo);
+        std::printf("glowing edges: %s\n", s_state > 0 ? "built" : "did not build: none drawn");
+    }
+    if (s_state < 0) return;
+    const int dx = g_gl.renderWidth, dy = g_gl.renderHeight;
+    if (!s_fbo || dx != s_dx || dy != s_dy)
+    {
+        if (s_fbo) glDeleteFramebuffers(1, &s_fbo);
+        if (s_tex) glDeleteTextures(1, &s_tex);
+        GLint texPrev = 0, fboPrev = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texPrev);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fboPrev);
+        glGenTextures(1, &s_tex);
+        glBindTexture(GL_TEXTURE_2D, s_tex);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, dx, dy);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_2D, GLuint(texPrev));
+        glGenFramebuffers(1, &s_fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fbo);
+        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_tex, 0);
+        const GLenum buf = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &buf);
+        const bool fOk = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(fboPrev));
+        if (!fOk) { std::printf("glowing edges: the mask's framebuffer is not usable here\n"); s_state = -1; return; }
+        s_dx = dx, s_dy = dy;
+    }
+    const DISPPROJ proj = ProjectionForDisplay(glm::radians(cam.fovY));
+    CAMERA camDisplay = cam;
+    camDisplay.fovY = glm::degrees(proj.radFovY);
+    const glm::mat4 matWorldToClip = camDisplay.MatWorldToClip(proj.rAspect);
+    const float radius = std::max(3.0f, 7.0f * float(dy) / 1080.0f);
+
+    // the draws, and the screen's rectangle they and their glow cover (the glow pass only there)
+    struct XDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; float g; };
+    static std::vector<XDRAW> s_ad;
+    static std::vector<glm::mat4> s_amatBone;
+    s_ad.clear();
+    s_amatBone.clear();
+    float x0 = float(dx), y0 = float(dy), x1 = 0.0f, y1 = 0.0f;
+    for (const XRAYPART& part : apart)
+    {
+        const SCENEGLOBSET* psgs = part.psgs;
+        if (!psgs || !psgs->pglobset) continue;
+        const GLOBSET& gs = *psgs->pglobset;
+        bool fAny = false;
+        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        {
+            if (i >= psgs->afVisible.size() || !psgs->afVisible[i] || i >= psgs->amatGlob.size()) continue;
+            const GLOB* pgeom = PglobGeometry(gs, i);
+            if (!pgeom) continue;
+            const GLGLOB* pgl = i < psgs->apglInst.size() && psgs->apglInst[i] && psgs->apglInst[i]->vao ? psgs->apglInst[i] : pgeom->pgl;
+            uint32_t iboneFirst = 0, cbone = 0;
+            if (i < psgs->aamatBone.size() && !psgs->aamatBone[i].empty())
+            {
+                iboneFirst = uint32_t(s_amatBone.size());
+                cbone = uint32_t(psgs->aamatBone[i].size());
+                s_amatBone.insert(s_amatBone.end(), psgs->aamatBone[i].begin(), psgs->aamatBone[i].end());
+            }
+            for (const SUBGLOB& sub : pgeom->asubglob)
+            {
+                const WSWHY why = WsWhySub(sub);
+                if (why == WSWHY_Empty || why == WSWHY_LightVolume || why == WSWHY_Ps2Shadow) continue;   // (its body; its glow too)
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &psgs->amatGlob[i], iboneFirst, cbone, part.g});
+                fAny = true;
+            }
+        }
+        if (!fAny) continue;
+        // its sphere on the screen (the whole screen when it reaches behind the camera)
+        const glm::vec3 c = psgs->fBounds ? psgs->posBounds : glm::vec3(psgs->amatGlob.empty() ? glm::vec4(0.0f) : psgs->amatGlob[0][3]);
+        const float r = psgs->fBounds ? psgs->sBoundsRadius : 200.0f;
+        const glm::vec4 pc = matWorldToClip * glm::vec4(c, 1.0f);
+        if (pc.w <= r + 1.0f) { x0 = y0 = 0.0f; x1 = float(dx); y1 = float(dy); continue; }
+        const glm::vec2 ps = (glm::vec2(pc) / pc.w * 0.5f + 0.5f) * glm::vec2(float(dx), float(dy));
+        const float rpx = r / pc.w * std::max(std::fabs(matWorldToClip[0][0]) * float(dx), std::fabs(matWorldToClip[1][1]) * float(dy)) * 0.5f * 1.2f + radius + 2.0f;
+        x0 = std::min(x0, ps.x - rpx), y0 = std::min(y0, ps.y - rpx), x1 = std::max(x1, ps.x + rpx), y1 = std::max(y1, ps.y + rpx);
+    }
+    x0 = std::max(x0, 0.0f), y0 = std::max(y0, 0.0f), x1 = std::min(x1, float(dx)), y1 = std::min(y1, float(dy));
+    if (s_ad.empty() || x1 <= x0 || y1 <= y0) return;
+    const GLint sx = GLint(x0), sy = GLint(y0), sw = GLint(std::ceil(x1)) - sx, sh = GLint(std::ceil(y1)) - sy;
+
+    SMSAVE save;
+    GLint texUnit0 = 0, samplerUnit0 = 0, aboxScissor[4] = {};
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texUnit0);
+    glGetIntegerv(GL_SAMPLER_BINDING, &samplerUnit0);
+    glGetIntegerv(GL_SCISSOR_BOX, aboxScissor);
+    // the mask: every draw where it is on the screen, walls or not (the brightest kept)
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fbo);
+    glViewport(0, 0, dx, dy);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(sx, sy, sw, sh);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_MAX);
+    glBlendFunc(GL_ONE, GL_ONE);
+    s_shMask.Use();
+    glUniformMatrix4fv(s_shMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+    const GLint locModel = s_shMask.Loc("matModel"), locCBone = s_shMask.Loc("cbone"), locBoneFirst = s_shMask.Loc("iboneFirst"), locRgba = s_shMask.Loc("rgba");
+    GLint ssboPrev = 0;
+    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, GLsizeiptr(std::max<size_t>(1, s_amatBone.size()) * sizeof(glm::mat4)),
+                 s_amatBone.empty() ? nullptr : s_amatBone.data(), GL_STREAM_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, s_ssbo);
+    GLuint vaoCur = 0;
+    for (const XDRAW& d : s_ad)
+    {
+        if (d.vao != vaoCur) glBindVertexArray(vaoCur = d.vao);
+        const float g = std::clamp(d.g, 1.0f / 255.0f, 1.0f);
+        glUniform4f(locRgba, g, g, g, g);
+        glUniform1i(locCBone, GLint(d.cbone));
+        glUniform1i(locBoneFirst, GLint(d.iboneFirst));
+        glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(*d.pmat));
+        glDrawElementsBaseVertex(GL_TRIANGLES, GLsizei(d.count), GL_UNSIGNED_INT, reinterpret_cast<void*>(size_t(d.firstIndex) * 4), d.baseVertex);
+    }
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, GLuint(ssboPrev));
+    // the glow, added over the frame (the alpha kept: the game's)
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_gl.FboScene());
+    glViewport(0, 0, dx, dy);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    s_shGlow.Use();
+    glBindTexture(GL_TEXTURE_2D, s_tex);
+    glBindSampler(0, 0);
+    glUniform1i(s_shGlow.Loc("texMask"), 0);
+    glUniform3f(s_shGlow.Loc("rgb"), rgb.r, rgb.g, rgb.b);
+    glUniform1f(s_shGlow.Loc("radius"), radius);
+    glBindVertexArray(s_vaoEmpty);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindTexture(GL_TEXTURE_2D, GLuint(texUnit0));
+    glBindSampler(0, GLuint(samplerUnit0));
+    glScissor(aboxScissor[0], aboxScissor[1], aboxScissor[2], aboxScissor[3]);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 #endif
 }
 

@@ -15,6 +15,8 @@
 #include "pickup.h"
 #include "po.h"
 #include "raccoonus.h"
+#include "render.h"
+#include "scene.h"
 #include "skillfx.h"
 #include "so.h"
 #include "sw.h"
@@ -134,7 +136,11 @@ void UpdateAncestorTechniques()
     if (FPrint() && (uOld >= 0.6f) != (s_cloak.u >= 0.6f)) std::printf("ancestors: Shadow Cloak %s at %.2f\n", s_cloak.u >= 0.6f ? "on" : "off", t);
 }
 
-void DrawAncestorHud(int width, int height)
+// Treasure Sense: the clue bottles still to find within kRSense of Sly, their own models with a glowing outer edge
+// seen through walls (render.h RenderXrayOutlines), brighter nearer, each with a slow pulse of its own. The bottles
+// are the streaming pool's instances (class 0x5F) sharing one model: their placements in the scene are those globsets
+// placed at a bottle still to find (pickup.cpp AposCluesLeft).
+void DrawTreasureSense(const SCENE& scene, const CAMERA& cam)
 {
     if (!g_psw) return;
     LO* plo = PloPoCurrent(g_psw);
@@ -145,27 +151,27 @@ void DrawAncestorHud(int width, int height)
     AposCluesLeft(s_apos);
     if (s_apos.empty()) return;
     const glm::vec3 posSly = PosAloCenter(psly->palo);
-    constexpr float z = 0.9994f;
-    bool fBegun = false;
-    for (const glm::vec3& pos : s_apos)
+    std::vector<const GLOBSET*> apgs;
+    for (LO* pinst : g_psw->mpcidaplo[0x5F])
+        if (pinst && pinst->fInWorld && !pinst->fRemoved && FIsLoDerivedFrom(pinst, 0x30))
+            if (const GLOBSET* pgs = static_cast<ALO*>(pinst)->pglobset.get(); pgs && std::find(apgs.begin(), apgs.end(), pgs) == apgs.end())
+                apgs.push_back(pgs);
+    if (apgs.empty()) return;
+    static std::vector<XRAYPART> s_apart;
+    s_apart.clear();
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
     {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || std::find(apgs.begin(), apgs.end(), sgs.pglobset.get()) == apgs.end()) continue;
+        const glm::vec3 pos = sgs.fBounds ? sgs.posBounds : sgs.amatGlob.empty() ? glm::vec3(1e9f) : glm::vec3(sgs.amatGlob[0][3]);
+        bool fLeft = false;
+        for (const glm::vec3& p : s_apos) fLeft = fLeft || glm::length(p - pos) < 250.0f;
+        if (!fLeft) continue;
         const float d = glm::length(pos - posSly);
         if (d > kRSense) continue;
-        glm::vec2 c;
-        if (!FCanvas(pos + glm::vec3(0, 0, 30), &c) || c.x < -20.0f || c.x > 660.0f || c.y < -20.0f || c.y > 468.0f) continue;
-        if (!fBegun) g_hud.Begin(), fBegun = true;
-        // nearer: bigger and brighter; a slow pulse, each its own
         const float near = 1.0f - d / kRSense;
-        const float pulse = 0.75f + 0.25f * std::sin(g_clock.tReal * 3.0f + pos.x * 0.01f + pos.y * 0.013f);
-        const float a = (30.0f + 70.0f * near) * pulse;
-        const float r = 6.0f + 10.0f * near;
-        g_hud.DrawRing(c.x, c.y, r * 2.2f, 0.0f, 1.0f, glm::vec4(40, 128, 110, a * 0.25f), z);   // (the glow)
-        g_hud.DrawRing(c.x, c.y, r * 1.4f, 0.0f, 1.0f, glm::vec4(60, 128, 120, a * 0.35f), z);
-        g_hud.DrawRing(c.x, c.y, r * 1.1f, r * 0.8f, 1.0f, glm::vec4(110, 128, 128, a), z + 1e-5f);   // (its ring)
-        // a little bottle: its body and neck
-        const float s = r * 0.55f;
-        g_hud.FillScreenRect(c.x - s * 0.55f, c.y - s * 0.2f, c.x + s * 0.55f, c.y + s * 0.9f, glm::vec4(90, 128, 120, a), z + 2e-5f);
-        g_hud.FillScreenRect(c.x - s * 0.22f, c.y - s * 0.85f, c.x + s * 0.22f, c.y - s * 0.2f, glm::vec4(90, 128, 120, a), z + 2e-5f);
+        const float pulse = 0.8f + 0.2f * std::sin(g_clock.tReal * 3.0f + pos.x * 0.01f + pos.y * 0.013f);
+        s_apart.push_back({&sgs, (0.35f + 0.65f * near) * pulse});
     }
-    if (fBegun) g_hud.Flush(width, height);
+    if (s_apart.empty()) return;
+    RenderXrayOutlines(scene, cam, s_apart, glm::vec3(0.35f, 1.0f, 0.85f));
 }
