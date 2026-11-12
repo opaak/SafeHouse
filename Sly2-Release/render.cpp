@@ -2358,7 +2358,7 @@ bool FEnsureCharMask(int dx, int dy)
 // the render kinds of the characters' groups (the FBA kinds: 4, faded 6)
 bool FCharacterGlob(const GLOB& glob) { const int kind = glob.rp & 0x1F; return kind == 4 || kind == 6; }
 
-bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
+bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, const glm::vec3& posEye, GLuint fbo, int dx, int dy)
 {
     if (!FEnsureCharMask(dx, dy)) return false;
     struct MDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; };
@@ -2412,6 +2412,13 @@ bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, GL
         glPolygonOffset(1.0f, 64.0f);
         s_shCharMask.Use();
         glUniformMatrix4fv(s_shCharMask.Loc("matWorldToLight"), 1, GL_FALSE, glm::value_ptr(matWorldToClip));
+        // The mask's triangles are the model's own. The frame drew the characters smoothed (glob.geom's PN triangles,
+        // gl.h g_cSmoothGlob), their surface bulging up to a few units out of those triangles, where the mask's
+        // depth test failed and the shadows and the AO fell on them in patches. So the mask is drawn that much toward
+        // the camera (a little, unsmoothed, for the GS's rounding); a wall closer in front of a character than that
+        // is rare and only loses its shadow there.
+        glUniform3f(s_shCharMask.Loc("posEye"), posEye.x, posEye.y, posEye.z);
+        glUniform1f(s_shCharMask.Loc("sTowardEye"), g_cSmoothGlob > 0 ? 6.0f : 1.5f);
         const GLint locModel = s_shCharMask.Loc("matModel"), locCBone = s_shCharMask.Loc("cbone"), locBoneFirst = s_shCharMask.Loc("iboneFirst");
         GLint ssboPrev = 0;
         glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 7, &ssboPrev);
@@ -4866,7 +4873,7 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
     s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
-    s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
+    s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
     if (NWorldShadowsNow() > 0) DrawWorldShadows(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);
     // (PC debug: the casters shown, display.h shadowOverlay)
     if (g_display.shadowOverlay > 0) DrawShadowCasterOverlay(scene, pv.matWorldToClip, cam.pos, pv.dir, pv.fbo, pv.dx, pv.dy);

@@ -10,6 +10,8 @@ uniform mat4 matWorldToLight;
 uniform mat4 matModel;
 uniform int iboneFirst;
 uniform int cbone;        // 0: not skinned (matModel)
+uniform vec3 posEye;      // (the characters' mask, render.cpp FBuildCharacterMask) the camera, and how far toward it
+uniform float sTowardEye; // the surface is drawn (0: in place; the shadow maps' and the world shadows' casters)
 void main()
 {
     vec4 p = vec4(aPos, 1.0);
@@ -22,5 +24,11 @@ void main()
         posWorld.w = 1.0;
     }
     else posWorld = matModel * p;
+    if (sTowardEye > 0.0)
+    {
+        vec3 d = posEye - posWorld.xyz;
+        float l = length(d);
+        if (l > 1e-3) posWorld.xyz += d * (min(sTowardEye, 0.5 * l) / l);
+    }
     gl_Position = matWorldToLight * posWorld;
 }
