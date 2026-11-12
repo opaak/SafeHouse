@@ -134,8 +134,7 @@ animated (multi-frame) textures and in particles.
 
 ### Models (export for Blender)
 
-The first step toward model mods: the game can write any object's model out for Blender. Replacing a model in the game
-comes in a later step.
+The game can write any object's model out for Blender, and take the edited file back in its place.
 
 1. With the debug keys on, open the debug menu's Display > Graphics, turn on **Texture picker**, and aim the crosshair
    at the centre of the picture at the object (the free camera helps).
@@ -150,8 +149,27 @@ comes in a later step.
 - The root turns the game's Z-up units (1 unit = 1 cm) into metres, so the model is life-sized.
 - The vertex colours (the game's baked light) come in as the `Col` colour attribute.
 - A skinned group (one with bones) comes out in the pose it had when you exported it.
-- The nodes' custom properties (`sly2_glob`, `sly2_posed`, and the root's `sly2_oid`) are what the import will use
-  to put your edits back. Keep the object names.
+- The nodes' custom properties (`sly2_glob`, `sly2_matrix`, `sly2_posed`, and the root's `sly2_world`, `sly2_oid`,
+  `sly2_globs`) are what the import uses to put your edits back. Keep the object and material names.
+
+#### Putting the edited model back
+
+1. In Blender: File > Export > glTF 2.0, format **glTF Binary (.glb)**, and under Include tick **Custom Properties**.
+   Save it into `Mods/Models/` (not `Export`) under the exported file's name (it begins `w<world>_` and holds
+   `_oid<oid>`: that is how the game knows where it goes).
+2. Enter the world again (a file is read when the world is built; the log says `model mod ...: N groups replaced`).
+
+- Each `glob_<n>` object becomes group n. Move it, reshape it, or replace its mesh; delete it to remove the group. A group
+  not in the file is left as it was.
+- Any other mesh object joins the group the crosshair was on at the export, where it stands in Blender.
+- A mesh keeps the look of the part its material is named after (`sly2_g<n>_s<m>`: its texture, blending and
+  animation). A mesh with another material takes its group's first part's look. To change a texture, use
+  `Mods/Textures` (the texture picker names it).
+- The light (the vertex colours) comes from the nearest original vertex, so the model sits in the level's light.
+- Without the custom properties the names still work, but a moved `glob_<n>` object counts as not moved (apply its
+  transform with Ctrl+A first) and a deleted one stays.
+- Not replaced: skinned groups (with bones), instanced copies of a shared group, and warped groups. The log names
+  how many were left.
 
 ### Technique icons
 

@@ -226,6 +226,7 @@ struct GLOBSET
     std::vector<GLOB> aglob;            // +0x38 groups (templates and their instances)
     std::vector<std::array<GLOBSPHERE, 4>> asphereset;  // +0x48
     uint64_t grfglobset = 0;            // +0x50: bit 32 lit, bit 33 type-2 mesh
+    bool fModelModsTried = false;       // (PC, modelimport.h) the model mods looked at for this model
 #ifdef __SWITCH__
     // (the Switch: per group whether it is a cel border, set at the load (glob.cpp), for the volume tree's walk
     // (render.cpp) instead of each group's large record)

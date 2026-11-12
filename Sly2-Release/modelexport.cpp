@@ -88,6 +88,7 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
     // the materials by (texture, blending), each texture once
     std::map<std::pair<const void*, const void*>, int> mpimage;
     std::map<std::tuple<const void*, const void*, int>, int> mpmat;
+    std::vector<int> aiglobOut;
 
     // the frame of reference: the first shown rigid group's matrix (the others relative to it)
     glm::mat4 matRef = mx.matRef;
@@ -182,7 +183,8 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                     }
             }
             int imat = -1;
-            const auto key = std::make_tuple(static_cast<const void*>(pbmp), static_cast<const void*>(pclut), blend);
+            // (a material per shader: the import gives its meshes that shader back; the images shared by texture)
+            const auto key = std::make_tuple(static_cast<const void*>(sub.pshd), static_cast<const void*>(sub.psaa), blend);
             if (const auto it = mpmat.find(key); it != mpmat.end()) imat = it->second;
             else
             {
@@ -220,11 +222,13 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                         mpimage[keyImg] = itex;
                     }
                 }
-                materials << (fFirstMat ? "" : ",") << "{\"name\":\"mat" << cmat << (blend == 2 ? "_glow" : "") << "\",\"doubleSided\":true,"
+                // (named by the part it came from: the import gives a mesh with this material that part's shader)
+                materials << (fFirstMat ? "" : ",") << "{\"name\":\"sly2_g" << i << "_s" << (&sub - geom.asubglob.data()) << (blend == 2 ? "_glow" : "")
+                          << "\",\"doubleSided\":true,"
                           << "\"alphaMode\":\"" << (blend ? "BLEND" : pbmp ? "MASK" : "OPAQUE") << "\"" << (blend || !pbmp ? "" : ",\"alphaCutoff\":0.25")
                           << ",\"pbrMetallicRoughness\":{\"metallicFactor\":0,\"roughnessFactor\":1";
                 if (itex >= 0) materials << ",\"baseColorTexture\":{\"index\":" << itex << "}";
-                materials << "},\"extras\":{\"sly2_blend\":" << blend << "}}";
+                materials << "},\"extras\":{\"sly2_blend\":" << blend << ",\"sly2_glob\":" << i << ",\"sly2_sub\":" << (&sub - geom.asubglob.data()) << "}}";
                 fFirstMat = false;
                 imat = cmat++;
                 mpmat[key] = imat;
@@ -240,7 +244,8 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
         // its node: relative to the reference (posed: its vertices are in the world)
         const glm::mat4 matNode = fPosed ? matRefInv : matRefInv * mx.amatGlob[i];
         nodes << (fFirstNode ? "" : ",") << "{\"name\":\"glob_" << i << "\",\"mesh\":" << cmesh << ",\"matrix\":" << StrMatrix(matNode)
-              << ",\"extras\":{\"sly2_glob\":" << i << ",\"sly2_posed\":" << (fPosed ? "true" : "false") << "}}";
+              << ",\"extras\":{\"sly2_glob\":" << i << ",\"sly2_posed\":" << (fPosed ? "true" : "false") << ",\"sly2_matrix\":" << StrMatrix(matNode) << "}}";
+        aiglobOut.push_back(int(i));
         fFirstNode = false;
         aichild.push_back(cnode++);
         ++cmesh;
@@ -259,7 +264,10 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
     json << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"SafeHouse Sly 2 model export\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],";
     json << "\"nodes\":[{\"name\":\"" << StrJson(name) << "\",\"matrix\":" << StrMatrix(matRoot) << ",\"children\":[";
     for (size_t k = 0; k < aichild.size(); ++k) json << (k ? "," : "") << aichild[k];
-    json << "],\"extras\":{\"sly2_oid\":" << mx.oid << ",\"sly2_units_per_metre\":100,\"sly2_reference\":" << StrMatrix(matRef) << "}}"
+    json << "],\"extras\":{\"sly2_oid\":" << mx.oid << ",\"sly2_world\":" << mx.iwrec << ",\"sly2_pick_glob\":"
+         << (mx.iglobPick >= 0 ? mx.iglobPick : aiglobOut.front()) << ",\"sly2_globs\":[";
+    for (size_t k = 0; k < aiglobOut.size(); ++k) json << (k ? "," : "") << aiglobOut[k];
+    json << "],\"sly2_units_per_metre\":100,\"sly2_root\":" << StrMatrix(matRoot) << ",\"sly2_reference\":" << StrMatrix(matRef) << "}}"
          << (fFirstNode ? "" : ",") << nodes.str() << "],";
     json << "\"meshes\":[" << meshes.str() << "],\"materials\":[" << materials.str() << "]";
     if (!fFirstTex)

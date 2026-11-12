@@ -23,6 +23,8 @@ struct MODELEXPORT
     std::vector<std::vector<glm::mat4>> aamatBone;  // per skinned group its bones this frame
     std::vector<uint8_t> afVisible;                 // per group whether the frame showed it
     int oid = -1;
+    int iwrec = -1;   // the world (transition.h iwrecCur): the import matches the file to it
+    int iglobPick = -1;   // the group picked (the import's home for new meshes)
     // (optional) the frame of reference: the file's origin (the group picked, at its middle); else the first shown
     // rigid group's matrix
     bool fRef = false;

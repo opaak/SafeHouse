@@ -2,6 +2,7 @@
 
 #include "texmod.h"
 #include "modelexport.h"
+#include "modelimport.h"
 #include "../platform/platform.h"
 #include "render.h"
 #include "simdmat.h"
@@ -4028,9 +4029,14 @@ glm::mat4 CAMERA::MatWorldToClip(float aspect) const
 void BuildSceneGpu(SCENE& scene)
 {
     InitCommon();
+    BeginModelMods();
     for (SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        // (PC modding: Mods/Models' replacements, before the groups are made for the GPU: modelimport.h)
+        if (sgs.pglobset && !sgs.pglobset->fModelModsTried) ApplyModelMods(*sgs.pglobset, sgs.oid);
         for (GLOB& glob : sgs.pglobset->aglob)
             BuildGlobGpu(glob);
+    }
     FlushArena();
     for (int iprog = 0; iprog < 2; ++iprog)
     {
@@ -6152,6 +6158,10 @@ bool FExportPickedModel(const std::string& name, float sRadius, std::string* pst
         (void)cKept;
     }
     else std::snprintf(ach, sizeof ach, "_oid%d.glb", s_mxPick.oid);
+    // (the world first: the import matches the file to the world and the object, modelimport.h)
+    mx.iwrec = g_transition.iwrecCur;
+    mx.iglobPick = int(iPick);
+    stem = "w" + std::to_string(mx.iwrec) + "_" + stem;
     const std::string path = cane::utf8(cane::path(g_disc.DirMods()) / "Models" / "Export" / cane::path(stem + ach));
     std::string info, err;
     if (!FExportModelGlb(mx, stem, path, &info, &err)) { *pstr = "not written: " + err; return false; }
