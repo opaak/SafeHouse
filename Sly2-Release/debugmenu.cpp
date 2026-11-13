@@ -853,6 +853,11 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 ToggleLockPropSelected();
                 Status(FPropSelectedLocked() ? "locked (not saved yet)" : "unlocked");
             }, IpropSelected() < 0 ? "" : FPropSelectedLocked() ? "Locked" : "Free");
+            item("Boss item", [] {
+                if (IpropSelected() < 0) { Status("nothing selected"); return; }
+                ToggleBossPropSelected();
+                Status(FPropSelectedBoss() ? "a boss item: cross looks at it closely at the trophy stop (not saved yet)" : "not a boss item");
+            }, IpropSelected() < 0 ? "" : FPropSelectedBoss() ? "Yes" : "No");
             item("Move it to the crosshair", edit("move", [] {
                 glm::vec3 pos, nrm;
                 if (FCrosshairHit(&pos, &nrm)) MovePropSelected(pos);

@@ -1,6 +1,7 @@
 // See raccoonus.h.
 
 #include "raccoonus.h"
+#include "props.h"
 #include "ancestors.h"
 #include "joy.h"
 #include "frontend.h"
@@ -449,8 +450,14 @@ void DrawRaccoonusHud(int width, int height)
     {
         // (PC) the trophy view's stop: its name on the same band
         g_hud.FillScreenRect(-480.0f, 352.0f, 1120.0f, 420.0f, glm::vec4(0, 0, 0, 80), z - 3e-4f);
-        const std::string strName = "Trophies";
-        DrawLine(*pfont, picons, strName, 320.0f - 0.5f * DxLine(*pfont, picons, strName, 28.0f), 362.0f, 28.0f, glm::vec4(96, 80, 20, 0));
+        // (a boss item lifted out, props.h: its name and its buttons; else cross to look at them when there are any)
+        const bool fInspect = FBossInspectOpen();
+        const std::string strName = fInspect ? StrBossInspected() : std::string("Trophies");
+        const std::string strBtn = fInspect ? std::string("Left stick: turn   Right stick: nearer / further   &2L&. &2R&.: other items   ") + SzMenuBackGlyph() + " Put back"
+                                 : CBossItems() > 0 ? std::string(SzMenuConfirmGlyph()) + " Look closer" : std::string();
+        const float yName = strBtn.empty() ? 362.0f : 356.0f;
+        DrawLine(*pfont, picons, strName, 320.0f - 0.5f * DxLine(*pfont, picons, strName, 28.0f), yName, 28.0f, glm::vec4(96, 80, 20, 0));
+        if (!strBtn.empty()) DrawLine(*pfont, picons, strBtn, 320.0f - 0.5f * DxLine(*pfont, picons, strBtn, 16.0f), 392.0f, 16.0f, glm::vec4(100, 100, 100, 0));
     }
     if (fBook)
     {

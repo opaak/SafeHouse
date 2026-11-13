@@ -3,7 +3,8 @@
 // PC modding: props, models of your own placed in a world (Mods/Props). A model is a glTF file in Mods/Props/Models
 // (made in Blender, its origin where it stands; or exported from the game, which is stood on its base); a world's
 // props are the lines of Mods/Props/w<world>.txt:
-//     <model file> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode 1..8>] [locked]
+//     <model file> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode 1..8>] [locked] [boss]
+//     [title <words_with_underscores>]
 // (the game's units, centimetres, Z up; turn about Z in degrees; "after 3": shown once episode 3 is complete).
 // Each is drawn as one of the frame's extra draws (render.h), lit by the level's light where it stands (the nearest
 // level vertices' colours, shaded by its own normals): cel shading, outlines and the ambient occlusion as the level's.
@@ -28,6 +29,18 @@ void ClearPropView(const char* name);
 // game.cpp, each frame after the game's camera (and the free camera) are set: the trophy stop's view eased in and
 // out (not over the free camera); the camera drawn kept for SetPropViewHere
 void ApplySafeHouseView(CAMERA& cam, bool fFreeCam);
+
+// ---- boss items: props marked "boss" (the tool's Boss item row; "title <words_with_underscores>" names one). At the
+// trophy stop cross lifts one out to float before the camera: the left stick turns it, the right stick brings it
+// nearer or further, L1 / R1 the previous / next, circle puts it back (po.cpp calls these; raccoonus.cpp the label)
+int CBossItems();                           // this world's shown boss items
+bool FBossInspectOpen();                    // (also while it is put back)
+void OpenBossInspect();
+void UpdateBossInspect();
+void CloseBossInspect();                    // at once (the safe house left)
+std::string StrBossInspected();             // its title, and "n / N"
+void ToggleBossPropSelected();
+bool FPropSelectedBoss();
 
 // the frame's props (render.cpp's extra draws): loaded for the world, made for the GPU when first drawn
 void CollectPropDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra);

@@ -10,9 +10,14 @@
 #include "shd.h"
 #include "transition.h"
 #include "raccoonus.h"
+#include "region.h"
+#include "sound.h"
 #include "../platform/platform.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include "frontend.h"
+#include "joy.h"
 
 #include <algorithm>
 #include <chrono>
@@ -50,6 +55,8 @@ struct PROP
     float turn = 0.0f, pitch = 0.0f, roll = 0.0f, scale = 1.0f;
     int after = 0;   // 0 always; else shown once that episode is complete
     bool fLocked = false;   // (the placement tool leaves it as it is)
+    bool fBoss = false;     // (a boss item: looked at closely at the trophy stop)
+    std::string title;      // (its name there; "" the file's)
     // made for the GPU at its place (its light is the place's): rebuilt when moved
     SCENEGLOBSET sgs;
     bool fBuilt = false;
@@ -74,13 +81,27 @@ struct PROPVIEW
 };
 std::map<std::string, PROPVIEW> s_mpview;
 CAMERA s_camLast;
-bool s_fCamLast = false;   // (the frame's scene, CollectPropDraws: the surfaces the tool snaps to)
+bool s_fCamLast = false;
+// a boss item looked at closely (props.h)
+struct INSPECT
+{
+    bool fOpen = false, fClosing = false;
+    int iprop = -1;
+    float u = 0.0f;               // (0 at its place .. 1 before the camera)
+    glm::quat q0{1, 0, 0, 0};     // its turn as placed, in the camera's frame (forward, left, up)
+    glm::quat q{1, 0, 0, 0};      // as turned
+    float zoom = 1.0f, tIdle = 0.0f, t = 0.0f;
+    double tPrev = 0.0;
+};
+INSPECT s_insp;
+glm::mat4 MatInspect(const PROP& p, const glm::vec4& sphere);   // (the frame's scene, CollectPropDraws: the surfaces the tool snaps to)
 
 fs::path DirProps() { return cane::path(g_disc.DirMods()) / "Props"; }
 fs::path PathWorldProps() { return DirProps() / ("w" + std::to_string(g_transition.iwrecCur) + ".txt"); }
 
 void LoadWorldProps()
 {
+    s_insp = INSPECT{};
     s_aprop.clear();
     s_mpview.clear();
     s_mpmodel.clear();
@@ -119,6 +140,8 @@ void LoadWorldProps()
             else if (key == "tilt") is >> prop->pitch >> prop->roll;
             else if (key == "after") is >> prop->after;
             else if (key == "locked") prop->fLocked = true;
+            else if (key == "boss") prop->fBoss = true;
+            else if (key == "title") is >> prop->title;
             else std::printf("props: %s line %d: '%s' not known\n", cane::utf8(PathWorldProps()).c_str(), iline, key.c_str());
         }
         prop->scale = std::clamp(prop->scale, 0.01f, 100.0f);
@@ -324,7 +347,7 @@ void CollectPropDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra)
         EXTRADRAW x;
         x.psgs = &p.sgs;
         x.iglob = 0;
-        x.mat = MatOfProp(p);
+        x.mat = s_insp.fOpen && int(i) == s_insp.iprop ? MatInspect(p, pm->sphere) : MatOfProp(p);
         // (the selected one, in the placement tool: a slow pulse)
         x.alpha = int(i) == s_ipropSel && g_fCrosshairHit ? 0.6f + 0.4f * (0.5f + 0.5f * std::sin(float(s_cframe) * 0.15f)) : 1.0f;
         x.fBounds = true;
@@ -381,7 +404,7 @@ std::string StrPropSelected()
     char ach[320];
     std::snprintf(ach, sizeof ach, "%d/%zu %s  at %.0f %.0f %.0f  turn %.0f  tilt %.0f %.0f  x%.2f  %s%s%s", s_ipropSel + 1, s_aprop.size(),
                   p.file.c_str(), p.pos.x, p.pos.y, p.pos.z, p.turn, p.pitch, p.roll, p.scale, p.after ? "after episode " : "always",
-                  p.after ? std::to_string(p.after).c_str() : "", p.fLocked ? "  LOCKED" : "");
+                  p.after ? std::to_string(p.after).c_str() : "", p.fLocked ? "  LOCKED" : p.fBoss ? "  BOSS" : "");
     return ach;
 }
 
@@ -554,9 +577,13 @@ bool FStickPropSelected(bool fStand, std::string* pstr)
     return true;
 }
 
+bool FPropSelectedBoss() { const PROP* p = PpropSel(); return p && p->fBoss; }
+void ToggleBossPropSelected() { if (PROP* p = PpropSel()) p->fBoss = !p->fBoss; }
+
 void DeletePropSelected()
 {
     if (!PpropEdit()) return;
+    s_insp = INSPECT{};
     s_aprop.erase(s_aprop.begin() + s_ipropSel);
     s_ipropSel = s_aprop.empty() ? -1 : std::min(s_ipropSel, int(s_aprop.size()) - 1);
 }
@@ -569,7 +596,7 @@ bool FSaveProps(std::string* pstr)
     std::ofstream out(PathWorldProps());
     if (!out) { *pstr = "cannot write " + cane::utf8(PathWorldProps()); return false; }
     out << "# Sly 2 props of world " << g_transition.iwrecCur << " (Mods/Props/Models' files; the game's units, Z up)\n";
-    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked]\n";
+    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked] [boss] [title <words_with_underscores>]\n";
     out << "# view <name> <x> <y> <z> <yaw> <pitch> [fov]   (\"trophies\": the safe house's trophy stop)\n";
     for (const auto& [name, v] : s_mpview)
     {
@@ -587,6 +614,8 @@ bool FSaveProps(std::string* pstr)
         if (p.pitch != 0.0f || p.roll != 0.0f) out << " tilt " << p.pitch << " " << p.roll;
         if (p.after) out << " after " << p.after;
         if (p.fLocked) out << " locked";
+        if (p.fBoss) out << " boss";
+        if (!p.title.empty()) out << " title " << p.title;
         out << "\n";
     }
     *pstr = "saved " + std::to_string(s_aprop.size()) + " props" + (s_mpview.empty() ? "" : " and " + std::to_string(s_mpview.size()) + " view(s)") +
@@ -650,4 +679,141 @@ void ApplySafeHouseView(CAMERA& cam, bool fFreeCam)
     }
     s_camLast = cam;
     s_fCamLast = true;
+}
+
+// ---- boss items looked at closely
+namespace
+{
+std::vector<int> AipropBoss()
+{
+    std::vector<int> a;
+    for (size_t i = 0; i < s_aprop.size(); ++i)
+        if (s_aprop[i]->fBoss && FShown(*s_aprop[i])) a.push_back(int(i));
+    return a;
+}
+
+// the camera's frame: forward, left, up (columns)
+glm::mat3 MatCameraFrame()
+{
+    const glm::vec3 f = glm::normalize(s_camLast.Dir());
+    glm::vec3 l = glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), f);
+    l = glm::dot(l, l) < 1e-6f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(l);
+    return glm::mat3(f, l, glm::cross(f, l));
+}
+
+void StartInspect(int iprop)
+{
+    s_insp.iprop = iprop;
+    s_insp.fOpen = true;
+    s_insp.fClosing = false;
+    s_insp.u = 0.0f;
+    s_insp.zoom = 1.0f;
+    s_insp.tIdle = 0.0f;
+    const PROP& p = *s_aprop[size_t(iprop)];
+    glm::mat4 m = glm::rotate(glm::mat4(1.0f), glm::radians(p.turn), glm::vec3(0.0f, 0.0f, 1.0f));
+    m = glm::rotate(m, glm::radians(p.pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+    m = glm::rotate(m, glm::radians(p.roll), glm::vec3(0.0f, 1.0f, 0.0f));
+    s_insp.q0 = s_insp.q = glm::normalize(glm::quat_cast(glm::transpose(MatCameraFrame()) * glm::mat3(m)));
+}
+
+glm::mat4 MatInspect(const PROP& p, const glm::vec4& sphere)
+{
+    // eased from its place to before the camera, floating; turned about its middle
+    const float e = s_insp.u * s_insp.u * (3.0f - 2.0f * s_insp.u);
+    const glm::mat3 c = MatCameraFrame();
+    const float r = std::max(sphere.w * p.scale, 1.0f);
+    const float tanHalf = std::tan(glm::radians(std::clamp(s_camLast.fovY, 10.0f, 120.0f)) * 0.5f);
+    const float dist = std::max(r / tanHalf * 1.35f * s_insp.zoom, s_camLast.sNear + r + 5.0f);
+    const glm::vec3 posFront = s_camLast.pos + c[0] * dist + c[2] * (std::sin(s_insp.t * 1.6f) * r * 0.06f);
+    const glm::vec3 posHome = glm::vec3(MatOfProp(p) * glm::vec4(glm::vec3(sphere), 1.0f));
+    const glm::vec3 pos = glm::mix(posHome, posFront, e);
+    const glm::mat3 rot = c * glm::mat3_cast(glm::slerp(s_insp.q0, s_insp.q, e));
+    glm::mat4 m(rot);
+    m[3] = glm::vec4(pos, 1.0f);
+    return glm::translate(glm::scale(m, glm::vec3(p.scale)), -glm::vec3(sphere));
+}
+}  // namespace
+
+int CBossItems()
+{
+    CProps();
+    return int(AipropBoss().size());
+}
+
+bool FBossInspectOpen() { return s_insp.fOpen && s_insp.iprop >= 0 && s_insp.iprop < int(s_aprop.size()); }
+
+void OpenBossInspect()
+{
+    const std::vector<int> a = AipropBoss();
+    if (a.empty() || !s_fCamLast) return;
+    int i = a[0];
+    if (std::find(a.begin(), a.end(), s_insp.iprop) != a.end()) i = s_insp.iprop;   // (the one looked at last)
+    s_insp.tPrev = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    StartInspect(i);
+}
+
+void CloseBossInspect()
+{
+    const int i = s_insp.iprop;
+    s_insp = INSPECT{};
+    s_insp.iprop = i;
+}
+
+void UpdateBossInspect()
+{
+    if (!FBossInspectOpen()) return;
+    const double tNow = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float dt = float(std::clamp(tNow - s_insp.tPrev, 0.0, 0.1));
+    s_insp.tPrev = tNow;
+    s_insp.t += dt;
+    if (s_insp.fClosing)
+    {
+        s_insp.u = std::max(0.0f, s_insp.u - dt / 0.35f);
+        if (s_insp.u <= 0.0f) CloseBossInspect();
+        return;
+    }
+    s_insp.u = std::min(1.0f, s_insp.u + dt / 0.45f);
+    // circle (or the menu's back): put it back; L1 / R1: the previous / next boss item
+    if (GrfbtnTakePressed(BtnMenuBack() | 0x20)) { s_insp.fClosing = true; PsndStartSound(0x35); return; }
+    if (const uint32_t grf = GrfbtnTakePressed(0x04 | 0x08))
+    {
+        const std::vector<int> a = AipropBoss();
+        auto it = std::find(a.begin(), a.end(), s_insp.iprop);
+        const int k = it == a.end() ? 0 : int(it - a.begin());
+        const int c = int(a.size());
+        if (c > 1)
+        {
+            StartInspect(a[size_t((k + ((grf & 0x08) ? 1 : -1) + c) % c)]);
+            PsndStartSound(0x35);
+        }
+        return;
+    }
+    // the left stick turns it about the camera's up and left axes; the right stick's up / down: nearer / further
+    auto dz = [](float g) { return std::fabs(g) < 0.2f ? 0.0f : g; };
+    const float xl = dz(g_joy.xLeft), yl = dz(g_joy.yLeft), yr = dz(g_joy.yRight);
+    if (xl != 0.0f || yl != 0.0f || yr != 0.0f) s_insp.tIdle = 0.0f;
+    else s_insp.tIdle += dt;
+    const float sTurn = glm::radians(150.0f) * dt;
+    s_insp.q = glm::angleAxis(-xl * sTurn, glm::vec3(0.0f, 0.0f, 1.0f)) * s_insp.q;
+    s_insp.q = glm::angleAxis(yl * sTurn, glm::vec3(0.0f, 1.0f, 0.0f)) * s_insp.q;
+    if (s_insp.tIdle > 2.5f) s_insp.q = glm::angleAxis(glm::radians(20.0f) * dt, glm::vec3(0.0f, 0.0f, 1.0f)) * s_insp.q;   // (left alone: it turns slowly)
+    s_insp.q = glm::normalize(s_insp.q);
+    s_insp.zoom = std::clamp(s_insp.zoom * std::exp(-yr * 1.5f * dt), 0.45f, 2.5f);
+}
+
+std::string StrBossInspected()
+{
+    if (!FBossInspectOpen()) return "";
+    const PROP& p = *s_aprop[size_t(s_insp.iprop)];
+    std::string name = p.title;
+    if (name.empty())
+    {
+        name = cane::utf8(cane::path(p.file).stem());
+        if (!name.empty()) name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
+    }
+    std::replace(name.begin(), name.end(), '_', ' ');
+    const std::vector<int> a = AipropBoss();
+    auto it = std::find(a.begin(), a.end(), s_insp.iprop);
+    if (a.size() > 1 && it != a.end()) name += "   " + std::to_string(int(it - a.begin()) + 1) + " / " + std::to_string(a.size());
+    return name;
 }

@@ -210,8 +210,8 @@ trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2 locked
 
 A safe house can have a third camera stop for a trophy shelf or cabinet. Aim the free camera (F1) at it, then in the
 props rows choose **Trophy view: set it from this camera** and **Save this world's props**. In that safe house, stepping
-right past ThiefNet and the Thievius Raccoonus stops at **Trophies**, the camera easing over to that view; one more step
-goes on to the characters again. **Trophy view: clear it** removes it. Each safe house world has its own (its own
+right past the last of the safe house's own views stops at **Trophies** (the last stop, before the views start over),
+the camera easing over to that view. **Trophy view: clear it** removes it. Each safe house world has its own (its own
 `w<world>.txt`), saved as a line of the same file:
 
 ```
@@ -219,6 +219,11 @@ view trophies 1200.0 -340.0 260.0 135.0 -12.0 50.0
 ```
 
 (the camera's place, its heading about Z and its pitch in degrees, and its field of view; 0 keeps the game's.)
+
+**Boss items**: select a prop and set **Boss item** to Yes (saved as `boss`; `title Clockwerk's_Talon` names it, the
+underscores shown as spaces, else the file's name is shown). At the Trophies stop, cross lifts the boss items out one at
+a time to float before the camera: the left stick turns it every way, the right stick (up / down) brings it nearer or
+further, L1 / R1 go to the previous / next, and circle puts it back. Left alone for a moment it turns slowly by itself.
 
 The game's units are centimetres with Z up; turn is about Z in degrees, then tilt's pitch about the prop's own X and
 roll about its own Y; `after 2` shows it once episode 2 (the palace) is complete.
