@@ -467,8 +467,8 @@ void BeginModelMods()
         if (fs::is_directory(dir, ec))
             for (const auto& e : fs::directory_iterator(dir, ec))
                 if (e.is_regular_file(ec))
-                    sig += cane::utf8(e.path().filename()) + ":" + std::to_string(e.file_size(ec)) + ":" +
-                           std::to_string(e.last_write_time(ec).time_since_epoch().count()) + ";";
+                    sig += cane::utf8(e.path().filename()) + ":" + std::to_string(static_cast<unsigned long long>(e.file_size(ec))) + ":" +
+                           std::to_string(static_cast<long long>(e.last_write_time(ec).time_since_epoch().count())) + ";";
     }
     if (s_iwrecRead != g_transition.iwrecCur || sig != s_strSigRead)
     {
