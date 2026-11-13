@@ -47,6 +47,7 @@ struct PROP
     glm::vec3 pos{0.0f};
     float turn = 0.0f, pitch = 0.0f, roll = 0.0f, scale = 1.0f;
     int after = 0;   // 0 always; else shown once that episode is complete
+    bool fLocked = false;   // (the placement tool leaves it as it is)
     // made for the GPU at its place (its light is the place's): rebuilt when moved
     SCENEGLOBSET sgs;
     bool fBuilt = false;
@@ -62,6 +63,7 @@ int s_ipropSel = -1;
 std::vector<std::string> s_afileModel;
 bool s_fModelsScanned = false;
 uint32_t s_cframe = 0;
+const SCENE* s_pscene = nullptr;   // (the frame's scene, CollectPropDraws: the surfaces the tool snaps to)
 
 fs::path DirProps() { return cane::path(g_disc.DirMods()) / "Props"; }
 fs::path PathWorldProps() { return DirProps() / ("w" + std::to_string(g_transition.iwrecCur) + ".txt"); }
@@ -91,6 +93,7 @@ void LoadWorldProps()
             if (key == "scale") is >> prop->scale;
             else if (key == "tilt") is >> prop->pitch >> prop->roll;
             else if (key == "after") is >> prop->after;
+            else if (key == "locked") prop->fLocked = true;
             else std::printf("props: %s line %d: '%s' not known\n", cane::utf8(PathWorldProps()).c_str(), iline, key.c_str());
         }
         prop->scale = std::clamp(prop->scale, 0.01f, 100.0f);
@@ -235,6 +238,7 @@ bool FBuildProp(const SCENE& scene, PROP& prop)
     GLOB glob;
     glob.meshk = MESHK_Strips;
     glob.rp = int8_t(pm->fBlend ? 1 : 3);
+    glob.rtck = 2;   // (no billboard: a GLOB's 0 turns it to face the camera)
     glob.posCenter = glm::vec3(pm->sphere);
     glob.sRadius = pm->sphere.w;
     for (size_t ip = 0; ip < pm->aprim.size(); ++ip)
@@ -284,6 +288,7 @@ void CollectPropDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra)
 {
     if (s_iwrecProps != g_transition.iwrecCur) LoadWorldProps();
     ++s_cframe;
+    s_pscene = &scene;
     for (size_t i = 0; i < s_aprop.size(); ++i)
     {
         PROP& p = *s_aprop[i];
@@ -348,9 +353,10 @@ std::string StrPropSelected()
 {
     if (s_ipropSel < 0 || s_ipropSel >= int(s_aprop.size())) return "(none)";
     const PROP& p = *s_aprop[size_t(s_ipropSel)];
-    char ach[256];
-    std::snprintf(ach, sizeof ach, "%d/%zu %s  at %.0f %.0f %.0f  turn %.0f  x%.2f  %s%s", s_ipropSel + 1, s_aprop.size(), p.file.c_str(), p.pos.x, p.pos.y,
-                  p.pos.z, p.turn, p.scale, p.after ? "after episode " : "always", p.after ? std::to_string(p.after).c_str() : "");
+    char ach[320];
+    std::snprintf(ach, sizeof ach, "%d/%zu %s  at %.0f %.0f %.0f  turn %.0f  tilt %.0f %.0f  x%.2f  %s%s%s", s_ipropSel + 1, s_aprop.size(),
+                  p.file.c_str(), p.pos.x, p.pos.y, p.pos.z, p.turn, p.pitch, p.roll, p.scale, p.after ? "after episode " : "always",
+                  p.after ? std::to_string(p.after).c_str() : "", p.fLocked ? "  LOCKED" : "");
     return ach;
 }
 
@@ -370,17 +376,162 @@ bool FPlaceProp(int imodel, const glm::vec3& pos, float turnDeg)
 namespace
 {
 PROP* PpropSel() { return s_ipropSel >= 0 && s_ipropSel < int(s_aprop.size()) ? s_aprop[size_t(s_ipropSel)].get() : nullptr; }
+// the selected one, unless locked
+PROP* PpropEdit() { PROP* p = PpropSel(); return p && !p->fLocked ? p : nullptr; }
+float AngleWrap(float a) { a = std::fmod(a, 360.0f); if (a > 180.0f) a -= 360.0f; if (a <= -180.0f) a += 360.0f; return a; }
+
+// the level's solid triangles near pos (the world's space): not the characters, the PS2's shadow shapes or the lights'
+// volumes, nor what is hidden now
+template <class F>
+void ForEachLevelTri(const SCENE& scene, const glm::vec3& pos, float sReach, F&& f)
+{
+    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    {
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.fActorTree) continue;
+        const GLOBSET& gs = *sgs.pglobset;
+        for (size_t i = 0; i < gs.aglob.size() && i < sgs.amatGlob.size(); ++i)
+        {
+            if (i < sgs.afVisible.size() && !sgs.afVisible[i]) continue;
+            const GLOB& glob = gs.aglob[i];
+            const GLOB* pg = &glob;
+            if (pg->avtx.empty() && pg->iglobTemplate >= 0 && size_t(pg->iglobTemplate) < gs.aglob.size()) pg = &gs.aglob[size_t(pg->iglobTemplate)];
+            if (pg->meshk != MESHK_Strips || pg->avtx.empty() || pg->aindex.empty() || !pg->abone.empty() || !glob.abone.empty()) continue;
+            const int kind = glob.rp & 0x1F;
+            if (kind == 4 || kind == 6) continue;   // (the characters)
+            const glm::mat4& mat = sgs.amatGlob[i];
+            const float sScale = std::max({glm::length(glm::vec3(mat[0])), glm::length(glm::vec3(mat[1])), glm::length(glm::vec3(mat[2]))});
+            if (glm::length(glm::vec3(mat * glm::vec4(pg->posCenter, 1.0f)) - pos) > pg->sRadius * sScale + sReach) continue;
+            for (const SUBGLOB& sub : pg->asubglob)
+            {
+                if (sub.pshd && (sub.pshd->shdk == 2 || sub.pshd->shdk == 3)) continue;
+                if (size_t(sub.firstIndex) + sub.indexCount > pg->aindex.size()) continue;
+                for (uint32_t k = 0; k + 2 < sub.indexCount; k += 3)
+                {
+                    const uint32_t ia = pg->aindex[sub.firstIndex + k], ib = pg->aindex[sub.firstIndex + k + 1], ic = pg->aindex[sub.firstIndex + k + 2];
+                    if (ia >= pg->avtx.size() || ib >= pg->avtx.size() || ic >= pg->avtx.size()) continue;
+                    f(glm::vec3(mat * glm::vec4(pg->avtx[ia].pos, 1.0f)), glm::vec3(mat * glm::vec4(pg->avtx[ib].pos, 1.0f)),
+                      glm::vec3(mat * glm::vec4(pg->avtx[ic].pos, 1.0f)));
+                }
+            }
+        }
+    }
 }
 
-void MovePropSelected(const glm::vec3& pos) { if (PROP* p = PpropSel()) p->pos = pos, p->fBuilt = false; }
-void TurnPropSelected(float dDeg) { if (PROP* p = PpropSel()) p->turn = std::fmod(p->turn + dDeg + 360.0f, 360.0f), p->fBuilt = false; }
-void ScalePropSelected(float r) { if (PROP* p = PpropSel()) p->scale = std::clamp(p->scale * r, 0.01f, 100.0f), p->fBuilt = false; }
-void RaisePropSelected(float dz) { if (PROP* p = PpropSel()) p->pos.z += dz, p->fBuilt = false; }
-void CyclePropSelectedAfter() { if (PROP* p = PpropSel()) p->after = (p->after + 1) % 9; }
+// the point of triangle abc nearest p (Ericson, Real-Time Collision Detection 5.1.5)
+glm::vec3 PosClosestOnTri(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
+{
+    const glm::vec3 ab = b - a, ac = c - a, ap = p - a;
+    const float d1 = glm::dot(ab, ap), d2 = glm::dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) return a;
+    const glm::vec3 bp = p - b;
+    const float d3 = glm::dot(ab, bp), d4 = glm::dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) return b;
+    const float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) return a + ab * (d1 / (d1 - d3));
+    const glm::vec3 cp = p - c;
+    const float d5 = glm::dot(ab, cp), d6 = glm::dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) return c;
+    const float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) return a + ac * (d2 / (d2 - d6));
+    const float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    const float denom = 1.0f / (va + vb + vc);
+    return a + ab * (vb * denom) + ac * (vc * denom);
+}
+
+// the prop's tilt (pitch about X, roll about Y, after its turn about Z: MatOfProp) that stands its up axis along n
+void TiltToNormal(PROP& p, glm::vec3 n)
+{
+    n = glm::normalize(n);
+    const float t = glm::radians(p.turn);
+    // n in the turned frame: Rz(-turn) n
+    const glm::vec3 nl(std::cos(t) * n.x + std::sin(t) * n.y, -std::sin(t) * n.x + std::cos(t) * n.y, n.z);
+    // Rx(pitch) Ry(roll) (0, 0, 1) = (sin roll, -sin pitch cos roll, cos pitch cos roll)
+    const float roll = std::asin(std::clamp(nl.x, -1.0f, 1.0f));
+    const float pitch = std::atan2(-nl.y, nl.z);
+    p.pitch = std::round(glm::degrees(pitch) * 10.0f) / 10.0f;
+    p.roll = std::round(glm::degrees(roll) * 10.0f) / 10.0f;
+}
+}
+
+void MovePropSelected(const glm::vec3& pos) { if (PROP* p = PpropEdit()) p->pos = pos, p->fBuilt = false; }
+void TurnPropSelected(float dDeg) { if (PROP* p = PpropEdit()) p->turn = std::fmod(p->turn + dDeg + 360.0f, 360.0f), p->fBuilt = false; }
+void TiltPropSelected(float dPitch, float dRoll)
+{
+    if (PROP* p = PpropEdit()) p->pitch = AngleWrap(p->pitch + dPitch), p->roll = AngleWrap(p->roll + dRoll), p->fBuilt = false;
+}
+void StraightenPropSelected() { if (PROP* p = PpropEdit()) p->pitch = p->roll = 0.0f, p->fBuilt = false; }
+void ScalePropSelected(float r) { if (PROP* p = PpropEdit()) p->scale = std::clamp(p->scale * r, 0.01f, 100.0f), p->fBuilt = false; }
+void RaisePropSelected(float dz) { if (PROP* p = PpropEdit()) p->pos.z += dz, p->fBuilt = false; }
+void CyclePropSelectedAfter() { if (PROP* p = PpropEdit()) p->after = (p->after + 1) % 9; }
+bool FPropSelectedLocked() { const PROP* p = PpropSel(); return p && p->fLocked; }
+void ToggleLockPropSelected() { if (PROP* p = PpropSel()) p->fLocked = !p->fLocked; }
+
+bool FDropPropSelected(std::string* pstr)
+{
+    PROP* p = PpropEdit();
+    if (!p || !s_pscene) { *pstr = p ? "no level yet" : "nothing selected (or locked)"; return false; }
+    // straight down from a little above its base (one sunk in the floor comes up), the nearest surface under it
+    const glm::vec3 org = p->pos + glm::vec3(0.0f, 0.0f, 30.0f);
+    const float sMax = 5000.0f;
+    float tBest = sMax;
+    ForEachLevelTri(*s_pscene, org - glm::vec3(0.0f, 0.0f, sMax * 0.5f), sMax * 0.5f, [&](const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+        // (Moller-Trumbore, the ray (0, 0, -1), either side)
+        const glm::vec3 e1 = b - a, e2 = c - a, dir(0.0f, 0.0f, -1.0f);
+        const glm::vec3 h = glm::cross(dir, e2);
+        const float det = glm::dot(e1, h);
+        if (std::fabs(det) < 1e-8f) return;
+        const float inv = 1.0f / det;
+        const glm::vec3 s = org - a;
+        const float u = glm::dot(s, h) * inv;
+        if (u < 0.0f || u > 1.0f) return;
+        const glm::vec3 q = glm::cross(s, e1);
+        const float v = glm::dot(dir, q) * inv;
+        if (v < 0.0f || u + v > 1.0f) return;
+        const float t = glm::dot(e2, q) * inv;
+        if (t > 0.0f && t < tBest) tBest = t;
+    });
+    if (tBest >= sMax) { *pstr = "no surface below it within 50 m"; return false; }
+    p->pos.z = org.z - tBest;
+    p->fBuilt = false;
+    char ach[96];
+    std::snprintf(ach, sizeof ach, "dropped onto the surface below (z %.0f)", p->pos.z);
+    *pstr = ach;
+    return true;
+}
+
+bool FStickPropSelected(bool fStand, std::string* pstr)
+{
+    PROP* p = PpropEdit();
+    if (!p || !s_pscene) { *pstr = p ? "no level yet" : "nothing selected (or locked)"; return false; }
+    // the nearest point of the level to its base within 5 m (its face's normal: the side the prop was on)
+    const float sReach = 500.0f;
+    float dBest = sReach;
+    glm::vec3 posBest(0.0f), nrmBest(0.0f, 0.0f, 1.0f);
+    ForEachLevelTri(*s_pscene, p->pos, sReach, [&](const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) {
+        const glm::vec3 q = PosClosestOnTri(p->pos, a, b, c);
+        const float d = glm::length(q - p->pos);
+        if (d >= dBest) return;
+        glm::vec3 n = glm::cross(b - a, c - a);
+        if (glm::dot(n, n) < 1e-10f) return;
+        n = glm::normalize(n);
+        const glm::vec3 side = p->pos - q;
+        if (glm::dot(side, side) > 1e-4f ? glm::dot(n, side) < 0.0f : n.z < 0.0f) n = -n;
+        dBest = d, posBest = q, nrmBest = n;
+    });
+    if (dBest >= sReach) { *pstr = "no surface within 5 m of it"; return false; }
+    p->pos = posBest;
+    if (fStand) TiltToNormal(*p, nrmBest);
+    p->fBuilt = false;
+    char ach[128];
+    std::snprintf(ach, sizeof ach, "on the nearest surface, %.0f cm away%s", dBest, fStand ? ", stood along it" : "");
+    *pstr = ach;
+    return true;
+}
 
 void DeletePropSelected()
 {
-    if (!PpropSel()) return;
+    if (!PpropEdit()) return;
     s_aprop.erase(s_aprop.begin() + s_ipropSel);
     s_ipropSel = s_aprop.empty() ? -1 : std::min(s_ipropSel, int(s_aprop.size()) - 1);
 }
@@ -393,7 +544,7 @@ bool FSaveProps(std::string* pstr)
     std::ofstream out(PathWorldProps());
     if (!out) { *pstr = "cannot write " + cane::utf8(PathWorldProps()); return false; }
     out << "# Sly 2 props of world " << g_transition.iwrecCur << " (Mods/Props/Models' files; the game's units, Z up)\n";
-    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>]\n";
+    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked]\n";
     for (const auto& pp : s_aprop)
     {
         const PROP& p = *pp;
@@ -403,6 +554,7 @@ bool FSaveProps(std::string* pstr)
         if (p.scale != 1.0f) out << " scale " << p.scale;
         if (p.pitch != 0.0f || p.roll != 0.0f) out << " tilt " << p.pitch << " " << p.roll;
         if (p.after) out << " after " << p.after;
+        if (p.fLocked) out << " locked";
         out << "\n";
     }
     *pstr = "saved " + std::to_string(s_aprop.size()) + " props: Mods/Props/" + cane::utf8(PathWorldProps().filename());

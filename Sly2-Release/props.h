@@ -3,7 +3,7 @@
 // PC modding: props, models of your own placed in a world (Mods/Props). A model is a glTF file in Mods/Props/Models
 // (made in Blender, its origin where it stands; or exported from the game, which is stood on its base); a world's
 // props are the lines of Mods/Props/w<world>.txt:
-//     <model file> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode 1..8>]
+//     <model file> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode 1..8>] [locked]
 // (the game's units, centimetres, Z up; turn about Z in degrees; "after 3": shown once episode 3 is complete).
 // Each is drawn as one of the frame's extra draws (render.h), lit by the level's light where it stands (the nearest
 // level vertices' colours, shaded by its own normals): cel shading, outlines and the ambient occlusion as the level's.
@@ -33,8 +33,17 @@ std::string StrPropSelected();              // a line for the menu: its model, p
 bool FPlaceProp(int imodel, const glm::vec3& pos, float turnDeg);   // a new prop, selected
 void MovePropSelected(const glm::vec3& pos);
 void TurnPropSelected(float dDeg);
+void TiltPropSelected(float dPitch, float dRoll);   // forward / back (about its X), sideways (about its Y), after its turn
+void StraightenPropSelected();              // no tilt
 void ScalePropSelected(float r);
 void RaisePropSelected(float dz);
 void CyclePropSelectedAfter();              // shown: always, after episode 1 .. 8
 void DeletePropSelected();
+// the snaps (the level's solid surfaces, not the characters'): straight down onto the surface below; onto the nearest
+// surface within 5 m (fStand: its up axis along the surface's normal, a picture on a wall, a box on a slope)
+bool FDropPropSelected(std::string* pstr);
+bool FStickPropSelected(bool fStand, std::string* pstr);
+// locked: the tool's edits (moving, turning, the snaps, deleting) leave it as it is ("locked" in the file)
+bool FPropSelectedLocked();
+void ToggleLockPropSelected();
 bool FSaveProps(std::string* pstr);         // Mods/Props/w<world>.txt

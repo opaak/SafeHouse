@@ -187,19 +187,27 @@ game's look (cel shading, outlines, ambient occlusion) and lit by the level's li
 2. With the debug keys on: the debug menu's Display > Graphics > **Props (placement)** On. A crosshair shows the point
    at the centre of the picture (the free camera helps).
 3. **Model** chooses the file, **Place it at the crosshair** puts it there. **Selected** / **Select the nearest to the
-   crosshair** choose a prop (it pulses), then **Move it to the crosshair**, **Turn ±15**, **Bigger** / **Smaller**,
-   **Up** / **Down** (10 cm), **Shown** (always, or once an episode is complete: a trophy after its boss), **Delete it**.
+   crosshair** choose a prop (it pulses), then:
+   - **Move it to the crosshair**; **Drop it onto the surface below** (straight down onto the floor or table under it);
+     **Stick it to the nearest surface** (the nearest point of the level within 5 m, its turn kept); **Stand it on the
+     nearest surface** (the same, tilted so it stands along that surface: a picture on a wall, a box on a slope).
+   - **Step** sets how far the next rows go (15°/10 cm, 5°/2 cm, 1°/0.5 cm, 45°/50 cm, 90°/1 m). **Turn left / right**
+     about the up axis, **Tilt forward / back** and **Roll left / right** about its own axes, **Straighten** (no tilt),
+     **Bigger** / **Smaller**, **Up** / **Down**.
+   - **Shown** (always, or once an episode is complete: a trophy after its boss), **Delete it**.
+   - **Lock it in place**: a locked prop is not moved, turned, snapped or deleted by the tool until unlocked (saved as
+     `locked`).
 4. **Save this world's props** writes `Mods/Props/w<world>.txt`. **Read the models again** picks up an edited model.
 
 The file is plain text, one prop a line, and can be edited by hand:
 
 ```
-# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>]
-trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2
+# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked]
+trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2 locked
 ```
 
-The game's units are centimetres with Z up; turn is about Z in degrees; `after 2` shows it once episode 2 (the palace)
-is complete.
+The game's units are centimetres with Z up; turn is about Z in degrees, then tilt's pitch about the prop's own X and
+roll about its own Y; `after 2` shows it once episode 2 (the palace) is complete.
 
 ### Technique icons
 

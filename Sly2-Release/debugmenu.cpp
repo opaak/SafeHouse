@@ -75,6 +75,7 @@ extern std::unordered_map<int, int> g_mpoidiwrecTask;   // autoplay.cpp / brx.cp
 namespace
 {
 int s_iExportScope = 0;
+int s_istepProp = 0;      // (the props' tool's steps: turns and tilts in degrees, moves up / down in cm)
 int s_imodelProp = 0;     // (the props' placement tool: the model to place, props.h)   // (the texture picker's model export: the picked group, within 5 / 15 / 40 m, the whole object)
 // ------------------------------------------------------------ state
 enum PAGEK { PK_Root, PK_Episodes, PK_Worlds, PK_Character, PK_Teleport, PK_Jobs, PK_JobList, PK_Player, PK_Speed, PK_Display, PK_Graphics,
@@ -834,19 +835,46 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 glm::vec3 pos, nrm;
                 if (FCrosshairHit(&pos, &nrm)) SelectPropNearest(pos);
             }, "");
-            item("Move it to the crosshair", [] {
+            static const float s_adeg[] = {15.0f, 5.0f, 1.0f, 45.0f, 90.0f};
+            static const float s_acm[] = {10.0f, 2.0f, 0.5f, 50.0f, 100.0f};
+            const float deg = s_adeg[s_istepProp], cm = s_acm[s_istepProp];
+            char achStep[64];
+            std::snprintf(achStep, sizeof achStep, "%g deg / %g cm", deg, cm);
+            // (a locked prop: the edits say so instead)
+            auto edit = [](const char* label, std::function<void()> pfn) {
+                return [label, pfn] {
+                    if (IpropSelected() < 0) { Status("nothing selected"); return; }
+                    if (FPropSelectedLocked()) { Status(std::string("locked: unlock it first (") + label + ")"); return; }
+                    pfn();
+                };
+            };
+            item("Lock it in place", [] {
+                if (IpropSelected() < 0) { Status("nothing selected"); return; }
+                ToggleLockPropSelected();
+                Status(FPropSelectedLocked() ? "locked (not saved yet)" : "unlocked");
+            }, IpropSelected() < 0 ? "" : FPropSelectedLocked() ? "Locked" : "Free");
+            item("Move it to the crosshair", edit("move", [] {
                 glm::vec3 pos, nrm;
                 if (FCrosshairHit(&pos, &nrm)) MovePropSelected(pos);
                 else Status("nothing under the crosshair");
-            }, "");
-            item("Turn +15", [] { TurnPropSelected(15.0f); }, "");
-            item("Turn -15", [] { TurnPropSelected(-15.0f); }, "");
-            item("Bigger", [] { ScalePropSelected(1.1f); }, "x 1.1");
-            item("Smaller", [] { ScalePropSelected(1.0f / 1.1f); }, "/ 1.1");
-            item("Up", [] { RaisePropSelected(10.0f); }, "10 cm");
-            item("Down", [] { RaisePropSelected(-10.0f); }, "10 cm");
-            item("Shown", [] { CyclePropSelectedAfter(); }, "always / after an episode");
-            item("Delete it", [] { DeletePropSelected(); Status("deleted (not saved yet)"); }, "");
+            }), "");
+            item("Drop it onto the surface below", edit("drop", [] { std::string s; FDropPropSelected(&s); Status(s); }), "the floor under it");
+            item("Stick it to the nearest surface", edit("stick", [] { std::string s; FStickPropSelected(false, &s); Status(s); }), "within 5 m, as it is turned");
+            item("Stand it on the nearest surface", edit("stand", [] { std::string s; FStickPropSelected(true, &s); Status(s); }), "tilted along it: walls, slopes");
+            item("Step", [] { s_istepProp = (s_istepProp + 1) % 5; }, achStep);
+            item("Turn left", edit("turn", [deg] { TurnPropSelected(deg); }), "about the up axis");
+            item("Turn right", edit("turn", [deg] { TurnPropSelected(-deg); }), "");
+            item("Tilt forward", edit("tilt", [deg] { TiltPropSelected(deg, 0.0f); }), "about its own sideways axis");
+            item("Tilt back", edit("tilt", [deg] { TiltPropSelected(-deg, 0.0f); }), "");
+            item("Roll left", edit("roll", [deg] { TiltPropSelected(0.0f, -deg); }), "about its own forward axis");
+            item("Roll right", edit("roll", [deg] { TiltPropSelected(0.0f, deg); }), "");
+            item("Straighten", edit("straighten", [] { StraightenPropSelected(); }), "no tilt or roll");
+            item("Bigger", edit("scale", [] { ScalePropSelected(1.1f); }), "x 1.1");
+            item("Smaller", edit("scale", [] { ScalePropSelected(1.0f / 1.1f); }), "/ 1.1");
+            item("Up", edit("raise", [cm] { RaisePropSelected(cm); }), "");
+            item("Down", edit("raise", [cm] { RaisePropSelected(-cm); }), "");
+            item("Shown", edit("shown", [] { CyclePropSelectedAfter(); }), "always / after an episode");
+            item("Delete it", edit("delete", [] { DeletePropSelected(); Status("deleted (not saved yet)"); }), "");
             item("Save this world's props", [] {
                 std::string str;
                 FSaveProps(&str);
