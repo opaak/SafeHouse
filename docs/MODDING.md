@@ -155,7 +155,9 @@ The game can write any object's model out for Blender, and take the edited file 
 - Each group the game showed is its own object (`glob_<n>`, the group's number), its parts with their textures and
   their blending (glass and glows blend; cut-outs use the alpha mask).
 - The root turns the game's Z-up units (1 unit = 1 cm) into metres, so the model is life-sized.
-- The vertex colours (the game's baked light) come in as the `Col` colour attribute.
+- Many of the game's textures are grey: the colour comes from the vertices (their baked light and tint). Each
+  material's colour (Base Color's factor) is the mean of its vertices' colours, so Blender shows the model tinted;
+  the vertex colours themselves come in as the `_COLOR_GAME` attribute (props use them, as the game does).
 - A skinned group (one with bones) comes out in the pose it had when you exported it.
 - The nodes' custom properties (`sly2_glob`, `sly2_matrix`, `sly2_posed`, and the root's `sly2_world`, `sly2_oid`,
   `sly2_globs`) are what the import uses to put your edits back. Keep the object and material names.

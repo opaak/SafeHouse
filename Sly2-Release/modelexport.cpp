@@ -180,6 +180,7 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
             // the material: the first textured pass's texture, and its blending
             const BMP* pbmp = nullptr;
             const CLUT* pclut = nullptr;
+            const SHDPASS* pspass = nullptr;
             int blend = 0;   // 0 opaque, 1 blended, 2 added (a glow)
             if (sub.pshd && !sub.pshd->apass.empty())
             {
@@ -192,8 +193,31 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                         const TEXSEL sel = TexselFromShd(sub.pshd, sub.psaa ? sub.psaa->iframe : 0, ps.itexPass);
                         pbmp = sel.pbmp;
                         pclut = sel.pclut;
+                        pspass = &ps;
                         break;
                     }
+            }
+            // the part's colour: the game's textures are often grey, tinted by the vertices' colours (the pass's colour A
+            // or B, or its constant): their mean as the material's colour (glTF's linear factor), as Blender shows a
+            // material without the vertex colours
+            glm::vec3 rgbTint(1.0f);
+            {
+                glm::dvec3 sum(0.0);
+                size_t c = 0;
+                if (pspass && pspass->icolor >= 2)
+                {
+                    for (int k = 0; k < 3; ++k) sum[k] = double((pspass->rgbaConst >> (8 * k)) & 0xFF);
+                    c = 1;
+                }
+                else
+                    for (uint32_t ix : aidx)
+                    {
+                        const uint32_t rgba = pspass && pspass->icolor == 1 ? geom.avtx[ix].rgbaB : geom.avtx[ix].rgbaA;
+                        for (int k = 0; k < 3; ++k) sum[k] += double((rgba >> (8 * k)) & 0xFF);
+                        ++c;
+                    }
+                if (c)
+                    for (int k = 0; k < 3; ++k) rgbTint[k] = float(std::pow(std::clamp(sum[k] / double(c) / 128.0, 0.0, 1.0), 2.2));
             }
             int imat = -1;
             // (a material per shader: the import gives its meshes that shader back; the images shared by texture)
@@ -240,7 +264,9 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                           << "\",\"doubleSided\":true,"
                           << "\"alphaMode\":\"" << (blend ? "BLEND" : pbmp ? "MASK" : "OPAQUE") << "\"" << (blend || !pbmp ? "" : ",\"alphaCutoff\":0.25")
                           << ",\"pbrMetallicRoughness\":{\"metallicFactor\":0,\"roughnessFactor\":1";
-                if (itex >= 0) materials << ",\"baseColorTexture\":{\"index\":" << itex << "}";
+                // (with its picture only: a factor alone reads as a plain colour of its own to the import)
+                if (itex >= 0)
+                    materials << ",\"baseColorFactor\":[" << rgbTint.r << "," << rgbTint.g << "," << rgbTint.b << ",1],\"baseColorTexture\":{\"index\":" << itex << "}";
                 materials << "},\"extras\":{\"sly2_blend\":" << blend << (fPart ? ",\"sly2_part_oid\":" + std::to_string(src.oid) + ",\"sly2_part_glob\":" : ",\"sly2_glob\":") << i
                           << ",\"sly2_sub\":" << (&sub - geom.asubglob.data()) << "}}";
                 fFirstMat = false;
@@ -249,7 +275,7 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                 (void)nameTex;
             }
             prims << (fFirstPrim ? "" : ",") << "{\"attributes\":{\"POSITION\":" << accPos << ",\"NORMAL\":" << accNrm << ",\"TEXCOORD_0\":" << accUv
-                  << ",\"COLOR_0\":" << accCol << "},\"indices\":" << accIdx << ",\"material\":" << imat << "}";
+                  << ",\"_COLOR_GAME\":" << accCol << "},\"indices\":" << accIdx << ",\"material\":" << imat << "}";
             fFirstPrim = false;
         }
         if (fFirstPrim) continue;   // (no parts)

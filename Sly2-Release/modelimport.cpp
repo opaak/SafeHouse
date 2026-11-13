@@ -703,9 +703,26 @@ bool FReadGltfPrims(const std::string& pathStr, std::vector<GLTFPRIM>& aprim, bo
                 gp.auv.push_back(afUv.size() == cv * 2 ? glm::vec2(afUv[v * 2], 1.0f - afUv[v * 2 + 1]) : glm::vec2(0.0f));
             }
             gp.aidx = std::move(aidx);
+            // the vertices' colours: the export's own (_COLOR_GAME, the game's x2), else a painted COLOR_0
+            for (const char* szAttr : {"_COLOR_GAME", "COLOR_0"})
+            {
+                if (!attr.contains(szAttr)) continue;
+                const int iacc = attr[szAttr].get<int>();
+                const int ccomp = j["accessors"][size_t(iacc)].value("type", "VEC4") == "VEC3" ? 3 : 4;
+                std::vector<float> afCol;
+                if (!FReadAccessor(j, abuf, iacc, ccomp, &afCol, nullptr) || afCol.size() != cv * size_t(ccomp)) continue;
+                // (a file of the export's: its colours the game's, also an older export's COLOR_0)
+                gp.fColGame = std::string(szAttr) == "_COLOR_GAME" || *pfGameExport;
+                const float k = gp.fColGame ? 255.0f / 256.0f : 1.0f;   // (the export's: 0x80 written as 256 / 255)
+                for (size_t v = 0; v < cv; ++v)
+                    gp.acol.push_back(glm::vec4(afCol[v * ccomp] * k, afCol[v * ccomp + 1] * k, afCol[v * ccomp + 2] * k, ccomp == 4 ? afCol[v * ccomp + 3] * k : 1.0f));
+                break;
+            }
             if (prim.contains("material"))
             {
                 const size_t imat = prim["material"].get<size_t>();
+                if (const json pbr = j["materials"][imat].value("pbrMetallicRoughness", json::object()); pbr.contains("baseColorFactor"))
+                    for (int c = 0; c < 3; ++c) gp.rgbFactor[c] = float(std::pow(std::clamp(pbr["baseColorFactor"][size_t(c)].get<double>(), 0.0, 1.0), 1.0 / 2.2));
                 gp.pimg = PimgOfMaterial(j, abuf, path, imat, mpimg);
                 const std::string mode = j["materials"][imat].value("alphaMode", "OPAQUE");
                 gp.alphaMode = mode == "BLEND" ? 2 : mode == "MASK" ? 1 : 0;

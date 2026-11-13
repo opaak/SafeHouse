@@ -304,10 +304,16 @@ bool FBuildProp(const SCENE& scene, PROP& prop)
             vx.pos = p.apos[v];
             vx.normal = p.anrm[v];
             vx.uv = p.auv[v];
-            // the place's light, a little shading by the surface's turn to the sky (the form reads)
+            // the place's light, a little shading by the surface's turn to the sky (the form reads), times the part's own
+            // colour (its material's, or painted vertex colours); a model exported from the game keeps its vertices'
+            // own colours (their light and tint baked in: its textures are often grey, tinted by them)
             const float shade = 0.78f + 0.28f * std::max(0.0f, glm::normalize(matRot * p.anrm[v]).z);
-            uint32_t c = 0x80000000u;
-            for (int k = 0; k < 3; ++k) c |= uint32_t(std::clamp(rgb[k] * shade, 0.0f, 255.0f)) << (8 * k);
+            const bool fCol = p.acol.size() == p.apos.size();
+            glm::vec4 col(rgb * shade * p.rgbFactor, 128.0f);
+            if (fCol && p.fColGame) col = p.acol[v] * 128.0f;
+            else if (fCol) col = glm::vec4(glm::vec3(col) * glm::vec3(p.acol[v]), p.acol[v].a * 128.0f);
+            uint32_t c = 0;
+            for (int k = 0; k < 4; ++k) c |= uint32_t(std::clamp(col[k], 0.0f, 255.0f)) << (8 * k);
             vx.rgbaA = vx.rgbaB = vx.rgbaSrc = c;
             glob.avtx.push_back(vx);
         }

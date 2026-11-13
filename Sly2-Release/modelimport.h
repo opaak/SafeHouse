@@ -42,6 +42,10 @@ struct GLTFPRIM
     std::vector<uint32_t> aidx;
     std::shared_ptr<GLTFIMAGE> pimg;   // null: no material picture (white)
     int alphaMode = 0;                 // 0 opaque, 1 mask (cut-out), 2 blend
+    // per vertex its colour (1 = the game's 0x80): the export's _COLOR_GAME, else COLOR_0; empty: none
+    std::vector<glm::vec4> acol;
+    bool fColGame = false;             // (the game's own: its baked light in them; else painted, lit at its place)
+    glm::vec3 rgbFactor{1.0f};         // the material's baseColorFactor, as the game's (gamma) scale
 };
 bool FReadGltfPrims(const std::string& path, std::vector<GLTFPRIM>& aprim, bool* pfGameExport, std::string& err);
 
