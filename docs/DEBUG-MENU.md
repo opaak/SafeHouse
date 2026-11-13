@@ -61,7 +61,12 @@ full while flying. Turning it off (the menu again) drops the character back into
 | R2 / L2 | E / Q | Up / down |
 | R1 held / L1 held | Left Shift (faster) | Faster / slower |
 | Select | F1 | Leave |
-| R1 + Select | | Leave and open the debug menu |
+| R1 + Select | F10 | Open the debug menu; the free camera stays on and stands still while it is open |
+| | Shift + F1 | On, from the spot it was last left in this world (**Display > Free Camera From Its Last Spot**) |
+
+The debug menu works over the free camera: aim the view, open the menu, change a setting or use a tool (the texture
+picker, the props tool, shadow casters), close it and keep flying from the same place. Leaving the free camera returns
+to the game's camera; Shift + F1 brings the free camera back where it was.
 
 ## PC Extras
 

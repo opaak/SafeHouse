@@ -44,13 +44,17 @@ bool FDebugNoclipCamera();
 
 // game.cpp, each frame while the F1 free camera is on: its pad controls (the active gamepad, or the scripted presses
 // of a test run: SLY2N_FREECAMAT=frame turns the free camera on at that frame). Left stick moves (forward / back along
-// the view, strafes), right stick looks, R2 / L2 up / down, R1 held fast, L1 held slow, Select leaves it (R1 + Select:
-// the debug menu, as always). Returns false when it left the free camera.
+// the view, strafes), right stick looks, R2 / L2 up / down, R1 held fast, L1 held slow, Select leaves it, R1 + Select
+// opens the debug menu with the free camera kept (it stands still while the menu is open). Returns false when it left
+// the free camera.
 struct CAMERA;
 bool FUpdateDebugFreeCamPad(CAMERA& cam, int frame);
 
 // game.cpp: the F1 free camera's flag (the menu's Display page toggles it too) and F7's infinite health.
 extern bool g_fDebugFreeCam;
+// game.cpp: the menu's "Free camera from its last spot" (Shift + F1 too): set, the free camera goes on at the place it
+// was last left in this world (game.cpp keeps it), else from the game's camera.
+extern bool g_fDebugFreeCamResume;
 extern bool g_fDebugInfinite;
 
 // The build's version for the title line: the top-level CMake project version and the short git hash.

@@ -687,6 +687,9 @@ int RunGame(const GAMEOPTS& go)
     g_clock.tick = TickNow();
     bool& fFreeCam = g_fDebugFreeCam;   // (F1; also the debug menu's Display page)
     bool fF1Last = false;
+    // (the free camera's last spot in a world: the menu's "From Its Last Spot" and Shift + F1 go back to it)
+    CAMERA camFreeLast;
+    uint32_t serialFreeLast = 0;
     double msUpdate = 0, msRender = 0, msSwap = 0, msScene = 0;
     int cframeTimed = 0;
     auto now = [] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
@@ -786,7 +789,8 @@ int RunGame(const GAMEOPTS& go)
             std::printf("debug save: slot %d %s\n", g_islotChosen + 1, FWriteSaveSlot(g_islotChosen) ? "written" : "not written");
         }
         // (a cutscene's skip runs the game alone: skipcut.h)
-        UpdateJoy(&g_joy, fWindow && !fFreeCam && !FSkipCutFastForward() ? g_gl.window : nullptr, frame, go.apress);
+        // (the free camera takes the window's input from the game, but not from the debug menu opened over it)
+        UpdateJoy(&g_joy, fWindow && (!fFreeCam || FDebugMenuOpen()) && !FSkipCutFastForward() ? g_gl.window : nullptr, frame, go.apress);
         JoyBeginFrame();   // (the presses taken this frame: the scripts' (SCPT 0x42) before the HUD's and the menus')
         // (debugmenu.h, Debug keys only) the debug menu open: the game frozen, the step is the menu's
         if (FDebugMenuOpen())
@@ -1795,11 +1799,22 @@ int RunGame(const GAMEOPTS& go)
             glfwPollEvents();
             GLFWwindow* w = g_gl.window;
             const bool fF1 = FDebugKeyHeld(w, GLFW_KEY_F1);   // (debug keys only)
-            if (fF1 && !fF1Last) fFreeCam = !fFreeCam;
+            if (fF1 && !fF1Last)
+            {
+                // (Shift + F1: on, from the spot it was last left in this world)
+                if (glfwGetKey(w, GLFW_KEY_LEFT_SHIFT) || glfwGetKey(w, GLFW_KEY_RIGHT_SHIFT))
+                {
+                    fFreeCam = true;
+                    g_fDebugFreeCamResume = true;
+                }
+                else fFreeCam = !fFreeCam;
+            }
             fF1Last = fF1;
+            // (the menu open over the free camera: the keys and the mouse are the menu's, the camera stands still)
+            const bool fFreeMoves = fFreeCam && !FDebugMenuOpen();
             // (Escape no longer closes the window: it is the pause / back key, pcinput.h; the pause menu has Exit to
             // Desktop)
-            if (fFreeCam)
+            if (fFreeMoves)
             {
                 // F1: a free camera (WASD / Q E, right mouse looks)
                 const float speed = (glfwGetKey(w, GLFW_KEY_LEFT_SHIFT) ? 4000.0f : 800.0f) / 60.0f;
@@ -1816,7 +1831,7 @@ int RunGame(const GAMEOPTS& go)
             static bool s_fDrag = false;
             double x, y;
             glfwGetCursorPos(w, &x, &y);
-            if (glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_RIGHT))
+            if (fFreeMoves && glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_RIGHT))
             {
                 if (s_fDrag)
                 {
@@ -1834,7 +1849,19 @@ int RunGame(const GAMEOPTS& go)
         }
         // (debugmenu.h) the free camera's pad controls (and SLY2N_FREECAMAT's test switch)
         if (fFreeCam && cam.fMat) cam.fMat = false;
+        if (fFreeCam && g_fDebugFreeCamResume)
+        {
+            // (from its last spot: kept only for this world; else from where the game's camera is)
+            if (psw && serialFreeLast == psw->serial) cam = camFreeLast;
+            else std::printf("debug menu: no free-camera spot kept in this world yet\n");
+        }
+        g_fDebugFreeCamResume = false;
         FUpdateDebugFreeCamPad(cam, frame);
+        if (fFreeCam && psw)
+        {
+            camFreeLast = cam;
+            serialFreeLast = psw->serial;
+        }
         const double t1 = now();
         double t2 = t1;
         // (debug: SLY2N_SHOTEVERY=dir:N also writes every N-th frame to dir/frame_NNNNNN_tT.png, T the game clock)

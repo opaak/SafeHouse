@@ -59,6 +59,7 @@
 
 extern int g_frameJoy;   // joy.cpp (the step's frame)
 bool g_fDebugFreeCam = false;
+bool g_fDebugFreeCamResume = false;
 bool g_fDebugInfinite = false;
 
 const char* PchzPortVersion() { return SLY2_PORT_VERSION; }
@@ -136,7 +137,7 @@ void Open()
 {
     s_fOpen = true;
     s_apage.assign(1, PAGE{});
-    g_fDebugFreeCam = false;   // (the free camera takes the window's input: the menu needs it)
+    // (the free camera stays on: it stands still while the menu is open, and the menu gets the window's input, game.cpp)
     s_grfMenuPrev = s_grfRaw;  // (the keys that opened it are no presses for the menu)
     s_xMousePrev = s_yMousePrev = -1;
 }
@@ -774,6 +775,11 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
             g_fDebugFreeCam = !g_fDebugFreeCam;
             if (g_fDebugFreeCam) Close();
         }, StrOnOff(g_fDebugFreeCam) + "  (W A S D, Q E, right mouse; pad: sticks, R2 / L2, Select)");
+        item("Free Camera From Its Last Spot (Shift + F1)", [] {
+            g_fDebugFreeCam = true;
+            g_fDebugFreeCamResume = true;
+            Close();
+        }, "where it was last left in this world");
         item("Graphics...", [] { Push(PK_Graphics); }, "the PC's looks, live");
         break;
     case PK_Graphics:
@@ -1114,6 +1120,7 @@ bool FUpdateDebugFreeCamPad(CAMERA& cam, int frame)
         std::printf("debug menu: free camera on (test, frame %d)\n", frame);
     }
     if (!g_fDebugFreeCam) return false;
+    if (s_fOpen) return true;   // (the menu open: it has the pad, and the camera stands still)
     // the active gamepad (raw buttons: the free camera's own fixed layout, not the game's bindings); the game gets no
     // window input meanwhile (game.cpp), so only a test's scripted presses reach g_joy: they count too
     static int s_jid = -1;
@@ -1138,13 +1145,20 @@ bool FUpdateDebugFreeCamPad(CAMERA& cam, int frame)
     }
     const uint16_t grfNew = uint16_t(grf & ~s_grfPrev);
     s_grfPrev = grf;
+    if ((grfNew & BTN_Select) && (grf & BTN_R1))
+    {
+        // R1 + Select: the debug menu, the free camera kept (the held combo is no press for the menu or the filter)
+        s_grfRawPrev |= grf;
+        s_grfRaw = grf;
+        if (FCanOpen()) Open();
+        std::printf("debug menu: opened from the free camera (pad)\n");
+        return true;
+    }
     if (grfNew & BTN_Select)
     {
-        // Select: back to the game (R1 + Select: the menu opens at the next step, GrfDebugMenuFilter); the buttons held
-        // reach the game only once released
+        // Select: back to the game; the buttons held reach the game only once released
         g_fDebugFreeCam = false;
         s_grfMaskRelease |= grf;
-        s_grfRawPrev &= uint16_t(~BTN_Select);
         std::printf("debug menu: free camera off (pad)\n");
         return false;
     }
