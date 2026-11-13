@@ -17,6 +17,17 @@
 
 struct SCENE;
 struct EXTRADRAW;
+struct CAMERA;
+
+// ---- the world's views (Mods/Props/w<world>.txt lines "view <name> <x> <y> <z> <yaw> <pitch> [fov]"): the safe house's
+// "trophies" view is a stop of its own after ThiefNet and the Raccoonus' (po.cpp), the camera eased to it and back
+#define SZ_TROPHY_VIEW "trophies"
+bool FPropViewSet(const char* name);
+void SetPropViewHere(const char* name);     // from the camera drawn last (the free camera's: aim it with that)
+void ClearPropView(const char* name);
+// game.cpp, each frame after the game's camera (and the free camera) are set: the trophy stop's view eased in and
+// out (not over the free camera); the camera drawn kept for SetPropViewHere
+void ApplySafeHouseView(CAMERA& cam, bool fFreeCam);
 
 // the frame's props (render.cpp's extra draws): loaded for the world, made for the GPU when first drawn
 void CollectPropDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra);

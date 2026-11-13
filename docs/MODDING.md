@@ -206,6 +206,20 @@ The file is plain text, one prop a line, and can be edited by hand:
 trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2 locked
 ```
 
+#### The safe house's trophy view
+
+A safe house can have a third camera stop for a trophy shelf or cabinet. Aim the free camera (F1) at it, then in the
+props rows choose **Trophy view: set it from this camera** and **Save this world's props**. In that safe house, stepping
+right past ThiefNet and the Thievius Raccoonus stops at **Trophies**, the camera easing over to that view; one more step
+goes on to the characters again. **Trophy view: clear it** removes it. Each safe house world has its own (its own
+`w<world>.txt`), saved as a line of the same file:
+
+```
+view trophies 1200.0 -340.0 260.0 135.0 -12.0 50.0
+```
+
+(the camera's place, its heading about Z and its pitch in degrees, and its field of view; 0 keeps the game's.)
+
 The game's units are centimetres with Z up; turn is about Z in degrees, then tilt's pitch about the prop's own X and
 roll about its own Y; `after 2` shows it once episode 2 (the palace) is complete.
 

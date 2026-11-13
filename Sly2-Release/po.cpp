@@ -44,6 +44,7 @@ void PrintRef(const CRef& ref, std::string* ps);  // bif.cpp (debug)
 #include "worldaccess.h"
 #include "frontend.h"
 #include "menu.h"
+#include "props.h"
 #include "raccoonus.h"
 #include "sound.h"
 #include "shop.h"
@@ -121,6 +122,7 @@ struct SAFEHOUSE
     std::vector<OID> aoidAllowed;   // +0x220 / +0x224 (at most 6)
     bool fMurrayQol = false;        // (QoL U33: Murray added in Episode 4, see RefSetSafeHouseStates)
     bool fRacStop = false;          // (PC: on the Thievius Raccoonus' stop, after ThiefNet: raccoonus.h's book)
+    bool fTrophyStop = false;       // (PC: on the trophy view's stop, after the Raccoonus': props.h's "trophies" view)
 };
 std::unordered_map<const LO*, SAFEHOUSE> s_mpsh;
 
@@ -263,6 +265,7 @@ void SetSafeHouseState(SW* psw, LO* plo, int n)
     }
     sh.nState = n;
     sh.fRacStop = false;
+    sh.fTrophyStop = false;
     CloseRaccoonusBook();
     if (n != 1) return;
     // a job running (and not +0x74) ends
@@ -540,22 +543,35 @@ void UpdateSafeHouse(LO* plo)
     if (FRaccoonusBookOpen()) { UpdateRaccoonusBook(); return; }
     if (const int n = NStepLeftRight())
     {
+        // (the stops after ThiefNet, its state kept under them: the Raccoonus', then the trophy view's when this world
+        // has one, Mods/Props: props.h)
         const OID oidNow = OidSmaCur(sh.psma);
-        if (sh.fRacStop)
+        const bool fTrophies = FPropViewSet(SZ_TROPHY_VIEW);
+        if (sh.fTrophyStop)
+        {
+            sh.fTrophyStop = false;
+            if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: the Raccoonus' stop)
+            else sh.fRacStop = true;
+            PsndStartSound(0x35);
+        }
+        else if (sh.fRacStop)
         {
             sh.fRacStop = false;
-            if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: ThiefNet again)
+            if (n > 0 && fTrophies) sh.fTrophyStop = true;
+            else if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: ThiefNet again)
             PsndStartSound(0x35);
         }
         else if (n > 0 && oidNow == 10) { sh.fRacStop = true; PsndStartSound(0x35); }
         else if (n < 0 && OidSafeHouseStep(plo, sh, -1) == 10)
         {
             StepSafeHouse(plo, sh, n);
-            sh.fRacStop = true;
+            if (fTrophies) sh.fTrophyStop = true;
+            else sh.fRacStop = true;
         }
         else StepSafeHouse(plo, sh, n);
         return;
     }
+    if (sh.fTrophyStop) return;   // (a view only: ThiefNet's buttons not here)
     if (sh.fRacStop)
     {
         if (GrfbtnTakePressed(0x40)) OpenRaccoonusBook();   // (cross)
@@ -686,6 +702,14 @@ int UnlockSafeHouseCharacters(SW* psw)
         ++c;
     }
     return c;
+}
+
+// (PC) the safe house on the trophy view's stop (props.cpp's camera, raccoonus.cpp's label)
+bool FSafeHouseTrophyStop()
+{
+    for (const auto& [plo, sh] : s_mpsh)
+        if (sh.nState == 1 && sh.fTrophyStop) return true;
+    return false;
 }
 
 // (PC) the safe house on the Thievius Raccoonus' stop (raccoonus.cpp draws its label)

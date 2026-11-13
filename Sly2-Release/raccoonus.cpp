@@ -430,7 +430,8 @@ void DrawRaccoonusHud(int width, int height)
     const bool fMsg = g_clock.tReal < s_tMsgEnd;
     const bool fTrain = s_train.ipage >= 0 && g_psw && s_train.serial == g_psw->serial && !FShopShown() && IGadgetMenuPage() == -1;
     const bool fBook = s_book.fOpen, fStop = !fBook && FSafeHouseRaccoonusStop();
-    if (!fPage && !fMsg && !fTrain && !fBook && !fStop) return;
+    const bool fTrophyStop = !fBook && FSafeHouseTrophyStop();
+    if (!fPage && !fMsg && !fTrain && !fBook && !fStop && !fTrophyStop) return;
     const FONTBRX* pfont = PfontHud();
     const FONTBRX* picons = PfontHudIcons();
     if (!pfont) return;
@@ -443,6 +444,13 @@ void DrawRaccoonusHud(int width, int height)
         const std::string strName = "Thievius Raccoonus", strBtn = std::string(SzMenuConfirmGlyph()) + " Read";
         DrawLine(*pfont, picons, strName, 320.0f - 0.5f * DxLine(*pfont, picons, strName, 28.0f), 356.0f, 28.0f, glm::vec4(96, 64, 20, 0));
         DrawLine(*pfont, picons, strBtn, 320.0f - 0.5f * DxLine(*pfont, picons, strBtn, 16.0f), 392.0f, 16.0f, glm::vec4(100, 100, 100, 0));
+    }
+    if (fTrophyStop)
+    {
+        // (PC) the trophy view's stop: its name on the same band
+        g_hud.FillScreenRect(-480.0f, 352.0f, 1120.0f, 420.0f, glm::vec4(0, 0, 0, 80), z - 3e-4f);
+        const std::string strName = "Trophies";
+        DrawLine(*pfont, picons, strName, 320.0f - 0.5f * DxLine(*pfont, picons, strName, 28.0f), 362.0f, 28.0f, glm::vec4(96, 80, 20, 0));
     }
     if (fBook)
     {

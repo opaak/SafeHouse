@@ -84,6 +84,7 @@ extern uint32_t g_uRandState;  // xfmath.cpp
 #include "light.h"
 #include "lightsw.h"
 #include "render.h"
+#include "props.h"
 #include "scene.h"
 #include "scenesw.h"
 #include "shd.h"
@@ -1987,6 +1988,8 @@ int RunGame(const GAMEOPTS& go)
                 ApplyCmFog(g_cm, &opts);
             }
             else cam.fMat = false;
+            // (PC modding: the safe house's trophy view, props.h; the camera drawn kept for the props' tool)
+            ApplySafeHouseView(cam, fFreeCam);
             if (!go.cameraRam.empty())
             {
                 static RENDEROPTS s_optsRam;

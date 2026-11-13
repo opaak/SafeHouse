@@ -875,6 +875,11 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
             item("Down", edit("raise", [cm] { RaisePropSelected(-cm); }), "");
             item("Shown", edit("shown", [] { CyclePropSelectedAfter(); }), "always / after an episode");
             item("Delete it", edit("delete", [] { DeletePropSelected(); Status("deleted (not saved yet)"); }), "");
+            item("Trophy view: set it from this camera", [] {
+                SetPropViewHere(SZ_TROPHY_VIEW);
+                Status("the safe house's trophy view set (not saved yet): a stop after the Thievius Raccoonus");
+            }, FPropViewSet(SZ_TROPHY_VIEW) ? "Set (aim the free camera, then this)" : "None (aim the free camera, then this)");
+            item("Trophy view: clear it", [] { ClearPropView(SZ_TROPHY_VIEW); Status("trophy view cleared (not saved yet)"); }, "");
             item("Save this world's props", [] {
                 std::string str;
                 FSaveProps(&str);

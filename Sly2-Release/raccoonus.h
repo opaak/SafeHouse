@@ -71,3 +71,4 @@ void CloseRaccoonusBook();
 bool FRaccoonusBookOpen();
 void UpdateRaccoonusBook();   // (po.cpp, each update while it is open: the pad)
 bool FSafeHouseRaccoonusStop();   // po.cpp
+bool FSafeHouseTrophyStop();      // po.cpp: the trophy view's stop (props.h)

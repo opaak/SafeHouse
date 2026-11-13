@@ -9,11 +9,13 @@
 #include "scene.h"
 #include "shd.h"
 #include "transition.h"
+#include "raccoonus.h"
 #include "../platform/platform.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -63,7 +65,16 @@ int s_ipropSel = -1;
 std::vector<std::string> s_afileModel;
 bool s_fModelsScanned = false;
 uint32_t s_cframe = 0;
-const SCENE* s_pscene = nullptr;   // (the frame's scene, CollectPropDraws: the surfaces the tool snaps to)
+const SCENE* s_pscene = nullptr;
+// the world's views (props.h)
+struct PROPVIEW
+{
+    glm::vec3 pos{0.0f};
+    float yaw = 0.0f, pitch = 0.0f, fov = 0.0f;   // (degrees; fov 0: the game camera's)
+};
+std::map<std::string, PROPVIEW> s_mpview;
+CAMERA s_camLast;
+bool s_fCamLast = false;   // (the frame's scene, CollectPropDraws: the surfaces the tool snaps to)
 
 fs::path DirProps() { return cane::path(g_disc.DirMods()) / "Props"; }
 fs::path PathWorldProps() { return DirProps() / ("w" + std::to_string(g_transition.iwrecCur) + ".txt"); }
@@ -71,6 +82,7 @@ fs::path PathWorldProps() { return DirProps() / ("w" + std::to_string(g_transiti
 void LoadWorldProps()
 {
     s_aprop.clear();
+    s_mpview.clear();
     s_mpmodel.clear();
     s_apmodelOld.clear();
     s_ipropSel = -1;
@@ -86,7 +98,20 @@ void LoadWorldProps()
         if (ihash != std::string::npos) line.resize(ihash);
         std::istringstream is(line);
         auto prop = std::make_unique<PROP>();
-        if (!(is >> prop->file >> prop->pos.x >> prop->pos.y >> prop->pos.z >> prop->turn)) continue;
+        if (!(is >> prop->file)) continue;
+        if (prop->file == "view")
+        {
+            std::string name;
+            PROPVIEW v;
+            if (is >> name >> v.pos.x >> v.pos.y >> v.pos.z >> v.yaw >> v.pitch)
+            {
+                if (!(is >> v.fov)) v.fov = 0.0f;
+                s_mpview[name] = v;
+            }
+            else std::printf("props: %s line %d: a view needs <name> <x> <y> <z> <yaw> <pitch>\n", cane::utf8(PathWorldProps()).c_str(), iline);
+            continue;
+        }
+        if (!(is >> prop->pos.x >> prop->pos.y >> prop->pos.z >> prop->turn)) continue;
         std::string key;
         while (is >> key)
         {
@@ -545,6 +570,13 @@ bool FSaveProps(std::string* pstr)
     if (!out) { *pstr = "cannot write " + cane::utf8(PathWorldProps()); return false; }
     out << "# Sly 2 props of world " << g_transition.iwrecCur << " (Mods/Props/Models' files; the game's units, Z up)\n";
     out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked]\n";
+    out << "# view <name> <x> <y> <z> <yaw> <pitch> [fov]   (\"trophies\": the safe house's trophy stop)\n";
+    for (const auto& [name, v] : s_mpview)
+    {
+        char ach[256];
+        std::snprintf(ach, sizeof ach, "view %s %.1f %.1f %.1f %.1f %.1f %.1f\n", name.c_str(), v.pos.x, v.pos.y, v.pos.z, v.yaw, v.pitch, v.fov);
+        out << ach;
+    }
     for (const auto& pp : s_aprop)
     {
         const PROP& p = *pp;
@@ -557,6 +589,65 @@ bool FSaveProps(std::string* pstr)
         if (p.fLocked) out << " locked";
         out << "\n";
     }
-    *pstr = "saved " + std::to_string(s_aprop.size()) + " props: Mods/Props/" + cane::utf8(PathWorldProps().filename());
+    *pstr = "saved " + std::to_string(s_aprop.size()) + " props" + (s_mpview.empty() ? "" : " and " + std::to_string(s_mpview.size()) + " view(s)") +
+            ": Mods/Props/" + cane::utf8(PathWorldProps().filename());
     return bool(out);
+}
+
+// ---- the world's views
+bool FPropViewSet(const char* name)
+{
+    CProps();   // (this world's file read)
+    return s_mpview.count(name) != 0;
+}
+
+void SetPropViewHere(const char* name)
+{
+    if (!s_fCamLast) return;
+    CProps();
+    const glm::vec3 d = glm::normalize(s_camLast.Dir());
+    PROPVIEW v;
+    v.pos = s_camLast.pos;
+    v.yaw = std::round(glm::degrees(std::atan2(d.y, d.x)) * 10.0f) / 10.0f;
+    v.pitch = std::round(glm::degrees(std::asin(std::clamp(d.z, -1.0f, 1.0f))) * 10.0f) / 10.0f;
+    v.fov = std::round(s_camLast.fovY * 10.0f) / 10.0f;
+    s_mpview[name] = v;
+}
+
+void ClearPropView(const char* name)
+{
+    CProps();
+    s_mpview.erase(name);
+}
+
+void ApplySafeHouseView(CAMERA& cam, bool fFreeCam)
+{
+    static double s_tPrev = 0.0;
+    static float s_u = 0.0f;   // (0: the game's camera, 1: the view's)
+    const double t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float dt = float(std::clamp(t - s_tPrev, 0.0, 0.1));
+    s_tPrev = t;
+    const PROPVIEW* pv = nullptr;
+    if (s_iwrecProps == g_transition.iwrecCur)
+        if (auto it = s_mpview.find(SZ_TROPHY_VIEW); it != s_mpview.end()) pv = &it->second;
+    const bool fOn = pv && !fFreeCam && FSafeHouseTrophyStop();
+    s_u = std::clamp(s_u + (fOn ? dt : -dt) / 0.6f, 0.0f, 1.0f);
+    if (fFreeCam || !pv) s_u = 0.0f;
+    if (s_u > 0.0f && pv)
+    {
+        // eased: the game camera's place and heading to the view's (the shorter way round)
+        const float u = s_u * s_u * (3.0f - 2.0f * s_u);
+        const glm::vec3 d = glm::normalize(cam.Dir());
+        const float yaw0 = glm::degrees(std::atan2(d.y, d.x)), pitch0 = glm::degrees(std::asin(std::clamp(d.z, -1.0f, 1.0f)));
+        float dyaw = std::fmod(pv->yaw - yaw0, 360.0f);
+        if (dyaw > 180.0f) dyaw -= 360.0f;
+        if (dyaw < -180.0f) dyaw += 360.0f;
+        cam.pos = glm::mix(cam.pos, pv->pos, u);
+        cam.yaw = yaw0 + dyaw * u;
+        cam.pitch = glm::mix(pitch0, pv->pitch, u);
+        if (pv->fov > 1.0f) cam.fovY = glm::mix(cam.fovY, pv->fov, u);
+        cam.fMat = false;
+    }
+    s_camLast = cam;
+    s_fCamLast = true;
 }
