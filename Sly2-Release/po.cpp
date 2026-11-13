@@ -183,30 +183,6 @@ OID OidSafeHouseStep(LO* plo, SAFEHOUSE& sh, int d)
     return -1;
 }
 
-// (PC) the safe house's first view: Sly's (state 7) when allowed, else the first allowed state along the machine. The
-// trophy view's stop is the round's last: before the first view (the machine's own order wraps elsewhere: Bentley's
-// state after Sly's in some hubs)
-OID OidSafeHouseFirst(LO* plo, SAFEHOUSE& sh)
-{
-    if (!sh.psma || !sh.psma->psm) return -1;
-    SM* psm = sh.psma->psm;
-    const std::vector<OID> aoid = AoidAllowed(plo);
-    auto fIn = [&](OID oid) { return std::find(aoid.begin(), aoid.end(), oid) != aoid.end() && IsmsFindSm(psm, oid) >= 0; };
-    if (fIn(7)) return 7;
-    for (int i = 0; i < int(psm->asms.size()); ++i)
-        if (fIn(OidFromSmIsms(psm, i))) return OidFromSmIsms(psm, i);
-    return -1;
-}
-
-// (PC) the step d from the current state passes the round's end: right onto the first view, or left from it
-bool FSafeHouseStepWraps(LO* plo, SAFEHOUSE& sh, int d)
-{
-    const OID oidFirst = OidSafeHouseFirst(plo, sh);
-    if (oidFirst < 0 || d == 0) return false;
-    if (d > 0) return OidSafeHouseStep(plo, sh, 1) == oidFirst;
-    return OidSmaCur(sh.psma) == oidFirst;
-}
-
 // orig 0x001D7780 (EOPID 1339's method 0x10F648; the loader's option and the scripts): the states the select may
 // show (a list of at most 6 oids into +0x220 / +0x224), then 0x1D77D0(p, 0). This is how the original makes a
 // character available: the Paris scripts give the list (10 7) (ThiefNet, Sly) until Bentley's / Murray's jobs open.
@@ -575,35 +551,32 @@ void UpdateSafeHouse(LO* plo)
     }
     if (const int n = NStepLeftRight())
     {
-        // (PC) the stops of their own, the state under them kept: the Thievius Raccoonus' after ThiefNet (its camera
-        // ThiefNet's), and the trophy view's last, after the last state (when this world has one, Mods/Props: props.h)
+        // (PC) the stops of their own after ThiefNet, its state kept under them: the Thievius Raccoonus' (its camera
+        // ThiefNet's), then the trophy view's when this world has one (Mods/Props: props.h). The round: Murray, Sly,
+        // Bentley, ThiefNet, the Raccoonus, the trophies.
         const OID oidNow = OidSmaCur(sh.psma);
         const bool fTrophies = FPropViewSet(SZ_TROPHY_VIEW);
         if (sh.fTrophyStop)
         {
             sh.fTrophyStop = false;
-            if (n > 0) StepSafeHouse(plo, sh, n);          // (round to the first state)
-            else if (oidNow == 10) sh.fRacStop = true;     // (back: the last state's own view, the Raccoonus' after ThiefNet)
+            if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: the Raccoonus' stop)
+            else sh.fRacStop = true;
             PsndStartSound(0x35);
         }
         else if (sh.fRacStop)
         {
             sh.fRacStop = false;
-            if (n > 0 && fTrophies && FSafeHouseStepWraps(plo, sh, 1)) sh.fTrophyStop = true;
+            if (n > 0 && fTrophies) sh.fTrophyStop = true;
             else if (n > 0) StepSafeHouse(plo, sh, n);   // (on to the state after ThiefNet; left: ThiefNet again)
             PsndStartSound(0x35);
         }
         else if (n > 0 && oidNow == 10) { sh.fRacStop = true; PsndStartSound(0x35); }
-        else if (n > 0 && fTrophies && FSafeHouseStepWraps(plo, sh, 1)) { sh.fTrophyStop = true; PsndStartSound(0x35); }
-        else if (n < 0 && fTrophies && FSafeHouseStepWraps(plo, sh, -1))
-        {
-            StepSafeHouse(plo, sh, n);
-            sh.fTrophyStop = true;
-        }
         else if (n < 0 && OidSafeHouseStep(plo, sh, -1) == 10)
         {
+            // (back past ThiefNet's stops: the last of them first)
             StepSafeHouse(plo, sh, n);
-            sh.fRacStop = true;
+            if (fTrophies) sh.fTrophyStop = true;
+            else sh.fRacStop = true;
         }
         else StepSafeHouse(plo, sh, n);
         return;
