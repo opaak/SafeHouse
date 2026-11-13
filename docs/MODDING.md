@@ -218,7 +218,7 @@ trophy.glb 1000.0 2000.0 310.0 45.0 scale 1.1 after 2 locked
 
 A safe house can have a third camera stop for a trophy shelf or cabinet. Aim the free camera (F1) at it, then in the
 props rows choose **Trophy view: set it from this camera** and **Save this world's props**. In that safe house, stepping
-right past the last of the safe house's own views stops at **Trophies** (the last stop, before the views start over),
+right past the last of the safe house's own views stops at **Trophies** (the round's last stop, just before Sly's view),
 the camera easing over to that view. **Trophy view: clear it** removes it. Each safe house world has its own (its own
 `w<world>.txt`), saved as a line of the same file:
 

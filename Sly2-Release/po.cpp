@@ -183,27 +183,28 @@ OID OidSafeHouseStep(LO* plo, SAFEHOUSE& sh, int d)
     return -1;
 }
 
-// (PC) whether StepSafeHouse(d) passes the end of the machine's states (the last allowed state to the first, or back):
-// the trophy view's stop sits there, after the last state
+// (PC) the safe house's first view: Sly's (state 7) when allowed, else the first allowed state along the machine. The
+// trophy view's stop is the round's last: before the first view (the machine's own order wraps elsewhere: Bentley's
+// state after Sly's in some hubs)
+OID OidSafeHouseFirst(LO* plo, SAFEHOUSE& sh)
+{
+    if (!sh.psma || !sh.psma->psm) return -1;
+    SM* psm = sh.psma->psm;
+    const std::vector<OID> aoid = AoidAllowed(plo);
+    auto fIn = [&](OID oid) { return std::find(aoid.begin(), aoid.end(), oid) != aoid.end() && IsmsFindSm(psm, oid) >= 0; };
+    if (fIn(7)) return 7;
+    for (int i = 0; i < int(psm->asms.size()); ++i)
+        if (fIn(OidFromSmIsms(psm, i))) return OidFromSmIsms(psm, i);
+    return -1;
+}
+
+// (PC) the step d from the current state passes the round's end: right onto the first view, or left from it
 bool FSafeHouseStepWraps(LO* plo, SAFEHOUSE& sh, int d)
 {
-    if (!sh.psma || !sh.psma->psm || d == 0) return false;
-    SM* psm = sh.psma->psm;
-    const int c = int(psm->asms.size());
-    if (c <= 0) return false;
-    const std::vector<OID> aoid = AoidAllowed(plo);
-    int i = IsmsFindSm(psm, OidSmaCur(sh.psma));
-    if (i < 0) i = 0;
-    bool fWrapped = false;
-    for (int guard = 0; guard < c; ++guard)
-    {
-        i += d;
-        if (i < 0) i = c - 1, fWrapped = true;
-        else if (i >= c) i = 0, fWrapped = true;
-        const OID oid = OidFromSmIsms(psm, i);
-        if (std::find(aoid.begin(), aoid.end(), oid) != aoid.end()) return fWrapped;
-    }
-    return false;
+    const OID oidFirst = OidSafeHouseFirst(plo, sh);
+    if (oidFirst < 0 || d == 0) return false;
+    if (d > 0) return OidSafeHouseStep(plo, sh, 1) == oidFirst;
+    return OidSmaCur(sh.psma) == oidFirst;
 }
 
 // orig 0x001D7780 (EOPID 1339's method 0x10F648; the loader's option and the scripts): the states the select may
