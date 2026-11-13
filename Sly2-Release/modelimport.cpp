@@ -11,6 +11,9 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <nlohmann/json.hpp>
+// stb_image compiled into this file, static: as texmod.cpp, qolview.cpp and techicons.cpp, so no clash
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 #include <algorithm>
