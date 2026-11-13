@@ -57,6 +57,9 @@ struct PROP
     bool fLocked = false;   // (the placement tool leaves it as it is)
     bool fBoss = false;     // (a boss item: looked at closely at the trophy stop)
     std::string title;      // (its name there; "" the file's)
+    // (looked at closely: how far it turns from its front, about the up axis and tipped; -1 freely: a model
+    // missing its back or underside keeps them out of sight)
+    float yawLimit = -1.0f, pitchLimit = -1.0f;
     // made for the GPU at its place (its light is the place's): rebuilt when moved
     SCENEGLOBSET sgs;
     bool fBuilt = false;
@@ -91,6 +94,7 @@ struct INSPECT
     glm::quat q0{1, 0, 0, 0};     // its turn as placed, in the camera's frame (forward, left, up)
     glm::quat q{1, 0, 0, 0};      // as turned
     float zoom = 1.0f, tIdle = 0.0f, t = 0.0f;
+    float yaw = 0.0f, pitch = 0.0f, tSway = 0.0f;   // (degrees from q0: about the camera's up, then its left)
     double tPrev = 0.0;
 };
 INSPECT s_insp;
@@ -142,6 +146,7 @@ void LoadWorldProps()
             else if (key == "locked") prop->fLocked = true;
             else if (key == "boss") prop->fBoss = true;
             else if (key == "title") is >> prop->title;
+            else if (key == "turnlimit") is >> prop->yawLimit >> prop->pitchLimit;
             else std::printf("props: %s line %d: '%s' not known\n", cane::utf8(PathWorldProps()).c_str(), iline, key.c_str());
         }
         prop->scale = std::clamp(prop->scale, 0.01f, 100.0f);
@@ -608,7 +613,7 @@ bool FSaveProps(std::string* pstr)
     std::ofstream out(PathWorldProps());
     if (!out) { *pstr = "cannot write " + cane::utf8(PathWorldProps()); return false; }
     out << "# Sly 2 props of world " << g_transition.iwrecCur << " (Mods/Props/Models' files; the game's units, Z up)\n";
-    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked] [boss] [title <words_with_underscores>]\n";
+    out << "# <model> <x> <y> <z> <turn> [scale <s>] [tilt <pitch> <roll>] [after <episode>] [locked] [boss] [title <words_with_underscores>] [turnlimit <deg> <deg>]\n";
     out << "# view <name> <x> <y> <z> <yaw> <pitch> [fov]   (\"trophies\": the safe house's trophy stop)\n";
     for (const auto& [name, v] : s_mpview)
     {
@@ -628,6 +633,7 @@ bool FSaveProps(std::string* pstr)
         if (p.fLocked) out << " locked";
         if (p.fBoss) out << " boss";
         if (!p.title.empty()) out << " title " << p.title;
+        if (p.yawLimit >= 0.0f || p.pitchLimit >= 0.0f) out << " turnlimit " << p.yawLimit << " " << p.pitchLimit;
         out << "\n";
     }
     *pstr = "saved " + std::to_string(s_aprop.size()) + " props" + (s_mpview.empty() ? "" : " and " + std::to_string(s_mpview.size()) + " view(s)") +
@@ -721,6 +727,7 @@ void StartInspect(int iprop)
     s_insp.u = 0.0f;
     s_insp.zoom = 1.0f;
     s_insp.tIdle = 0.0f;
+    s_insp.yaw = s_insp.pitch = s_insp.tSway = 0.0f;
     const PROP& p = *s_aprop[size_t(iprop)];
     glm::mat4 m = glm::rotate(glm::mat4(1.0f), glm::radians(p.turn), glm::vec3(0.0f, 0.0f, 1.0f));
     m = glm::rotate(m, glm::radians(p.pitch), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -805,11 +812,28 @@ void UpdateBossInspect()
     const float xl = dz(g_joy.xLeft), yl = dz(g_joy.yLeft), yr = dz(g_joy.yRight);
     if (xl != 0.0f || yl != 0.0f || yr != 0.0f) s_insp.tIdle = 0.0f;
     else s_insp.tIdle += dt;
-    const float sTurn = glm::radians(150.0f) * dt;
-    s_insp.q = glm::angleAxis(-xl * sTurn, glm::vec3(0.0f, 0.0f, 1.0f)) * s_insp.q;
-    s_insp.q = glm::angleAxis(yl * sTurn, glm::vec3(0.0f, 1.0f, 0.0f)) * s_insp.q;
-    if (s_insp.tIdle > 2.5f) s_insp.q = glm::angleAxis(glm::radians(20.0f) * dt, glm::vec3(0.0f, 0.0f, 1.0f)) * s_insp.q;   // (left alone: it turns slowly)
-    s_insp.q = glm::normalize(s_insp.q);
+    const PROP& prop = *s_aprop[size_t(s_insp.iprop)];
+    s_insp.yaw -= xl * 150.0f * dt;
+    s_insp.pitch += yl * 150.0f * dt;
+    if (s_insp.tIdle > 2.5f)
+    {
+        // left alone: it turns slowly round, or with a limit sways from side to side within it
+        if (prop.yawLimit < 0.0f) s_insp.yaw += 20.0f * dt;
+        else
+        {
+            s_insp.tSway += dt;
+            const float yawTo = prop.yawLimit * 0.8f * std::sin(s_insp.tSway * 0.45f);
+            s_insp.yaw += (yawTo - s_insp.yaw) * std::min(1.0f, dt * 1.2f);
+        }
+        if (prop.pitchLimit >= 0.0f) s_insp.pitch -= s_insp.pitch * std::min(1.0f, dt * 0.8f);
+    }
+    else s_insp.tSway = std::asin(std::clamp(prop.yawLimit > 0.0f ? s_insp.yaw / (prop.yawLimit * 0.8f) : 0.0f, -1.0f, 1.0f)) / 0.45f;
+    if (prop.yawLimit >= 0.0f) s_insp.yaw = std::clamp(s_insp.yaw, -prop.yawLimit, prop.yawLimit);
+    else s_insp.yaw = std::fmod(s_insp.yaw, 360.0f);
+    if (prop.pitchLimit >= 0.0f) s_insp.pitch = std::clamp(s_insp.pitch, -prop.pitchLimit, prop.pitchLimit);
+    else s_insp.pitch = std::fmod(s_insp.pitch, 360.0f);
+    s_insp.q = glm::normalize(glm::angleAxis(glm::radians(s_insp.yaw), glm::vec3(0.0f, 0.0f, 1.0f)) *
+                              glm::angleAxis(glm::radians(s_insp.pitch), glm::vec3(0.0f, 1.0f, 0.0f)) * s_insp.q0);
     s_insp.zoom = std::clamp(s_insp.zoom * std::exp(-yr * 1.5f * dt), 0.45f, 2.5f);
 }
 
@@ -828,4 +852,28 @@ std::string StrBossInspected()
     auto it = std::find(a.begin(), a.end(), s_insp.iprop);
     if (a.size() > 1 && it != a.end()) name += "   " + std::to_string(int(it - a.begin()) + 1) + " / " + std::to_string(a.size());
     return name;
+}
+
+void CycleBossLimitSelected(bool fTilt)
+{
+    PROP* p = PpropSel();
+    if (!p) return;
+    static const float s_ayaw[] = {-1.0f, 15.0f, 30.0f, 45.0f, 60.0f, 90.0f, 135.0f};
+    static const float s_apitch[] = {-1.0f, 0.0f, 10.0f, 20.0f, 30.0f, 45.0f, 60.0f};
+    const float* af = fTilt ? s_apitch : s_ayaw;
+    float& f = fTilt ? p->pitchLimit : p->yawLimit;
+    size_t i = 0;
+    while (i < 7 && af[i] != f) ++i;
+    f = af[(i + 1) % 7];
+}
+
+std::string StrBossLimitSelected(bool fTilt)
+{
+    const PROP* p = PpropSel();
+    if (!p) return "";
+    const float f = fTilt ? p->pitchLimit : p->yawLimit;
+    if (f < 0.0f) return "Free";
+    char ach[32];
+    std::snprintf(ach, sizeof ach, "%g deg each way", f);
+    return ach;
 }

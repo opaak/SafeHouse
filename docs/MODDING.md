@@ -235,6 +235,9 @@ view trophies 1200.0 -340.0 260.0 135.0 -12.0 50.0
 underscores shown as spaces, else the file's name is shown). At the Trophies stop, cross lifts the boss items out one at
 a time to float before the camera: the left stick turns it every way, the right stick (up / down) brings it nearer or
 further, L1 / R1 go to the previous / next, and circle puts it back. Left alone for a moment it turns slowly by itself.
+A model missing its back or underside can be kept facing the camera: **Boss item: turn limit** (side to side, 15° to
+135° each way) and **Boss item: tilt limit** (forward / back, 0° to 60°), saved as `turnlimit <side> <tilt>` (-1 free).
+With a turn limit it sways within it when left alone.
 
 The game's units are centimetres with Z up; turn is about Z in degrees, then tilt's pitch about the prop's own X and
 roll about its own Y; `after 2` shows it once episode 2 (the palace) is complete.

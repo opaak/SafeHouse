@@ -858,6 +858,8 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 ToggleBossPropSelected();
                 Status(FPropSelectedBoss() ? "a boss item: cross looks at it closely at the trophy stop (not saved yet)" : "not a boss item");
             }, IpropSelected() < 0 ? "" : FPropSelectedBoss() ? "Yes" : "No");
+            item("Boss item: turn limit", [] { CycleBossLimitSelected(false); }, StrBossLimitSelected(false) + "  (side to side)");
+            item("Boss item: tilt limit", [] { CycleBossLimitSelected(true); }, StrBossLimitSelected(true) + "  (forward / back)");
             item("Move it to the crosshair", edit("move", [] {
                 glm::vec3 pos, nrm;
                 if (FCrosshairHit(&pos, &nrm)) MovePropSelected(pos);

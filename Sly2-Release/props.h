@@ -40,6 +40,10 @@ void UpdateBossInspect();
 void CloseBossInspect();                    // at once (the safe house left)
 std::string StrBossInspected();             // its title, and "n / N"
 void ToggleBossPropSelected();
+// how far a boss item turns from its front when looked at (about the up axis; tipped): free, or 15..135 / 0..60
+// degrees each way ("turnlimit <deg> <deg>", -1 free): a model missing its back or underside keeps them out of sight
+void CycleBossLimitSelected(bool fTilt);
+std::string StrBossLimitSelected(bool fTilt);
 bool FPropSelectedBoss();
 
 // the frame's props (render.cpp's extra draws): loaded for the world, made for the GPU when first drawn
