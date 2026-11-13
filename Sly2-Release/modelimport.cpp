@@ -261,7 +261,7 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
             for (const json& c : anode[k].value("children", json::array())) astack.push_back(c.get<size_t>());
         }
     }
-    static const std::regex s_reGlob("glob_(\\d+)"), s_reMat("sly2_g(\\d+)_s(\\d+)");
+    static const std::regex s_reGlob("glob_(\\d+)"), s_reMat("sly2_g(\\d+)_s(\\d+)"), s_rePart("^part(-?\\d+)_g\\d+");
     static const std::regex s_reFile("^w(-?\\d+)_.*_oid(-?\\d+)"), s_reFileGlob("_oid-?\\d+_g(\\d+)");
     int iroot = -1;
     for (size_t k = 0; k < anode.size() && iroot < 0; ++k)
@@ -310,6 +310,16 @@ bool FReadModelMod(const fs::path& path, MODELMOD& mod, std::string& err)
     {
         const json& n = anode[k];
         if (!n.contains("mesh") || !afInScene[k]) continue;
+        // (another object's part, written with this one by the export: not this object's to change)
+        bool fOtherPart = false;
+        for (int p = int(k); p >= 0 && !fOtherPart; p = aiparent[size_t(p)])
+        {
+            const json& np = anode[size_t(p)];
+            const std::string nameNode = np.value("name", "");
+            fOtherPart = (np.contains("extras") && np["extras"].contains("sly2_part_oid")) || std::regex_search(nameNode, s_rePart);
+            if (p == iroot) break;
+        }
+        if (fOtherPart) continue;
         int iglob = -1;
         glm::mat4 mat0(0.0f);
         bool fMat0 = false;

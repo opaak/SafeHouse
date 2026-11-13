@@ -4,6 +4,7 @@
 #include "modelexport.h"
 #include "modelimport.h"
 #include "props.h"
+#include "lo.h"
 #include "../platform/platform.h"
 #include "render.h"
 #include "simdmat.h"
@@ -3738,11 +3739,14 @@ TEXPICK s_texpick;
 const BMP* s_pbmpPick = nullptr;
 const CLUT* s_pclutPick = nullptr;
 MODELEXPORT s_mxPick;   // (the picked object's model and its pose this frame: "Export the picked model")
+const SCENE* s_psceneTexpick = nullptr;   // (the scene picked from, and the picked entry: the export's other objects)
+size_t s_isgsPick = 0;
 
 void DrawTexturePicker(const SCENE& scene, const glm::mat4& matWorldToClip, GLuint fbo, int dx, int dy)
 {
     s_texpick = TEXPICK{};
     s_mxPick = MODELEXPORT{};
+    s_psceneTexpick = &scene;
     if (!FEnsureWsDebug(dx, dy)) return;
     struct TPDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone;
                     const SCENEGLOBSET* psgs; const SUBGLOB* psub; int iglob, isub, csub; };
@@ -3852,6 +3856,7 @@ void DrawTexturePicker(const SCENE& scene, const glm::mat4& matWorldToClip, GLui
         s_mxPick.aamatBone = d.psgs->aamatBone;
         s_mxPick.afVisible = d.psgs->afVisible;
         s_mxPick.oid = d.psgs->oid;
+        s_isgsPick = size_t(d.psgs - scene.aglobset.data());
         // its first textured pass's texture (the one the frame shows: its animation's frame)
         const SHD* pshd = d.psub->pshd;
         for (const SHDPASS& ps : pshd->apass)
@@ -6179,7 +6184,9 @@ bool FCopyPickedTextureToMods(std::string* pstr)
 #endif
 }
 
-bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr)
+const std::vector<ALO*>* g_papaloScene = nullptr;
+
+bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr, int others)
 {
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     if (!s_texpick.fValid || !s_mxPick.pglobset) { *pstr = "nothing under the crosshair"; return false; }
@@ -6191,6 +6198,50 @@ bool FExportPickedModel(const std::string& name, float sRadius, std::string* pst
     MODELEXPORT mx = s_mxPick;
     const GLOBSET& gs = *mx.pglobset;
     const size_t iPick = size_t(s_texpick.iglob);
+    // a group's middle in the world
+    auto middleOf = [](const GLOBSET& g, const std::vector<glm::mat4>& amat, size_t i) {
+        const GLOB* pgeom = PglobGeometry(g, i);
+        const glm::vec4 sphere = pgeom ? SphereOfGlob(*pgeom) : glm::vec4(0.0f, 0.0f, 0.0f, -1.0f);
+        const glm::vec3 c = sphere.w >= 0.0f ? glm::vec3(sphere) : glm::vec3(0.0f);
+        return glm::vec3(amat[i] * glm::vec4(c, 1.0f));
+    };
+    // (the other objects: the parts under this one, or everything near the picked group)
+    const SCENE* pscene = s_psceneTexpick;
+    if (others != 0 && pscene && s_isgsPick < pscene->aglobset.size() && pscene->aglobset[s_isgsPick].pglobset == mx.pglobset)
+    {
+        const std::vector<ALO*>* papalo = g_papaloScene && g_papaloScene->size() == pscene->aglobset.size() ? g_papaloScene : nullptr;
+        const LO* ploPick = papalo ? (*papalo)[s_isgsPick] : nullptr;
+        const glm::vec3 cPick = iPick < gs.aglob.size() && iPick < mx.amatGlob.size() ? middleOf(gs, mx.amatGlob, iPick) : glm::vec3(0.0f);
+        for (size_t k = 0; k < pscene->aglobset.size(); ++k)
+        {
+            const SCENEGLOBSET& sgs = pscene->aglobset[k];
+            if (k == s_isgsPick || !sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.pglobset == mx.pglobset) continue;
+            MODELPART part{sgs.pglobset, sgs.amatGlob, sgs.aamatBone, sgs.afVisible, sgs.oid};
+            bool fAny = false;
+            if (others == 1)
+            {
+                // under the picked object (its parent chain reaches it)
+                bool fUnder = false;
+                for (const LO* p = papalo ? static_cast<const LO*>((*papalo)[k]) : nullptr; p && !fUnder; p = p->paloParent)
+                    fUnder = p->paloParent == ploPick && ploPick;
+                if (!fUnder) continue;
+                for (uint8_t f : part.afVisible) fAny = fAny || f;
+            }
+            else
+            {
+                if (sgs.fActorTree || sRadius <= 0.0f) continue;   // (not the characters)
+                for (size_t i = 0; i < part.afVisible.size(); ++i)
+                {
+                    if (!part.afVisible[i]) continue;
+                    const bool fKeep = i < part.amatGlob.size() && glm::length(middleOf(*part.pglobset, part.amatGlob, i) - cPick) <= sRadius;
+                    part.afVisible[i] = fKeep ? 1 : 0;
+                    fAny = fAny || fKeep;
+                }
+            }
+            if (fAny) mx.apart.push_back(std::move(part));
+        }
+        if (others == 1 && !papalo) { *pstr = "the objects' parents are not known here"; return false; }
+    }
     if (sRadius != 0.0f && iPick < gs.aglob.size() && iPick < mx.amatGlob.size())
     {
         // a part of the object: the picked group, and with a radius the groups whose middles are near its middle
@@ -6212,11 +6263,11 @@ bool FExportPickedModel(const std::string& name, float sRadius, std::string* pst
         // the origin at the picked group's middle, the axes the world's (a level's groups are often in its space)
         mx.fRef = true;
         mx.matRef = glm::translate(glm::mat4(1.0f), cPick);
-        if (sRadius > 0.0f) std::snprintf(ach, sizeof ach, "_oid%d_g%d_r%dm.glb", mx.oid, int(iPick), int(std::lround(sRadius / 100.0f)));
+        if (sRadius > 0.0f) std::snprintf(ach, sizeof ach, "_oid%d_g%d_r%dm%s.glb", mx.oid, int(iPick), int(std::lround(sRadius / 100.0f)), others == 2 ? "_all" : "");
         else std::snprintf(ach, sizeof ach, "_oid%d_g%d.glb", mx.oid, int(iPick));
         (void)cKept;
     }
-    else std::snprintf(ach, sizeof ach, "_oid%d.glb", s_mxPick.oid);
+    else std::snprintf(ach, sizeof ach, "_oid%d%s.glb", s_mxPick.oid, others == 1 ? "_parts" : "");
     // (the world first: the import matches the file to the world and the object, modelimport.h)
     mx.iwrec = g_transition.iwrecCur;
     mx.iglobPick = int(iPick);

@@ -638,6 +638,7 @@ int RunGame(const GAMEOPTS& go)
 
     SCENE scene;
     std::vector<ALO*> apalo;
+    g_papaloScene = &apalo;   // (render.h: the model export's parts)
     RENDEROPTS opts;
     const std::string ramPath = go.loadmaps + "/w" + go.world + "/final.ram";
     CAMERA cam = CameraFromRam(ramPath, opts);

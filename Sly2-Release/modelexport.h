@@ -16,6 +16,17 @@
 
 struct GLOBSET;
 
+// another object's model written with it (its nodes "part<oid>_g<i>", extras sly2_part_oid / sly2_part_glob: whole in
+// Blender and as a prop; the import, which edits one object, leaves them out)
+struct MODELPART
+{
+    std::shared_ptr<GLOBSET> pglobset;
+    std::vector<glm::mat4> amatGlob;
+    std::vector<std::vector<glm::mat4>> aamatBone;
+    std::vector<uint8_t> afVisible;
+    int oid = -1;
+};
+
 struct MODELEXPORT
 {
     std::shared_ptr<GLOBSET> pglobset;              // the object's model
@@ -29,6 +40,7 @@ struct MODELEXPORT
     // rigid group's matrix
     bool fRef = false;
     glm::mat4 matRef{1.0f};
+    std::vector<MODELPART> apart;   // the other objects' parts written too
 };
 
 // The model written to path (the folders made); false with *perr on failure, else *pstrInfo a short summary

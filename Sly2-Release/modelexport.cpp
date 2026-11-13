@@ -100,16 +100,29 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
         }
     const glm::mat4 matRefInv = glm::inverse(matRef);
 
-    for (size_t i = 0; i < gs.aglob.size(); ++i)
+    // the object's groups, then the other objects' parts (named apart: the import leaves them out)
+    std::vector<MODELPART> asrc;
+    asrc.push_back(MODELPART{mx.pglobset, mx.amatGlob, mx.aamatBone, mx.afVisible, mx.oid});
+    for (const MODELPART& p : mx.apart)
+        if (p.pglobset) asrc.push_back(p);
+    int cpart = 0;
+    for (size_t isrc = 0; isrc < asrc.size(); ++isrc)
     {
-        if (i >= mx.afVisible.size() || !mx.afVisible[i] || i >= mx.amatGlob.size()) continue;
-        const GLOB& glob = gs.aglob[i];
+    const MODELPART& src = asrc[isrc];
+    const bool fPart = isrc > 0;
+    bool fPartWritten = false;
+    // ("part<oid>_g<i>": not the import's "glob_<i>")
+    auto nameOf = [&](size_t i) { return fPart ? "part" + std::to_string(src.oid) + "_g" + std::to_string(i) : "glob_" + std::to_string(i); };
+    for (size_t i = 0; i < src.pglobset->aglob.size(); ++i)
+    {
+        if (i >= src.afVisible.size() || !src.afVisible[i] || i >= src.amatGlob.size()) continue;
+        const GLOB& glob = src.pglobset->aglob[i];
         const GLOB* pgeom = &glob;
-        if (glob.avtx.empty() && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size()) pgeom = &gs.aglob[size_t(glob.iglobTemplate)];
+        if (glob.avtx.empty() && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < src.pglobset->aglob.size()) pgeom = &src.pglobset->aglob[size_t(glob.iglobTemplate)];
         const GLOB& geom = *pgeom;
         if (geom.meshk != MESHK_Strips || geom.avtx.empty() || geom.aindex.empty()) continue;
-        const bool fPosed = i < mx.aamatBone.size() && !mx.aamatBone[i].empty();
-        const std::vector<glm::mat4>* pabone = fPosed ? &mx.aamatBone[i] : nullptr;
+        const bool fPosed = i < src.aamatBone.size() && !src.aamatBone[i].empty();
+        const std::vector<glm::mat4>* pabone = fPosed ? &src.aamatBone[i] : nullptr;
 
         // the vertices (posed: in the world; else the group's own space)
         const size_t cv = geom.avtx.size();
@@ -135,7 +148,7 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                     wSum += w;
                 }
                 if (wSum > 0.0f) p = glm::vec3(ps) / wSum, n = glm::vec3(ns);
-                else p = glm::vec3(mx.amatGlob[i] * glm::vec4(v.pos, 1.0f)), n = glm::mat3(mx.amatGlob[i]) * v.normal;
+                else p = glm::vec3(src.amatGlob[i] * glm::vec4(v.pos, 1.0f)), n = glm::mat3(src.amatGlob[i]) * v.normal;
             }
             const float l = glm::length(n);
             n = l > 1e-6f ? n / l : glm::vec3(0.0f, 0.0f, 1.0f);
@@ -223,12 +236,13 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
                     }
                 }
                 // (named by the part it came from: the import gives a mesh with this material that part's shader)
-                materials << (fFirstMat ? "" : ",") << "{\"name\":\"sly2_g" << i << "_s" << (&sub - geom.asubglob.data()) << (blend == 2 ? "_glow" : "")
+                materials << (fFirstMat ? "" : ",") << "{\"name\":\"sly2_" << (fPart ? "o" + std::to_string(src.oid) + "_" : std::string()) << "g" << i << "_s" << (&sub - geom.asubglob.data()) << (blend == 2 ? "_glow" : "")
                           << "\",\"doubleSided\":true,"
                           << "\"alphaMode\":\"" << (blend ? "BLEND" : pbmp ? "MASK" : "OPAQUE") << "\"" << (blend || !pbmp ? "" : ",\"alphaCutoff\":0.25")
                           << ",\"pbrMetallicRoughness\":{\"metallicFactor\":0,\"roughnessFactor\":1";
                 if (itex >= 0) materials << ",\"baseColorTexture\":{\"index\":" << itex << "}";
-                materials << "},\"extras\":{\"sly2_blend\":" << blend << ",\"sly2_glob\":" << i << ",\"sly2_sub\":" << (&sub - geom.asubglob.data()) << "}}";
+                materials << "},\"extras\":{\"sly2_blend\":" << blend << (fPart ? ",\"sly2_part_oid\":" + std::to_string(src.oid) + ",\"sly2_part_glob\":" : ",\"sly2_glob\":") << i
+                          << ",\"sly2_sub\":" << (&sub - geom.asubglob.data()) << "}}";
                 fFirstMat = false;
                 imat = cmat++;
                 mpmat[key] = imat;
@@ -239,19 +253,24 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
             fFirstPrim = false;
         }
         if (fFirstPrim) continue;   // (no parts)
-        meshes << (fFirstMesh ? "" : ",") << "{\"name\":\"glob_" << i << "\",\"primitives\":[" << prims.str() << "]}";
+        meshes << (fFirstMesh ? "" : ",") << "{\"name\":\"" << nameOf(i) << "\",\"primitives\":[" << prims.str() << "]}";
         fFirstMesh = false;
         // its node: relative to the reference (posed: its vertices are in the world)
-        const glm::mat4 matNode = fPosed ? matRefInv : matRefInv * mx.amatGlob[i];
-        nodes << (fFirstNode ? "" : ",") << "{\"name\":\"glob_" << i << "\",\"mesh\":" << cmesh << ",\"matrix\":" << StrMatrix(matNode)
-              << ",\"extras\":{\"sly2_glob\":" << i << ",\"sly2_posed\":" << (fPosed ? "true" : "false") << ",\"sly2_matrix\":" << StrMatrix(matNode) << "}}";
-        aiglobOut.push_back(int(i));
+        const glm::mat4 matNode = fPosed ? matRefInv : matRefInv * src.amatGlob[i];
+        nodes << (fFirstNode ? "" : ",") << "{\"name\":\"" << nameOf(i) << "\",\"mesh\":" << cmesh << ",\"matrix\":" << StrMatrix(matNode)
+              << ",\"extras\":{" << (fPart ? "\"sly2_part_oid\":" + std::to_string(src.oid) + ",\"sly2_part_glob\":" : std::string("\"sly2_glob\":")) << i
+              << ",\"sly2_posed\":" << (fPosed ? "true" : "false") << ",\"sly2_matrix\":" << StrMatrix(matNode) << "}}";
+        if (!fPart) aiglobOut.push_back(int(i));
+        fPartWritten = true;
         fFirstNode = false;
         aichild.push_back(cnode++);
         ++cmesh;
         ++cglob;
     }
+    if (fPart && fPartWritten) ++cpart;
+    }
     if (aichild.empty()) { *perr = "no groups with triangles to write"; return false; }
+    if (aiglobOut.empty()) aiglobOut.push_back(-1);   // (only other objects' parts)
 
     // the root: the game's Z-up centimetres as glTF's Y-up metres
     const float s = 0.01f;
@@ -296,7 +315,8 @@ bool FExportModelGlb(const MODELEXPORT& mx, const std::string& name, const std::
     out.write(reinterpret_cast<const char*>(b.bin.data()), std::streamsize(b.bin.size()));
     if (!out) { *perr = "write failed: " + path; return false; }
     char ach[160];
-    std::snprintf(ach, sizeof ach, "%d groups, %d triangles, %d textures", cglob, ctri, ctex);
+    if (cpart) std::snprintf(ach, sizeof ach, "%d groups (%d other objects), %d triangles, %d textures", cglob, cpart, ctri, ctex);
+    else std::snprintf(ach, sizeof ach, "%d groups, %d triangles, %d textures", cglob, ctri, ctex);
     *pstrInfo = ach;
     return true;
 }

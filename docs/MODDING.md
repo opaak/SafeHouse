@@ -140,7 +140,15 @@ The game can write any object's model out for Blender, and take the edited file 
    at the centre of the picture at the object (the free camera helps).
 2. Choose **Export what**: the picked group alone, the groups within 5, 15 or 40 m of it, or the whole object. A level is
    often built as one object of thousands of groups (Paris's oid 1), so the whole object can be the whole level. A
-   part of an object is placed with the picked group's middle at the origin.
+   part of an object is placed with the picked group's middle at the origin. Those choices take the picked object's
+   own groups only; an item is often several objects (a lid, a handle, a gem each its own), so two more take the
+   others too:
+   - **The object and its parts**: the whole object and the objects under it (`..._oid<oid>_parts.glb`).
+   - **Everything within 5 / 15 / 40 m**: every object's groups near the picked one, not the characters
+     (`..._r<metres>m_all.glb`).
+
+   The other objects come in as `part<oid>_g<n>`. They are whole in Blender and as a prop, but bringing the file back
+   as a model mod changes only the picked object (the `glob_<n>` ones); the parts are left as they are.
 3. **Export the picked model (glTF)** writes `Mods/Models/Export/<class>_oid<oid>[_g<group>[_r<metres>m]].glb`.
 4. In Blender: File > Import > glTF 2.0.
 

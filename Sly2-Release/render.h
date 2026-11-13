@@ -146,7 +146,12 @@ bool FCopyPickedTextureToMods(std::string* pstr);
 // <name>_oid<oid>[_g<group>[_r<metres>]].glb (modelexport.h); a line for the debug menu. sRadius: 0 the whole object;
 // < 0 the picked group alone; > 0 the groups whose middles are within sRadius (game units) of the picked group's
 // (a level built as one object). A part of an object is placed with the picked group's middle at the origin.
-bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr);
+// others: 0 this object alone; 1 its parts too (the objects under it, game.cpp's g_papaloScene: their whole models);
+// 2 every object's groups within sRadius too (not the characters)
+bool FExportPickedModel(const std::string& name, float sRadius, std::string* pstr, int others = 0);
+// game.cpp: the ALO of each scene entry (scene.aglobset's order), for the export's parts
+struct ALO;
+extern const std::vector<ALO*>* g_papaloScene;
 // The mods folder's textures read again and every texture made again from them (the edits shown at once)
 void ReloadTextureMods();
 

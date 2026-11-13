@@ -900,14 +900,19 @@ std::vector<ITEM> AitemPage(const PAGE& page, std::string* pstrTitle)
                 Status(str);
             }, TexpickCur().fTextured ? TexpickCur().name : std::string("(none)"));
             // (what to export: a level is often one object of thousands of groups)
-            cycle("Export what", &s_iExportScope, {0, 1, 2, 3, 4}, {"The picked group", "Within 5 m", "Within 15 m", "Within 40 m", "The whole object"});
+            cycle("Export what", &s_iExportScope, {0, 1, 2, 3, 4, 5, 6, 7, 8},
+                  {"The picked group", "Within 5 m", "Within 15 m", "Within 40 m", "The whole object", "The object and its parts",
+                   "Everything within 5 m", "Everything within 15 m", "Everything within 40 m"});
             item("Export the picked model (glTF)", [] {
                 std::string name = "object";
                 if (LO* plo = s_psw && TexpickCur().oid >= 0 ? PloFindSwObjectByOid(s_psw, OID(TexpickCur().oid)) : nullptr)
                     name = StrClassName(plo->Cid());
-                static const float s_asRadius[5] = {-1.0f, 500.0f, 1500.0f, 4000.0f, 0.0f};
+                // (5: its parts, the objects under it, too; 6..8: every object's groups near the picked one, not only its own)
+                static const float s_asRadius[9] = {-1.0f, 500.0f, 1500.0f, 4000.0f, 0.0f, 0.0f, 500.0f, 1500.0f, 4000.0f};
+                static const int s_aothers[9] = {0, 0, 0, 0, 0, 1, 2, 2, 2};
+                const int k = std::clamp(s_iExportScope, 0, 8);
                 std::string str;
-                FExportPickedModel(name, s_asRadius[std::clamp(s_iExportScope, 0, 4)], &str);
+                FExportPickedModel(name, s_asRadius[k], &str, s_aothers[k]);
                 Status(str);
             }, "for Blender: Mods/Models/Export");
             item("Reload texture mods", [] {
