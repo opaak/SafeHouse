@@ -348,11 +348,17 @@ void CollectPropDraws(const SCENE& scene, std::vector<EXTRADRAW>& aextra)
         x.psgs = &p.sgs;
         x.iglob = 0;
         x.mat = s_insp.fOpen && int(i) == s_insp.iprop ? MatInspect(p, pm->sphere) : MatOfProp(p);
-        // (the selected one, in the placement tool: a slow pulse)
-        x.alpha = int(i) == s_ipropSel && g_fCrosshairHit ? 0.6f + 0.4f * (0.5f + 0.5f * std::sin(float(s_cframe) * 0.15f)) : 1.0f;
+        // (the selected one, in the placement tool: a slow swell about its middle, drawn opaque: a pulse of its alpha drew
+        // it as a fading, see-through object, which blinked out and in)
+        if (int(i) == s_ipropSel && g_fCrosshairHit && !(s_insp.fOpen && int(i) == s_insp.iprop))
+        {
+            const float k = 1.0f + 0.04f * (0.5f + 0.5f * std::sin(float(s_cframe) * 0.12f));
+            const glm::vec3 c(pm->sphere);
+            x.mat = x.mat * glm::translate(glm::mat4(1.0f), c) * glm::scale(glm::mat4(1.0f), glm::vec3(k)) * glm::translate(glm::mat4(1.0f), -c);
+        }
         x.fBounds = true;
         x.posBounds = glm::vec3(x.mat * glm::vec4(glm::vec3(pm->sphere), 1.0f));
-        x.sBoundsRadius = pm->sphere.w * p.scale;
+        x.sBoundsRadius = pm->sphere.w * p.scale * 1.05f;
         aextra.push_back(x);
     }
 }
