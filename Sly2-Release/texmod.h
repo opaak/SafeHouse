@@ -12,8 +12,8 @@
 
 // The texture's mod name: "<W>x<H>_<16 hex digits>.png".
 std::string SzTextureModName(const std::vector<uint8_t>& rgba, int dx, int dy);
-// --texture-pack DIR: a texture pack (DIR/Textures, the same names) under the mods folder's own textures, which win.
-// The launcher passes the PS3 HD pack this way while it is turned on (ps3hd.cpp).
+// --texture-pack DIR: a texture pack (DIR/Textures.pak, else DIR/Textures; the same names) under the mods folder's own
+// textures, which win. The launcher passes the PS3 HD pack this way while it is turned on (ps3hd.cpp).
 void SetTexturePackDirectory(const std::string& dir);
 // (PC debug menu: the texture picker) The mods folder and the pack read again at their next use (the renderer's cache
 // is reset with it: render.h ReloadTextureMods).
@@ -46,3 +46,18 @@ int ExportTexturesCommand(const std::string& dir);
 bool FLoadImageRgba(const std::string& path, std::vector<uint8_t>& rgba, int* pw, int* ph);
 // RGBA8 rows (top row first) written as a PNG at a UTF-8 path.
 bool FWritePngRgba(const std::string& path, const std::vector<uint8_t>& rgba, int dx, int dy);
+
+#ifdef __SWITCH__
+// (the Switch) The texture mods streamed: a PNG's read and decode on the other cores, as one took long enough on the SD
+// card and the console's CPU to stall the frame that first drew its texture. RequestTextureMod with the decoded texture
+// and its cache key (nothing without texture mods); TakeTextureMods gives the replacements ready since, their GL textures
+// made (at least one, then up to about cbBudget bytes of texels); CancelTextureMods at a world's start.
+struct TEXMODREADY
+{
+    const void* key[2];
+    unsigned tex;
+};
+void RequestTextureMod(const std::vector<uint8_t>& rgba, int dx, int dy, const void* key0, const void* key1);
+void TakeTextureMods(std::vector<TEXMODREADY>& aready, size_t cbBudget);
+void CancelTextureMods();
+#endif
