@@ -158,7 +158,7 @@ void ReloadTextureMods();
 // (PC) The GPU time of the passes the PC added (the level's shadow map and its look-up, the lamps' maps and theirs, the
 // characters' and the see-through masks), measured while g_fAddedGpuTimes (the debug menu's Perf Display sets it):
 // one line, "" when off or nothing ran.
-enum AGT : int { AGT_WsMap, AGT_WsApply, AGT_LampMaps, AGT_LampApply, AGT_Masks, AGT_Max };
+enum AGT : int { AGT_WsMap, AGT_WsApply, AGT_LampMaps, AGT_LampApply, AGT_Masks, AGT_CharMask, AGT_Max };
 extern bool g_fAddedGpuTimes;
 std::string StrAddedGpuTimes();
 

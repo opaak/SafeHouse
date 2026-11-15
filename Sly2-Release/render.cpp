@@ -2441,6 +2441,35 @@ bool FEnsureCharMask(int dx, int dy)
     return true;
 }
 
+// (PC) the frame pass's draw records (RenderPass, after its sort): the masks after it draw only what the frame drew
+// (in the view, within the draw distance), not every group the game keeps shown. FramePartsDrawn: each (entry, group)
+// once, with the record's matrix and fade.
+const std::vector<DRAWREC>* s_parecFrame = nullptr;
+struct FRAMEPART { const SCENEGLOBSET* psgs; size_t iglob; const GLOB* pglob; const GLOB* pglobGeom; const glm::mat4* pmat; float alpha; };
+const std::vector<FRAMEPART>& FramePartsDrawn()
+{
+    static std::vector<FRAMEPART> s_apart;
+    static std::vector<std::pair<const void*, size_t>> s_aseen;
+    s_apart.clear();
+    s_aseen.clear();
+    if (!s_parecFrame) return s_apart;
+    for (const DRAWREC& r : *s_parecFrame)
+        if (r.psgs && r.pglob && r.pglobGeom && r.pmat) s_aseen.push_back({static_cast<const void*>(r.psgs), r.iglob});
+    std::sort(s_aseen.begin(), s_aseen.end());
+    s_aseen.erase(std::unique(s_aseen.begin(), s_aseen.end()), s_aseen.end());
+    std::vector<uint8_t> afDone(s_aseen.size(), 0);
+    for (const DRAWREC& r : *s_parecFrame)
+    {
+        if (!r.psgs || !r.pglob || !r.pglobGeom || !r.pmat) continue;
+        const auto it = std::lower_bound(s_aseen.begin(), s_aseen.end(), std::make_pair(static_cast<const void*>(r.psgs), r.iglob));
+        const size_t k = size_t(it - s_aseen.begin());
+        if (it == s_aseen.end() || afDone[k]) continue;
+        afDone[k] = 1;
+        s_apart.push_back({r.psgs, r.iglob, r.pglob, r.pglobGeom, r.pmat, r.alpha});
+    }
+    return s_apart;
+}
+
 // the render kinds of the characters' groups (the FBA kinds: 4, faded 6)
 bool FCharacterGlob(const GLOB& glob) { const int kind = glob.rp & 0x1F; return kind == 4 || kind == 6; }
 
@@ -2452,29 +2481,28 @@ bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, co
     static std::vector<glm::mat4> s_amatBone;
     s_ad.clear();
     s_amatBone.clear();
-    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    (void)scene;
+    // (the characters the frame drew: in the view, within the draw distance)
+    for (const FRAMEPART& part : FramePartsDrawn())
     {
-        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground) continue;
-        const GLOBSET& gs = *sgs.pglobset;
-        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        const SCENEGLOBSET& sgs = *part.psgs;
+        const size_t i = part.iglob;
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || !FCharacterGlob(*part.pglob)) continue;
+        const GLOB* pgeom = part.pglobGeom;
+        if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
+        const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
+        uint32_t iboneFirst = 0, cbone = 0;
+        if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
         {
-            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size() || !FCharacterGlob(gs.aglob[i])) continue;
-            const GLOB& glob = gs.aglob[i];
-            const GLOB* pgeom = !glob.pgl && glob.iglobTemplate >= 0 && size_t(glob.iglobTemplate) < gs.aglob.size() ? &gs.aglob[size_t(glob.iglobTemplate)] : &glob;
-            if (pgeom->meshk != MESHK_Strips || !pgeom->pgl) continue;
-            const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
-            uint32_t iboneFirst = 0, cbone = 0;
-            if (i < sgs.aamatBone.size() && !sgs.aamatBone[i].empty())
-            {
-                iboneFirst = uint32_t(s_amatBone.size());
-                cbone = uint32_t(sgs.aamatBone[i].size());
-                s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
-            }
-            for (const SUBGLOB& sub : pgeom->asubglob)
-                if (sub.pshd && sub.indexCount && sub.pshd->shdk != 2 && sub.pshd->shdk != 3)
-                    s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone});
+            iboneFirst = uint32_t(s_amatBone.size());
+            cbone = uint32_t(sgs.aamatBone[i].size());
+            s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
         }
+        for (const SUBGLOB& sub : pgeom->asubglob)
+            if (sub.pshd && sub.indexCount && sub.pshd->shdk != 2 && sub.pshd->shdk != 3)
+                s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, part.pmat, iboneFirst, cbone});
     }
+    if (s_ad.empty()) return false;   // (no character drawn: nothing to keep the shadows off)
     SMSAVE save;
     // the frame's depth, then the characters drawn where they are the frame's surface (equal depths, a little nearer)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
@@ -2608,15 +2636,16 @@ bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, 
     static std::vector<glm::mat4> s_amatBone;
     s_ad.clear();
     s_amatBone.clear();
-    for (const SCENEGLOBSET& sgs : scene.aglobset)
+    (void)scene;
+    // (the parts the frame drew: in the view, within the draw distance)
+    for (const FRAMEPART& part : FramePartsDrawn())
     {
-        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.gAlpha <= 0.0f) continue;
-        const GLOBSET& gs = *sgs.pglobset;
-        for (size_t i = 0; i < gs.aglob.size(); ++i)
+        const SCENEGLOBSET& sgs = *part.psgs;
+        const size_t i = part.iglob;
+        if (!sgs.pglobset || sgs.irtgt >= 0 || sgs.fForeground || sgs.gAlpha <= 0.0f || part.alpha <= 0.0f) continue;
         {
-            if (i >= sgs.afVisible.size() || !sgs.afVisible[i] || i >= sgs.amatGlob.size()) continue;
-            const GLOB* pgeom = PglobGeometry(gs, i);
-            if (!pgeom) continue;
+            const GLOB* pgeom = part.pglobGeom;
+            if (!pgeom->pgl) continue;
             const GLGLOB* pgl = i < sgs.apglInst.size() && sgs.apglInst[i] && sgs.apglInst[i]->vao ? sgs.apglInst[i] : pgeom->pgl;
             uint32_t iboneFirst = 0, cbone = 0;
             bool fBones = false;
@@ -2635,8 +2664,9 @@ bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, 
                         s_amatBone.insert(s_amatBone.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
                     }
                     fBones = true;
-                    TDRAW d{pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone,
-                            0, 0, uint8_t(ps.fTextured ? 1 : 0), uint8_t(ps.icolor), float((ps.rgbaConst >> 24) & 0xFF), r * std::min(sgs.gAlpha, 1.0f)};
+                    TDRAW d{pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, part.pmat, iboneFirst, cbone,
+                            0, 0, uint8_t(ps.fTextured ? 1 : 0), uint8_t(ps.icolor), float((ps.rgbaConst >> 24) & 0xFF),
+                            r * std::min(sgs.gAlpha, 1.0f) * std::min(part.alpha, 1.0f)};
                     if (ps.fTextured)
                     {
                         const TEXSEL sel = TexselFromShd(sub.pshd, sub.psaa ? sub.psaa->iframe : 0, ps.itexPass);
@@ -2650,6 +2680,9 @@ bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, 
             }
         }
     }
+    if (s_ad.empty()) return false;   // (nothing see-through drawn: the lines as they are)
+    // (fewer binds: by geometry, then texture; the MAX blend does not mind the order)
+    std::stable_sort(s_ad.begin(), s_ad.end(), [](const TDRAW& a, const TDRAW& b) { return a.vao != b.vao ? a.vao < b.vao : a.tex < b.tex; });
     SMSAVE save;
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
@@ -4943,6 +4976,8 @@ void RenderPass(const SCENE& scene, const PASSVIEW& pv, const RENDEROPTS& opts)
 #else
     std::stable_sort(arec.begin(), arec.end(), lessRec);
 #endif
+    // (the frame's own records: what it drew, within the view and the draw distance; the masks after it draw only these)
+    if (pv.irtgt < 0 && !pv.fForeground) s_parecFrame = &arec;
 
     // The frame's draw stream: per record its matrix / fog (RECGPU), per entry its draw data (DRAWGPU), per pass
     // one or two commands with their GL state; volumes, shadows and cel borders are special commands.
@@ -5749,8 +5784,10 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
     StepAddedGpuTimers();
     BeginAddedGpuTimer(AGT_Masks);
     s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
-    s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
     EndAddedGpuTimer(AGT_Masks);
+    BeginAddedGpuTimer(AGT_CharMask);
+    s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
+    EndAddedGpuTimer(AGT_CharMask);
     // (PC TEST: the lamps' cube maps first, display.h lampShadows: where a lamp lights a surface the level's shadow
     // fades; then the lamps' own shadows)
     s_clampFrame = 0;
@@ -6380,7 +6417,7 @@ std::string StrAddedGpuTimes()
 {
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     if (!g_fAddedGpuTimes) return std::string();
-    static const char* const s_apchz[AGT_Max] = {"level map", "level", "lamp maps", "lamps", "masks"};
+    static const char* const s_apchz[AGT_Max] = {"level map", "level", "lamp maps", "lamps", "see-through mask", "character mask"};
     std::string str;
     char ach[48];
     double msAll = 0.0;
