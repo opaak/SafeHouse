@@ -2375,6 +2375,7 @@ void EndAddedGpuTimer(AGT agt)
 // Not cast by: skinned groups (the characters: their own shadows), additive glows, shaders of kind 3, objects drawn
 // into render targets or over the HUD, faded-out objects and the sky (anything wider than kcWsSkyRadius).
 constexpr int kcWsMap = 4096;
+constexpr int kcWsTile = 128, kcWsTiles = kcWsMap / kcWsTile;   // (the moving casters' copy, in tiles)
 constexpr float kcWsRadius = 2600.0f, kcWsDepth = 9000.0f, kcWsSkyRadius = 40000.0f;
 // (one group of an object wider than kcWsSkyRadius wider than this: the sky's dome, its clouds' ring)
 constexpr float kcWsSkyGlobRadius = 12000.0f;
@@ -2386,6 +2387,7 @@ GLuint s_fboWs = 0, s_texWs = 0, s_ssboWs = 0;   // (the skinned casters' bones)
 // casters drawn over a copy, each frame)
 GLuint s_fboWsStatic = 0, s_texWsStatic = 0;
 uint64_t s_keyWsStatic = 0;
+bool s_fWsWorkValid = false;   // (s_texWs is the still map but where last frame's moving casters were drawn)
 int s_cWsStaticDrawn = 0;   // (how often it was drawn: SLY2N_WSPRINT)
 // (PC) The characters' own pixels this frame (render kinds 4 / 6, the FBA kinds the original's shadows keep off: Sly,
 // the gang, the guards), drawn into an R8 mask from the camera against a copy of the frame's depth: the world shadows
@@ -2445,6 +2447,8 @@ bool FEnsureCharMask(int dx, int dy)
 // (in the view, within the draw distance), not every group the game keeps shown. FramePartsDrawn: each (entry, group)
 // once, with the record's matrix and fade.
 const std::vector<DRAWREC>* s_parecFrame = nullptr;
+// (the frame's depth copied into s_texShDS since the frame pass: the masks share one copy; RenderScene clears it)
+bool s_fDsCopyFresh = false;
 struct FRAMEPART { const SCENEGLOBSET* psgs; size_t iglob; const GLOB* pglob; const GLOB* pglobGeom; const glm::mat4* pmat; float alpha; };
 const std::vector<FRAMEPART>& FramePartsDrawn()
 {
@@ -2505,9 +2509,13 @@ bool FBuildCharacterMask(const SCENE& scene, const glm::mat4& matWorldToClip, co
     if (s_ad.empty()) return false;   // (no character drawn: nothing to keep the shadows off)
     SMSAVE save;
     // the frame's depth, then the characters drawn where they are the frame's surface (equal depths, a little nearer)
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
-    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    if (!s_fDsCopyFresh)
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        s_fDsCopyFresh = true;
+    }
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboCharMask);
     glViewport(0, 0, dx, dy);
     glDisable(GL_SCISSOR_TEST);
@@ -2684,9 +2692,13 @@ bool FBuildTranslucentMask(const SCENE& scene, const glm::mat4& matWorldToClip, 
     // (fewer binds: by geometry, then texture; the MAX blend does not mind the order)
     std::stable_sort(s_ad.begin(), s_ad.end(), [](const TDRAW& a, const TDRAW& b) { return a.vao != b.vao ? a.vao < b.vao : a.tex < b.tex; });
     SMSAVE save;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
-    glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    if (!s_fDsCopyFresh)
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboShDS);
+        glBlitFramebuffer(0, 0, dx, dy, 0, 0, dx, dy, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        s_fDsCopyFresh = true;
+    }
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboTransMask);
     glViewport(0, 0, dx, dy);
     glDisable(GL_SCISSOR_TEST);
@@ -3388,6 +3400,10 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
 
     struct WSDRAW { GLuint vao; int32_t baseVertex; uint32_t firstIndex, count; const glm::mat4* pmat; uint32_t iboneFirst, cbone; bool fMoving; };
     static std::vector<WSDRAW> s_ad;
+    // (the map's tiles the moving casters can fall in this frame: only those, and last frame's, are copied from the
+    // still map before they are drawn, not the whole 4096 x 4096)
+    std::vector<uint8_t> atileMoving(size_t(kcWsTiles) * kcWsTiles, 0);
+    bool aiTileMovingAll = false;
     static std::vector<glm::mat4> s_amatBoneWs;
     s_ad.clear();
     s_amatBoneWs.clear();
@@ -3427,12 +3443,42 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
                 cbone = uint32_t(sgs.aamatBone[i].size());
                 s_amatBoneWs.insert(s_amatBoneWs.end(), sgs.aamatBone[i].begin(), sgs.aamatBone[i].end());
             }
+            const bool fMovingGlob = sgs.fActorTree || cbone > 0;
+            bool fAnyMoving = false;
             for (const SUBGLOB& sub : pgeom->asubglob)
             {
                 if (WsWhySub(sub) != WSWHY_Casts) continue;
                 // (the actors' and the skinned: moving, drawn each frame; the rest kept in the still map)
                 s_ad.push_back({pgl->vao, pgl->baseVertex, pgl->firstIndex + sub.firstIndex, sub.indexCount, &sgs.amatGlob[i], iboneFirst, cbone,
-                                sgs.fActorTree || cbone > 0});
+                                fMovingGlob});
+                fAnyMoving = fAnyMoving || fMovingGlob;
+            }
+            if (fAnyMoving)
+            {
+                // where in the map it can fall: its sphere, through its matrix or each of its bones' (a skinned vertex
+                // lies within the spheres its bones carry the middle to), in the map's texels, padded
+                const glm::vec4 sphere = SphereOfGlob(*pgeom);
+                if (sphere.w < 0.0f) { aiTileMovingAll = true; continue; }
+                glm::vec2 lo(1e30f), hi(-1e30f);
+                auto addPoint = [&](const glm::mat4& m) {
+                    const float r = sphere.w * std::sqrt(std::max({glm::dot(glm::vec3(m[0]), glm::vec3(m[0])), glm::dot(glm::vec3(m[1]), glm::vec3(m[1])),
+                                                                    glm::dot(glm::vec3(m[2]), glm::vec3(m[2]))}));
+                    const glm::vec4 c = matLight * (m * glm::vec4(glm::vec3(sphere), 1.0f));
+                    const float rx = r * glm::length(glm::vec3(matLight[0][0], matLight[1][0], matLight[2][0]));
+                    const float ry = r * glm::length(glm::vec3(matLight[0][1], matLight[1][1], matLight[2][1]));
+                    lo = glm::min(lo, glm::vec2(c.x - rx, c.y - ry));
+                    hi = glm::max(hi, glm::vec2(c.x + rx, c.y + ry));
+                };
+                if (cbone > 0)
+                    for (const glm::mat4& mb : sgs.aamatBone[i]) addPoint(mb);
+                else addPoint(sgs.amatGlob[i]);
+                const float cPad = 8.0f;
+                const int x0 = int(std::floor((lo.x * 0.5f + 0.5f) * kcWsMap - cPad)), x1 = int(std::ceil((hi.x * 0.5f + 0.5f) * kcWsMap + cPad));
+                const int y0 = int(std::floor((lo.y * 0.5f + 0.5f) * kcWsMap - cPad)), y1 = int(std::ceil((hi.y * 0.5f + 0.5f) * kcWsMap + cPad));
+                if (x1 < 0 || y1 < 0 || x0 >= kcWsMap || y0 >= kcWsMap) continue;   // (off the map)
+                for (int ty = std::max(0, y0) / kcWsTile; ty <= std::min(kcWsMap - 1, y1) / kcWsTile; ++ty)
+                    for (int tx = std::max(0, x0) / kcWsTile; tx <= std::min(kcWsMap - 1, x1) / kcWsTile; ++tx)
+                        atileMoving[size_t(ty * kcWsTiles + tx)] = 1;
             }
         }
     }
@@ -3503,12 +3549,38 @@ void DrawWorldShadows(const SCENE& scene, const glm::mat4& matWorldToClip, const
         drawMap(false);
         s_keyWsStatic = key;
         ++s_cWsStaticDrawn;
+        s_fWsWorkValid = false;
     }
-    // the moving ones over a copy of it (none: the still map as it is)
+    // the moving ones over a copy of it (none: the still map as it is). The copy keeps the still map everywhere but
+    // where the moving ones were drawn: only their tiles, this frame's and last frame's, are copied again (the whole
+    // map when the still one was drawn again)
     GLuint texMap = s_texWsStatic;
     if (cMoving > 0)
     {
-        glCopyImageSubData(s_texWsStatic, GL_TEXTURE_2D, 0, 0, 0, 0, s_texWs, GL_TEXTURE_2D, 0, 0, 0, 0, kcWsMap, kcWsMap, 1);
+        static std::vector<uint8_t> s_atilePrev;
+        s_atilePrev.resize(atileMoving.size(), 0);
+        size_t cDirty = 0;
+        for (size_t t = 0; t < atileMoving.size(); ++t) cDirty += (atileMoving[t] | s_atilePrev[t]) ? 1 : 0;
+        if (!s_fWsWorkValid || aiTileMovingAll || cDirty * 2 > atileMoving.size())
+        {
+            glCopyImageSubData(s_texWsStatic, GL_TEXTURE_2D, 0, 0, 0, 0, s_texWs, GL_TEXTURE_2D, 0, 0, 0, 0, kcWsMap, kcWsMap, 1);
+            if (aiTileMovingAll) std::fill(atileMoving.begin(), atileMoving.end(), uint8_t(1));
+        }
+        else
+            for (int ty = 0; ty < kcWsTiles; ++ty)
+                for (int tx = 0; tx < kcWsTiles;)
+                {
+                    // (a row's run of dirty tiles: one copy)
+                    const size_t t = size_t(ty * kcWsTiles + tx);
+                    if (!(atileMoving[t] | s_atilePrev[t])) { ++tx; continue; }
+                    int tx1 = tx;
+                    while (tx1 < kcWsTiles && (atileMoving[size_t(ty * kcWsTiles + tx1)] | s_atilePrev[size_t(ty * kcWsTiles + tx1)])) ++tx1;
+                    glCopyImageSubData(s_texWsStatic, GL_TEXTURE_2D, 0, tx * kcWsTile, ty * kcWsTile, 0, s_texWs, GL_TEXTURE_2D, 0, tx * kcWsTile,
+                                       ty * kcWsTile, 0, (tx1 - tx) * kcWsTile, kcWsTile, 1);
+                    tx = tx1;
+                }
+        s_atilePrev = atileMoving;
+        s_fWsWorkValid = true;
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_fboWs);
         glViewport(0, 0, kcWsMap, kcWsMap);
         drawMap(true);
@@ -5782,12 +5854,14 @@ void RenderScene(const SCENE& scene, const CAMERA& cam, const RENDEROPTS& opts)
 #if !defined(__SWITCH__) && !defined(__APPLE__)
     // (PC TEST: the level's own shadows over the 3D picture, before the post-processing: display.h worldShadows)
     StepAddedGpuTimers();
+    s_fDsCopyFresh = false;   // (the frame pass drew since: the masks copy its depth once, between them)
     BeginAddedGpuTimer(AGT_Masks);
     s_fTransMaskFrame = g_display.outlines > 0 && FBuildTranslucentMask(scene, pv.matWorldToClip, pv.fbo, pv.dx, pv.dy);
     EndAddedGpuTimer(AGT_Masks);
     BeginAddedGpuTimer(AGT_CharMask);
     s_fCharMaskFrame = (NWorldShadowsNow() > 0 || g_display.ambientOcclusion > 0) && FBuildCharacterMask(scene, pv.matWorldToClip, cam.pos, pv.fbo, pv.dx, pv.dy);
     EndAddedGpuTimer(AGT_CharMask);
+    s_fDsCopyFresh = false;
     // (PC TEST: the lamps' cube maps first, display.h lampShadows: where a lamp lights a surface the level's shadow
     // fades; then the lamps' own shadows)
     s_clampFrame = 0;
